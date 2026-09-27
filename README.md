@@ -7,6 +7,12 @@
     · <a href="README_ZH.md">简体中文</a>
     · <strong>English</strong>
   </p>
+  <p>
+    <a href="https://github.com/yuxino/kiri/releases/latest"><img src="https://img.shields.io/github/v/release/yuxino/kiri?style=flat&amp;label=release&amp;color=555" alt="Latest release"></a>
+    <a href="https://github.com/yuxino/kiri/releases"><img src="https://img.shields.io/github/downloads/yuxino/kiri/total?style=flat&amp;label=total%20downloads&amp;color=555" alt="Total GitHub release asset downloads"></a>
+    <a href="https://github.com/yuxino/kiri/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/yuxino/kiri/build.yml?branch=main&amp;event=push&amp;style=flat&amp;label=build" alt="Build status on main"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/yuxino/kiri?style=flat&amp;color=555" alt="MIT license"></a>
+  </p>
 </div>
 
 Kiri supports macOS, Windows, and Linux. Press `⇧⌘A` on macOS or `Shift+Ctrl+A` on Windows and Linux X11, then select a window or region to capture, annotate, recognize text, or record. On Linux Wayland, use the Capture button or assign a desktop shortcut to `kiri --capture`. Screenshots are copied to the clipboard; screenshots, MP4 recordings, and GIFs are saved in the local library.
