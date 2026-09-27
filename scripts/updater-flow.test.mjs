@@ -74,7 +74,7 @@ test("CI signs updater artifacts without exposing a private key", () => {
 // Run the actual update component's handlers with isolated IPC and hook state.
 // No network, installer or user library is touched by these regressions.
 const { createLibraryHarness, nodes, deferred, settleRequests } = await import('./helpers/library-render-harness.mjs');
-function updaterHarness(windows = true, portable = false) {
+function updaterHarness(windows = true, portable = false, linux = false) {
   const pending = deferred();
   const installs = [];
   let checks = 0;
@@ -89,13 +89,14 @@ function updaterHarness(windows = true, portable = false) {
   const settings = read('src/settings/SettingsView.tsx');
   const source = `import React, { useState, useRef, useEffect } from 'react';
     import { api } from '../lib/ipc';
-    const navigator = { userAgent: '${windows ? 'Windows' : 'Macintosh'}' };
+    const navigator = { userAgent: '${linux ? 'Linux' : windows ? 'Windows' : 'Macintosh'}' };
     const check = api.check, getVersion = api.getVersion, relaunch = api.relaunch;
     const t = value => value, fmt = (value, arg) => value.replace('%@', arg);
     ${settings.slice(settings.indexOf('type UpdateDetails ='), settings.indexOf('function GeneralSettingsSection'))}
     export { AboutSettingsSection };`;
   const harness = createLibraryHarness({ check: async () => { checks++; return update; },
     getVersion: async () => '1.5.0', isPortableBuild: async () => portable,
+    platformCapabilities: async () => ({ manualUpdates: linux }),
     openReleasePage: async () => { releaseOpens++; },
     relaunch: async () => { restarts++; } }, source);
   const component = harness.mount('AboutSettingsSection');
@@ -159,6 +160,20 @@ test('Windows portable build opens Releases and never checks or installs NSIS up
   assert.equal(h.button().props.disabled, true);
   await settleRequests();
   assert.ok(nodes(h.render()).includes('Portable version: download the latest ZIP from Releases to update.'));
+  assert.ok(nodes(h.button()).includes('Open Releases Page'));
+  h.button().props.onClick();
+  await settleRequests();
+  assert.equal(h.releaseOpens(), 1);
+  assert.equal(h.checks(), 0);
+  assert.deepEqual(h.installs, []);
+});
+
+
+test('Linux packages use manual updates without querying an unsupported manifest target', async () => {
+  const h = updaterHarness(false, false, true);
+  h.button();
+  await settleRequests();
+  assert.ok(nodes(h.render()).includes('Linux updates are installed manually from a downloaded package.'));
   assert.ok(nodes(h.button()).includes('Open Releases Page'));
   h.button().props.onClick();
   await settleRequests();

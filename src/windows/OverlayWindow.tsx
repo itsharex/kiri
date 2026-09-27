@@ -2,13 +2,14 @@
 // selection, annotation toolbar, OCR, and recording options. Port of
 // SelectionOverlayController.swift.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   api,
   DEFAULT_RECORDING_OPTIONS,
   type CaptureContextDto,
+  type PlatformCapabilitiesDto,
   type PreparedOcrRequestDto,
   type RecordingOptions,
 } from "../lib/ipc";
@@ -130,6 +131,15 @@ export function OverlayWindow() {
   const [remoteOcrFailed, setRemoteOcrFailed] = useState(false);
   const [recordOptions, setRecordOptions] = useState<RecordingOptions>(DEFAULT_RECORDING_OPTIONS);
   const [micSupported, setMicSupported] = useState(true);
+  const [platformCaps, setPlatformCaps] = useState<PlatformCapabilitiesDto>({
+    recording: true,
+    localOcr: true,
+    systemAudio: true,
+    microphone: true,
+    clickHighlights: true,
+    videoEditing: true,
+    manualUpdates: false,
+  });
   const [modeSelectorPosition, setModeSelectorPosition] = useState<Point | null>(null);
   const [modeSelectorDragging, setModeSelectorDragging] = useState(false);
   const canvasRef = useRef<AnnotationCanvasHandle>(null);
@@ -178,6 +188,10 @@ export function OverlayWindow() {
       });
     api.getRecordingOptions().then((options) => setRecordOptions(options)).catch(() => {});
     api.micSupported().then((supported) => setMicSupported(supported)).catch(() => {});
+    api.platformCapabilities().then((caps) => {
+      setPlatformCaps(caps);
+      setMicSupported(caps.microphone);
+    }).catch(() => {});
     // Load the frozen capture through a blob URL: canvas operations on the
     // custom-scheme image would taint the canvas and break PNG export.
     fetch(frozenCaptureUrl)
@@ -793,7 +807,12 @@ export function OverlayWindow() {
       inert={completing}
       style={{
         position: "fixed",
-        inset: 0,
+        left: 0,
+        top: 0,
+        // Match selection and export coordinates even when the native
+        // full-screen WebView allocation differs from the captured display.
+        width: bounds.width,
+        height: bounds.height,
         // While the frozen capture is still loading, stay translucent so the
         // live screen shows through; the window becomes opaque once the
         // frozen image is ready (mirroring the original's freeze behavior).
@@ -1108,7 +1127,10 @@ export function OverlayWindow() {
           anchor={selection}
           bounds={bounds}
           options={recordOptions}
-          micSupported={micSupported}
+          micSupported={micSupported && platformCaps.microphone}
+          systemAudioSupported={platformCaps.systemAudio}
+          clickHighlightsSupported={platformCaps.clickHighlights}
+          trayRecordingControls={platformCaps.manualUpdates}
           onChange={(next) => {
             // Spec (recording §3): persist each toggle change immediately.
             setRecordOptions(next);
@@ -1476,11 +1498,41 @@ function RecordOptionsPanel(props: {
   bounds: Rect;
   options: RecordingOptions;
   micSupported: boolean;
+  systemAudioSupported: boolean;
+  clickHighlightsSupported: boolean;
+  trayRecordingControls: boolean;
   onChange(options: RecordingOptions): void;
   onStart(): void;
   onCancel(): void;
 }) {
-  const { anchor, bounds, options, micSupported, onChange, onStart, onCancel } = props;
+  const {
+    anchor,
+    bounds,
+    options,
+    micSupported,
+    systemAudioSupported,
+    clickHighlightsSupported,
+    trayRecordingControls,
+    onChange,
+    onStart,
+    onCancel,
+  } = props;
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  useLayoutEffect(() => {
+    const element = panelRef.current;
+    if (!element) return;
+    const measure = () => {
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      setMeasuredHeight((current) => current === height ? current : height);
+    };
+    // Measure before the first paint, then follow wrapping, locale changes,
+    // microphone status, and format changes without estimating row heights.
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const gifOutput = options.outputFormat === "gif";
   const toggle = (
     key:
@@ -1494,34 +1546,34 @@ function RecordOptionsPanel(props: {
     if (key === "showsCursor" && !next.showsCursor) next.highlightsClicks = false;
     onChange(next);
   };
-  // Panel geometry follows the visible rows: GIF omits inapplicable audio
-  // controls instead of leaving a tall block of disabled settings. Prefer
-  // below the selection, flip above when needed, and pin inside the screen as
-  // a last resort. Keep x centered on the selection with an 8pt margin.
-  const PANEL_W = 360;
-  const PANEL_H = gifOutput ? 314 : options.capturesMicrophone && micSupported ? 456 : 382;
+  // Keep the existing below/above placement preference, using the rendered
+  // height: platform notices and translated labels can add wrapped lines.
   const margin = 8;
-  const maxTop = Math.max(margin, bounds.height - PANEL_H - margin);
-  const centeredTop = Math.max(margin, Math.min(maxTop, bounds.height / 2 - PANEL_H / 2 + 30));
+  const panelWidth = Math.min(360, Math.max(0, bounds.width - margin * 2));
+  const maxHeight = Math.max(0, bounds.height - margin * 2);
+  const panelHeight = Math.min(measuredHeight, maxHeight);
+  const maxTop = Math.max(margin, bounds.height - panelHeight - margin);
+  const centeredTop = Math.max(margin, Math.min(maxTop, bounds.height / 2 - panelHeight / 2 + 30));
   // Keep a small preference for hugging the selection when it's small, so
   // the panel feels attached; fall back to the centered position for big
   // selections.
   const below = anchor.y + anchor.height + 10;
-  const above = anchor.y - PANEL_H - 10;
+  const above = anchor.y - panelHeight - 10;
   let top: number;
   if (anchor.height > bounds.height - 240 || anchor.width > bounds.width - 240) {
     top = centeredTop;
   } else {
-    const preferred = below + PANEL_H + margin > bounds.height ? above : below;
+    const preferred = below + panelHeight + margin > bounds.height ? above : below;
     top = Math.min(Math.max(margin, preferred), maxTop);
   }
-  const centerX = anchor.x + anchor.width / 2 - PANEL_W / 2;
+  const centerX = anchor.x + anchor.width / 2 - panelWidth / 2;
   const left = Math.min(
     Math.max(margin, centerX),
-    Math.max(margin, bounds.width - PANEL_W - margin),
+    Math.max(margin, bounds.width - panelWidth - margin),
   );
   return (
     <div
+      ref={panelRef}
       className="kiri-hud"
       onPointerDown={(e) => e.stopPropagation()}
       style={{
@@ -1529,7 +1581,9 @@ function RecordOptionsPanel(props: {
         left,
         top,
         padding: 14,
-        width: PANEL_W,
+        width: panelWidth,
+        maxHeight,
+        overflow: "hidden",
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
@@ -1538,113 +1592,121 @@ function RecordOptionsPanel(props: {
         boxShadow: "0 16px 42px rgba(0,0,0,0.22)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span
-          style={{
-            width: 26,
-            height: 26,
-            display: "grid",
-            placeItems: "center",
-            borderRadius: 8,
-            background: "#fff",
-            color: "#000",
-          }}
-        >
-          <KiriIcon name="record.circle" size={14} />
-        </span>
-        <span style={{ font: "700 13px var(--kiri-font-ui)" }}>{t("Record Region")}</span>
-      </div>
-      <div
-        role="group"
-        aria-label={t("Recording format")}
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 4,
-          padding: 4,
-          borderRadius: 12,
-          background: "rgba(255,255,255,0.08)",
-          border: "1px solid rgba(255,255,255,0.14)",
-        }}
-      >
-        {(["mp4", "gif"] as const).map((format) => {
-          const selected = options.outputFormat === format;
-          return (
-            <button
-              key={format}
-              type="button"
-              className="kiri-output-format"
-              data-active={selected || undefined}
-              aria-pressed={selected}
-              onClick={() => onChange({ ...options, outputFormat: format })}
+      <div style={{ minHeight: 0, flex: "1 1 auto", overflowY: "auto", overflowX: "hidden" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              style={{
+                width: 26,
+                height: 26,
+                display: "grid",
+                placeItems: "center",
+                borderRadius: 8,
+                background: "#fff",
+                color: "#000",
+              }}
             >
-              {t(format === "mp4" ? "MP4" : "GIF")}
-            </button>
-          );
-        })}
-      </div>
-      <div
-        style={{
-          color: "rgba(255,255,255,0.72)",
-          font: "500 10.5px/1.4 var(--kiri-font-ui)",
-          padding: "7px 9px",
-          borderRadius: 9,
-          background: "rgba(255,255,255,0.055)",
-          border: "1px solid rgba(255,255,255,0.08)",
-        }}
-      >
-        {gifOutput
-          ? t("GIF · 12 fps · 720 px long edge · No audio")
-          : t("MP4 · 30 fps · Saved locally · Never uploaded")}
-      </div>
-      <div
-        style={{
-          overflow: "hidden",
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.11)",
-          background: "rgba(255,255,255,0.035)",
-        }}
-      >
-        <ToggleRow
-          label={t("3-second countdown")}
-          checked={options.usesCountdown}
-          onToggle={() => toggle("usesCountdown")}
-        />
-        {!gifOutput && (
-          <>
+              <KiriIcon name="record.circle" size={14} />
+            </span>
+            <span style={{ font: "700 13px var(--kiri-font-ui)" }}>{t("Record Region")}</span>
+          </div>
+          <div
+            role="group"
+            aria-label={t("Recording format")}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 4,
+              padding: 4,
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.14)",
+            }}
+          >
+            {(["mp4", "gif"] as const).map((format) => {
+              const selected = options.outputFormat === format;
+              return (
+                <button
+                  key={format}
+                  type="button"
+                  className="kiri-output-format"
+                  data-active={selected || undefined}
+                  aria-pressed={selected}
+                  onClick={() => onChange({ ...options, outputFormat: format })}
+                >
+                  {t(format === "mp4" ? "MP4" : "GIF")}
+                </button>
+              );
+            })}
+          </div>
+          <div
+            style={{
+              color: "rgba(255,255,255,0.72)",
+              font: "500 10.5px/1.4 var(--kiri-font-ui)",
+              padding: "7px 9px",
+              borderRadius: 9,
+              background: "rgba(255,255,255,0.055)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            {gifOutput
+              ? t("GIF · 12 fps · 720 px long edge · No audio")
+              : t("MP4 · 30 fps · Saved locally · Never uploaded")}
+          </div>
+          <div
+            style={{
+              overflow: "hidden",
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.11)",
+              background: "rgba(255,255,255,0.035)",
+            }}
+          >
+            <ToggleRow
+              label={t("3-second countdown")}
+              checked={options.usesCountdown}
+              onToggle={() => toggle("usesCountdown")}
+            />
+            {!gifOutput && (
+              <>
+                <ToggleRow
+                  divider
+                  label={t("System audio")}
+                  suffix={systemAudioSupported ? undefined : t("Unavailable on this platform")}
+                  checked={options.capturesSystemAudio}
+                  onToggle={() => toggle("capturesSystemAudio")}
+                  disabled={!systemAudioSupported}
+                />
+                <ToggleRow
+                  divider
+                  label={t("Microphone")}
+                  suffix={micSupported ? undefined : t("Unavailable on this platform")}
+                  checked={options.capturesMicrophone}
+                  onToggle={() => toggle("capturesMicrophone")}
+                  disabled={!micSupported}
+                />
+                {options.capturesMicrophone && micSupported && <MicrophoneCheck />}
+              </>
+            )}
             <ToggleRow
               divider
-              label={t("System audio")}
-              checked={options.capturesSystemAudio}
-              onToggle={() => toggle("capturesSystemAudio")}
+              label={t("Show pointer")}
+              checked={options.showsCursor}
+              onToggle={() => toggle("showsCursor")}
             />
             <ToggleRow
               divider
-              label={t("Microphone")}
-              suffix={micSupported ? undefined : t("Requires macOS 15")}
-              checked={options.capturesMicrophone}
-              onToggle={() => toggle("capturesMicrophone")}
-              disabled={!micSupported}
+              label={t("Highlight clicks")}
+              suffix={clickHighlightsSupported ? undefined : t("Unavailable on this platform")}
+              checked={options.highlightsClicks}
+              onToggle={() => toggle("highlightsClicks")}
+              disabled={!options.showsCursor || !clickHighlightsSupported}
             />
-            {options.capturesMicrophone && micSupported && <MicrophoneCheck />}
-          </>
-        )}
-        <ToggleRow
-          divider
-          label={t("Show pointer")}
-          checked={options.showsCursor}
-          onToggle={() => toggle("showsCursor")}
-        />
-        <ToggleRow
-          divider
-          label={t("Highlight clicks")}
-          checked={options.highlightsClicks}
-          onToggle={() => toggle("highlightsClicks")}
-          disabled={!options.showsCursor}
-        />
+          </div>
+          {trayRecordingControls && <p style={{ margin: "8px 0", fontSize: 12 }}>{t("Use the tray menu to pause, resume, or stop recording.")}</p>}
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="kiri-primary-button" style={{ flex: 1, minHeight: 38, borderRadius: 10 }} onClick={onStart}>
+      <div style={{ display: "flex", flexShrink: 0, gap: 8 }}>
+        <button type="button" className="kiri-primary-button" style={{ flex: 1, minWidth: 0, minHeight: 38, borderRadius: 10, overflowWrap: "anywhere" }} onClick={onStart}>
           {gifOutput ? t("Start GIF Recording") : t("Start Recording")}
         </button>
         <button
@@ -1687,7 +1749,7 @@ function ToggleRow(props: {
         borderTop: props.divider ? "1px solid rgba(255,255,255,0.08)" : "none",
       }}
     >
-      <span style={{ font: "550 12px var(--kiri-font-ui)" }}>
+      <span style={{ minWidth: 0, overflowWrap: "anywhere", font: "550 12px var(--kiri-font-ui)" }}>
         {props.label}
         {props.suffix && (
           <span style={{ color: "rgba(255,255,255,0.55)", fontSize: 10.5, marginLeft: 6 }}>

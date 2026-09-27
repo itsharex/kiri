@@ -31,3 +31,6 @@ vite.config.d.ts
 
 # Full demo video is distributed through GitHub Releases.
 /docs/demos/demo.mp4
+
+# Disposable Linux desktop acceptance evidence.
+/linux-native-review/

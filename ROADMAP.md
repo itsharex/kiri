@@ -60,6 +60,30 @@ Release validation still open:
 - [ ] The maintainer-packaged Universal macOS DMG retains one stable local signing identity and passes manual Gatekeeper install/launch acceptance
 - [ ] Verify each release's final arm64 and x86_64 slices plus the Windows installer
 
+## v1.6 — Linux capture workspace
+
+Experimental source targets Ubuntu 24.04 / GNOME, with X11 support. Implemented
+paths and configured checks below do not establish a published Linux release
+or completed GNOME desktop acceptance. See [Linux setup and acceptance](docs/linux.md).
+
+- [x] X11 frozen capture and window bounds through `xcap`
+- [x] Single-display Wayland capture (`grim` where supported; Screenshot portal on GNOME)
+- [x] Configurable native X11 capture shortcut and explicit Wayland desktop shortcut commands
+- [x] Silent region recording via ScreenCast/PipeWire and system GStreamer, with MP4/GIF output
+- [x] Recording controls through the tray and commands, without a captured floating panel
+- [x] Offline Tesseract OCR using system English, Simplified Chinese, and Japanese data
+- [x] Secret Service credentials for remote OCR profiles
+- [x] `.deb` configuration and Ubuntu build, install, and isolated X11 CI workflow
+- [x] Verified Linux CI candidate: Rust/media checks, `.deb` installation, and X11 capture, clipboard, OCR, recording, and persistence ([Ubuntu/X11 evidence](https://github.com/yuxino/kiri/actions/runs/36295511436/job/108553499500))
+- [ ] Installed Ubuntu GNOME Wayland acceptance, including portal cancel/retry, clipboard, OCR, and recording
+- [ ] Installed Ubuntu X11 acceptance beyond the virtual CI desktop
+- [ ] Wayland multiple displays and fractional-scale acceptance
+- [ ] Window hover outlines on Wayland where the compositor exposes bounds
+- [ ] System audio, microphone, and click-highlight parity
+- [ ] Linux video editing and MP4 export
+- [ ] AppImage packaging and desktop acceptance
+- [ ] Signed Linux updater artifacts
+
 ## Later
 
 - [ ] Blur annotation
@@ -74,3 +98,4 @@ Release validation still open:
 - [ ] Recording duration and file-size safeguards
 - [ ] Smart collections
 - [ ] Adopt an existing managed library after local settings are reset
+- [ ] Flatpak packaging for Linux

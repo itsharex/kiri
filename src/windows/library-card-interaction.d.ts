@@ -41,5 +41,5 @@ export function getLibraryBandRect(input: {
 
 export function getAvailableShortcutLabel(shortcutStatus: {
   label: string;
-  status: "enabled" | "occupied";
+  status: "enabled" | "occupied" | "systemManaged";
 } | null): string | null;

@@ -66,7 +66,7 @@
   "3-second countdown": "3-second countdown",
   "System audio": "System audio",
   "Microphone": "Microphone",
-  "Requires macOS 15": "Requires macOS 15",
+  "Unavailable on this platform": "Unavailable on this platform",
   "Show pointer": "Show pointer",
   "Highlight clicks": "Highlight clicks",
   "Start Recording": "Start Recording",
@@ -571,5 +571,17 @@
   "Invalid capture shortcut.": "Invalid capture shortcut.",
   "Could not save the capture shortcut.": "Could not save the capture shortcut.",
   "This shortcut is unavailable. Choose another combination.": "This shortcut is unavailable. Choose another combination.",
-  "Could not change the capture shortcut.": "Could not change the capture shortcut."
+  "Could not change the capture shortcut.": "Could not change the capture shortcut.",
+  "Linux updates are installed manually from a downloaded package.": "Linux updates are installed manually from a downloaded package.",
+  "Set a system keyboard shortcut for kiri --capture.": "Set a system keyboard shortcut for kiri --capture.",
+  "Managed by the desktop": "Managed by the desktop",
+  "Use the tray menu to pause, resume, or stop recording.": "Use the tray menu to pause, resume, or stop recording.",
+  "Local OCR needs a Tesseract language pack. Install English, Simplified Chinese, or Japanese language data.": "Local OCR needs a Tesseract language pack. Install English, Simplified Chinese, or Japanese language data.",
+  "The installed Tesseract language data could not be loaded.": "The installed Tesseract language data could not be loaded.",
+  "The desktop clipboard is not available.": "The desktop clipboard is not available.",
+  "The desktop clipboard did not respond.": "The desktop clipboard did not respond.",
+  "The image could not be copied to the clipboard.": "The image could not be copied to the clipboard.",
+  "The text could not be copied to the clipboard.": "The text could not be copied to the clipboard.",
+  "The file could not be copied to the clipboard.": "The file could not be copied to the clipboard.",
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays."
 }

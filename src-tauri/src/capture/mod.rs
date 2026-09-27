@@ -4,11 +4,17 @@ pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
+#[cfg(target_os = "linux")]
+pub mod linux;
+
 #[cfg(target_os = "macos")]
 pub use macos as current;
 
 #[cfg(windows)]
 pub use windows as current;
+
+#[cfg(target_os = "linux")]
+pub use linux as current;
 
 use crate::core::geometry::Rect;
 use std::sync::Arc;
@@ -137,6 +143,14 @@ fn logical_monitor_frame(x: i32, y: i32, width: u32, height: u32, scale: f64) ->
 /// Platform recording session (SCK stream on macOS, WGC + WASAPI on Windows).
 pub trait PlatformRecorder: Send {
     fn stop(&mut self) -> anyhow::Result<()>;
+
+    /// Portal and pipeline failures arrive after Linux capture was requested.
+    /// The session clock observes them so a denied request cannot leave the
+    /// application stuck in recording mode until the user stops it manually.
+    #[cfg(target_os = "linux")]
+    fn unexpected_failure(&self) -> Option<String> {
+        None
+    }
 
     /// Windows keeps one Media Foundation encoder open while capture is
     /// paused so resuming never requires segment concatenation.

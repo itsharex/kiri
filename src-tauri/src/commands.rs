@@ -176,7 +176,11 @@ pub fn list_assets(
     let mut context = state.library.lock().unwrap();
     let library = context.library().map_err(|error| error.to_string())?;
     let assets = library.search(&query, showing_trash);
-    Ok(assets.iter().filter(|asset| showing_trash || asset.ocr_text.is_none()).map(asset_dto).collect())
+    Ok(assets
+        .iter()
+        .filter(|asset| showing_trash || asset.ocr_text.is_none())
+        .map(asset_dto)
+        .collect())
 }
 
 fn with_asset_mutation(
@@ -424,7 +428,10 @@ pub fn open_asset(app: AppHandle, id: String) -> Result<(), String> {
     let win_h = 640.0f64;
     let win_w = (win_h * aspect).clamp(360.0, 1200.0);
     let asset_id = asset.id;
-    let window_title = format!("{} — Kiri", asset.title.as_deref().unwrap_or(&asset.filename));
+    let window_title = format!(
+        "{} — Kiri",
+        asset.title.as_deref().unwrap_or(&asset.filename)
+    );
     std::thread::Builder::new()
         .name("kiri-open-viewer".into())
         .spawn(move || {
@@ -894,7 +901,7 @@ fn validate_replacement_metadata(asset: &CaptureAsset, path: &Path) -> Result<()
                 .map_err(|_| "The selected video file is invalid.".to_string())?;
             (i64::from(width), i64::from(height), asset.duration)
         }
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         CaptureKind::Gif => {
             let reader = image::ImageReader::open(path)
                 .map_err(|_| "The selected GIF could not be read.".to_string())?
@@ -912,7 +919,7 @@ fn validate_replacement_metadata(asset: &CaptureAsset, path: &Path) -> Result<()
                 asset.duration,
             )
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         CaptureKind::Video => crate::record::probe_video_native(path)
             .ok_or_else(|| "The selected media file is invalid.".to_string())?,
     };
@@ -1019,7 +1026,7 @@ fn retry_pending_recordings_inner(app: &AppHandle) -> Result<usize, String> {
                     crate::gif::video_dimensions(&video_path).map_err(|error| error.to_string())?;
                 (i64::from(width), i64::from(height), pending.duration)
             };
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             let (pixel_width, pixel_height, duration) =
                 crate::record::probe_video_native(&video_path)
                     .ok_or_else(|| "The pending recording is not a valid MP4.".to_string())?;
@@ -1565,6 +1572,16 @@ fn export_gif_file(
             })
             .map_err(|error| error.to_string())
     }
+
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        crate::linux_media::export_gif(source_path, max_long_edge, fps)
+            .map(|(path, width, height, duration)| {
+                (path, width, height, duration.or(source_duration))
+            })
+            .map_err(|error| error.to_string())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1584,6 +1601,7 @@ fn capture_context(session: &CaptureSession) -> CaptureContextDto {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
     log::info!("start_capture: beginning capture flow");
@@ -1686,6 +1704,210 @@ pub fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
         display.backing_scale
     );
 
+    finish_frozen_capture(&app, display, pid, name, was_kiri_frontmost, hidden_windows)
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
+    tauri::async_runtime::spawn_blocking(move || start_linux_capture_from_shortcut(app))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxCapturePrep {
+    pid: Option<u32>,
+    name: Option<String>,
+    was_kiri_frontmost: bool,
+    hidden_windows: Vec<String>,
+}
+
+/// Freeze the display on a worker thread, then create GTK windows on the
+/// main thread. Running `start_capture` entirely off-thread panics tao.
+#[cfg(target_os = "linux")]
+pub(crate) fn start_linux_capture_from_shortcut(
+    app: AppHandle,
+) -> Result<CaptureContextDto, String> {
+    log::info!("start_linux_capture_from_shortcut: beginning capture flow");
+    let state = app.state::<AppState>();
+    if let Some(session) = state.capture.lock().unwrap().session.as_ref() {
+        return Ok(capture_context(session));
+    }
+    let _start_permit = state
+        .capture_start
+        .try_begin()
+        .ok_or("Screen capture is already starting.")?;
+
+    let prep = linux_run_on_main(&app, {
+        let app = app.clone();
+        move || linux_capture_preflight(&app)
+    })?;
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    let display = match capture_backend::capture_active_display() {
+        Ok(display) => display,
+        Err(error) => {
+            let message = format!("Screen capture could not start: {error}");
+            log::error!("start_capture: display capture failed: {error}");
+            let _ = linux_run_on_main(&app, {
+                let app = app.clone();
+                let message = message.clone();
+                move || {
+                    restore_capture_origin(
+                        &app,
+                        &prep.hidden_windows,
+                        prep.was_kiri_frontmost,
+                        prep.pid,
+                    );
+                    emit_error(&app, message, None);
+                    Ok(())
+                }
+            });
+            return Err(message);
+        }
+    };
+    linux_run_on_main(&app, {
+        let app = app.clone();
+        move || linux_capture_commit(&app, prep, display)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn linux_run_on_main<T, F>(app: &AppHandle, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = sender.send(task());
+    })
+    .map_err(|error| error.to_string())?;
+    receiver
+        .recv()
+        .map_err(|_| "The Linux UI thread stopped before capture could continue.".to_string())?
+}
+
+#[cfg(target_os = "linux")]
+fn linux_capture_preflight(app: &AppHandle) -> Result<LinuxCapturePrep, String> {
+    if crate::capture::linux::is_wayland()
+        && app.available_monitors().map_err(|e| e.to_string())?.len() != 1
+    {
+        return Err("Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.".into());
+    }
+    let state = app.state::<AppState>();
+    {
+        let capture = state.capture.lock().unwrap();
+        if capture.session.is_some() {
+            return Err("Screen capture is already starting.".into());
+        }
+        let recording = state.recording.lock().unwrap();
+        if recording.is_recording
+            || recording.is_paused
+            || recording.is_transitioning
+            || recording.is_finalizing
+            || recording.is_starting
+        {
+            return Err("A recording session is active.".into());
+        }
+    }
+    {
+        let mut context = state.library.lock().unwrap();
+        context.library().map_err(|error| error.to_string())?;
+    }
+    let (pid, name) = platform::frontmost_application()
+        .map(|(pid, name)| (Some(pid), name))
+        .unwrap_or((None, None));
+    let was_kiri_frontmost = pid == Some(std::process::id());
+    let hidden_windows = hide_library_windows(app);
+    Ok(LinuxCapturePrep {
+        pid,
+        name,
+        was_kiri_frontmost,
+        hidden_windows,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn linux_capture_commit(
+    app: &AppHandle,
+    prep: LinuxCapturePrep,
+    display: crate::capture::CapturedDisplay,
+) -> Result<CaptureContextDto, String> {
+    let state = app.state::<AppState>();
+    let _transition = state.library_transition.lock().unwrap();
+    // A library move can finish while the portal permission dialog is open.
+    state
+        .library
+        .lock()
+        .unwrap()
+        .library()
+        .map_err(|error| error.to_string())?;
+    if state.capture.lock().unwrap().session.is_some() {
+        restore_capture_origin(app, &prep.hidden_windows, prep.was_kiri_frontmost, prep.pid);
+        return Err("Screen capture is already starting.".into());
+    }
+    let mut display = display;
+    let mut monitors = app
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            crate::capture::linux::LinuxMonitorHint {
+                pixel_x: f64::from(position.x),
+                pixel_y: f64::from(position.y),
+                pixel_width: f64::from(size.width),
+                pixel_height: f64::from(size.height),
+                scale: monitor.scale_factor().max(1.0),
+            }
+        })
+        .collect::<Vec<_>>();
+    // Hyprland's own layout is authoritative when GTK/GDK_SCALE disagrees.
+    if let Some(hypr) = crate::capture::linux::hyprland_focused_monitor_hint() {
+        monitors.insert(0, hypr);
+    }
+    for (index, monitor) in monitors.iter().enumerate() {
+        log::info!(
+            "Linux monitor[{index}]: reported={:.0}x{:.0} at ({:.0},{:.0}) scale={:.2}",
+            monitor.pixel_width,
+            monitor.pixel_height,
+            monitor.pixel_x,
+            monitor.pixel_y,
+            monitor.scale
+        );
+    }
+    if crate::capture::linux::is_wayland() {
+        crate::capture::linux::apply_overlay_geometry(&mut display, &monitors);
+    }
+    finish_frozen_capture(
+        app,
+        display,
+        prep.pid,
+        prep.name,
+        prep.was_kiri_frontmost,
+        prep.hidden_windows,
+    )
+}
+
+fn finish_frozen_capture(
+    app: &AppHandle,
+    display: crate::capture::CapturedDisplay,
+    pid: Option<u32>,
+    name: Option<String>,
+    was_kiri_frontmost: bool,
+    hidden_windows: Vec<String>,
+) -> Result<CaptureContextDto, String> {
+    log::info!(
+        "start_capture: display frozen logical={}x{} pixels={}x{} scale={}",
+        display.screen_frame.width,
+        display.screen_frame.height,
+        display.pixel_width,
+        display.pixel_height,
+        display.backing_scale
+    );
+
     let context = CaptureContextDto {
         display_width: display.screen_frame.width,
         display_height: display.screen_frame.height,
@@ -1725,7 +1947,7 @@ pub fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
     log::info!("start_capture: capture session published capture_id={capture_id}");
 
     log::info!("start_capture: creating overlay window capture_id={capture_id}");
-    if let Err(error) = create_overlay_window(&app, overlay_frame, overlay_scale, &capture_token) {
+    if let Err(error) = create_overlay_window(app, overlay_frame, overlay_scale, &capture_token) {
         let failed_session = {
             let state = app.state::<AppState>();
             let mut capture = state.capture.lock().unwrap();
@@ -1740,7 +1962,7 @@ pub fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
             }
         };
         if let Some(session) = failed_session {
-            teardown_cancelled_capture(&app, session, false);
+            teardown_cancelled_capture(app, session, false);
         }
         log::error!("start_capture: overlay window creation failed: {error}");
         return Err(error.to_string());
@@ -1838,7 +2060,7 @@ fn create_overlay_window(
     log::info!("create_overlay_window: configuring window label={label}");
     platform::configure_transient_window(&window, platform::TransientWindowRole::CaptureOverlay);
     log::info!("create_overlay_window: window configured label={label}");
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         log::info!("create_overlay_window: focusing window label={label}");
         if let Err(error) = window.set_focus() {
@@ -2973,6 +3195,13 @@ pub async fn start_recording_flow(
         options.captures_system_audio = false;
         options.captures_microphone = false;
     }
+    #[cfg(target_os = "linux")]
+    {
+        // Portal ScreenCast audio and global click monitoring are not wired yet.
+        options.captures_system_audio = false;
+        options.captures_microphone = false;
+        options.highlights_clicks = false;
+    }
     #[cfg(target_os = "macos")]
     if options.captures_microphone {
         match platform::request_microphone_access() {
@@ -3045,11 +3274,27 @@ pub async fn start_recording_flow(
         )
     };
 
-    for label in &overlay_labels {
-        if let Some(window) = app.get_webview_window(label) {
-            let _ = window.close();
+    let region = request.region.clone();
+    let uses_countdown = options.uses_countdown;
+    let present_recording_ui = {
+        let app = app.clone();
+        let overlay_labels = overlay_labels.clone();
+        move || -> Result<(), String> {
+            for label in &overlay_labels {
+                if let Some(window) = app.get_webview_window(label) {
+                    let _ = window.close();
+                }
+            }
+            if uses_countdown {
+                create_countdown_window(&app, screen_frame, backing_scale, &region)?;
+            }
+            Ok(())
         }
-    }
+    };
+    #[cfg(target_os = "linux")]
+    linux_run_on_main(&app, present_recording_ui)?;
+    #[cfg(not(target_os = "linux"))]
+    present_recording_ui()?;
 
     // Restore focus to the source application (mirrors AppModel.onRecord).
     if !was_kiri_frontmost {
@@ -3065,27 +3310,38 @@ pub async fn start_recording_flow(
         return begin_recording(app, None).await;
     }
 
+    // React reveals/focuses the window after mounting its controls. Do not
+    // spend the three-second interval loading a hidden/lazy WebView.
+    Ok(())
+}
+
+fn create_countdown_window(
+    app: &AppHandle,
+    screen_frame: Rect,
+    backing_scale: f64,
+    region: &RectDto,
+) -> Result<(), String> {
     let label = "countdown".to_string();
     let session_id = app.state::<AppState>().recording.lock().unwrap().session_id;
     let region_screen = Rect::new(
-        screen_frame.x + request.region.x,
-        screen_frame.y + request.region.y,
-        request.region.width,
-        request.region.height,
+        screen_frame.x + region.x,
+        screen_frame.y + region.y,
+        region.width,
+        region.height,
     );
     log::info!(
         "create countdown window: screen_frame=({:.0},{:.0}) region=({:.0},{:.0}) → window at ({:.0},{:.0} {:.0}x{:.0})",
         screen_frame.x,
         screen_frame.y,
-        request.region.x,
-        request.region.y,
+        region.x,
+        region.y,
         region_screen.x,
         region_screen.y,
         region_screen.width,
         region_screen.height,
     );
     let builder = WebviewWindowBuilder::new(
-        &app,
+        app,
         label.clone(),
         WebviewUrl::App(format!("index.html?window=countdown&session={session_id}").into()),
     )
@@ -3104,17 +3360,20 @@ pub async fn start_recording_flow(
     let window = match builder.build() {
         Ok(window) => window,
         Err(error) => {
-            reset_recording_session(&app);
+            reset_recording_session(app);
             return Err(error.to_string());
         }
     };
     if let Err(error) = platform::place_transient_window(&window, screen_frame, backing_scale) {
         let _ = window.close();
-        reset_recording_session(&app);
+        reset_recording_session(app);
         return Err(error.to_string());
     }
-    // React reveals/focuses the window after mounting its controls. Do not
-    // spend the three-second interval loading a hidden/lazy WebView.
+    #[cfg(target_os = "linux")]
+    platform::configure_transient_window(
+        &window,
+        platform::TransientWindowRole::RecordingCountdown,
+    );
     Ok(())
 }
 
@@ -3136,11 +3395,15 @@ pub async fn recording_countdown_ready(
         recording.configuration.clone().unwrap()
     };
     platform::place_transient_window(
-        &window, configuration.screen_frame, configuration.backing_scale,
-    ).map_err(|error| error.to_string())?;
+        &window,
+        configuration.screen_frame,
+        configuration.backing_scale,
+    )
+    .map_err(|error| error.to_string())?;
     platform::set_window_capture_excluded(&app, "countdown", true);
     platform::configure_transient_window(
-        &window, platform::TransientWindowRole::RecordingCountdown,
+        &window,
+        platform::TransientWindowRole::RecordingCountdown,
     );
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
@@ -3155,10 +3418,7 @@ pub fn get_recording_state(app: AppHandle) -> crate::state::RecordingStateDto {
 }
 
 #[tauri::command]
-pub async fn cancel_recording_flow(
-    app: AppHandle,
-    session_id: uuid::Uuid,
-) -> Result<(), String> {
+pub async fn cancel_recording_flow(app: AppHandle, session_id: uuid::Uuid) -> Result<(), String> {
     let abandoned = {
         let state = app.state::<AppState>();
         let mut recording = state.recording.lock().unwrap();
@@ -3299,6 +3559,7 @@ fn recover_failed_resume(app: &AppHandle) {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
 fn create_control_panel(
     app: &AppHandle,
     configuration: &RecordingConfiguration,
@@ -3437,7 +3698,7 @@ fn start_recorder(
     configuration: &RecordingConfiguration,
     senders: RecorderSenders,
 ) -> Result<StartedRecorder, String> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     let _ = app;
     #[cfg(target_os = "macos")]
     let ripple_excepted = platform::window_capture_id(app, "ripple")
@@ -3494,6 +3755,27 @@ fn start_recorder(
             recorder: Box::new(recorder),
             system_audio_spec,
             microphone_spec,
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let recorder = crate::capture::linux::LinuxRecorder::start(
+            configuration
+                .display_identity
+                .clone()
+                .ok_or("The captured Linux display could not be identified.")?,
+            configuration.region,
+            configuration.backing_scale,
+            configuration.options,
+            senders.video,
+            senders.system_audio,
+            senders.microphone,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(StartedRecorder {
+            recorder: Box::new(recorder),
+            system_audio_spec: None,
+            microphone_spec: None,
         })
     }
 }
@@ -3560,6 +3842,25 @@ fn start_encoder(
             )
             .map_err(|e| e.to_string())
         }
+        #[cfg(target_os = "linux")]
+        PreparedEncoder::LinuxNative => {
+            log::info!(
+                "start_encoder: Linux GStreamer H.264 {}x{}@{}, audio={}, mic={}",
+                encoder_config.width,
+                encoder_config.height,
+                encoder_config.fps,
+                encoder_config.audio.is_some(),
+                encoder_config.mic.is_some(),
+            );
+            crate::record::SegmentEncoder::start_linux_native(
+                &encoder_config,
+                out_path,
+                receivers.video,
+                receivers.system_audio,
+                receivers.microphone,
+            )
+            .map_err(|e| e.to_string())
+        }
     }
 }
 
@@ -3568,6 +3869,8 @@ enum PreparedEncoder {
     MacosNative,
     #[cfg(windows)]
     WindowsNative,
+    #[cfg(target_os = "linux")]
+    LinuxNative,
 }
 
 async fn prepare_encoder(
@@ -3584,12 +3887,21 @@ async fn prepare_encoder(
         let _ = (_app, _output_format);
         Ok(PreparedEncoder::MacosNative)
     }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (_app, _output_format);
+        Ok(PreparedEncoder::LinuxNative)
+    }
 }
 
 fn spawn_recording_clock(app: &AppHandle, session_id: uuid::Uuid) {
     let handle = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_millis(250));
+        #[cfg(target_os = "linux")]
+        if let Err(error) = stop_failed_linux_recording(&handle, session_id) {
+            log::error!("recording: failed Linux session cleanup: {error}");
+        }
         let should_continue = {
             let state = handle.state::<AppState>();
             let recording = state.recording.lock().unwrap();
@@ -3639,22 +3951,40 @@ pub async fn begin_recording(app: AppHandle, session_id: Option<uuid::Uuid>) -> 
 
     // Claim first: a late completion from an old WebView cannot close the
     // countdown belonging to a newer recording.
-    if let Some(window) = app.get_webview_window("countdown") {
-        let _ = window.close();
+    let present_controls = {
+        let app = app.clone();
+        let configuration = configuration.clone();
+        move || -> Result<(), String> {
+            if let Some(window) = app.get_webview_window("countdown") {
+                let _ = window.close();
+            }
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("toast") {
+                let _ = window.hide();
+            }
+            #[cfg(not(target_os = "linux"))]
+            create_control_panel(&app, &configuration)?;
+            if configuration.options.highlights_clicks {
+                create_ripple_window(&app, &configuration)?;
+            }
+            Ok(())
+        }
+    };
+    #[cfg(target_os = "linux")]
+    if let Err(error) = linux_run_on_main(&app, present_controls) {
+        if reset_startup_if_current(&app, startup_token) {
+            return Err(error);
+        }
+        return Ok(());
     }
-    if let Err(error) = create_control_panel(&app, &configuration) {
+    #[cfg(not(target_os = "linux"))]
+    if let Err(error) = present_controls() {
         if reset_startup_if_current(&app, startup_token) {
             return Err(error);
         }
         return Ok(());
     }
     if configuration.options.highlights_clicks {
-        if let Err(error) = create_ripple_window(&app, &configuration) {
-            if reset_startup_if_current(&app, startup_token) {
-                return Err(error);
-            }
-            return Ok(());
-        }
         // The click monitor needs the Input Monitoring permission; install
         // it only while highlighting clicks (avoids a permission prompt at
         // every launch).
@@ -3663,7 +3993,7 @@ pub async fn begin_recording(app: AppHandle, session_id: Option<uuid::Uuid>) -> 
             let message = "Input Monitoring is off. Enable Kiri in System Settings to highlight clicks while recording.";
             #[cfg(target_os = "macos")]
             let recovery = Some(RecoveryAction::OpenInputMonitoringSettings);
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             let recovery = None;
             if reset_startup_if_current(&app, startup_token) {
                 emit_error(&app, message.into(), recovery);
@@ -4003,11 +4333,29 @@ pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
-    log::info!("stop_recording: called");
+    stop_recording_session(app, None)
+}
+
+#[cfg(target_os = "linux")]
+fn stop_failed_linux_recording(app: &AppHandle, session_id: uuid::Uuid) -> Result<(), String> {
+    stop_recording_session(app.clone(), Some(session_id))
+}
+
+fn stop_recording_session(
+    app: AppHandle,
+    failed_session: Option<uuid::Uuid>,
+) -> Result<(), String> {
+    if failed_session.is_none() {
+        log::info!("stop_recording: called");
+    }
     let abandoned_startup = {
         let state = app.state::<AppState>();
         let mut recording = state.recording.lock().unwrap();
-        if recording.is_starting && !recording.is_recording && !recording.is_paused {
+        if failed_session.is_none()
+            && recording.is_starting
+            && !recording.is_recording
+            && !recording.is_paused
+        {
             let abandoned = recording.take_and_reset();
             emit_recording_state(&app, &recording);
             Some(abandoned)
@@ -4033,6 +4381,18 @@ pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
     ) = {
         let state = app.state::<AppState>();
         let mut recording = state.recording.lock().unwrap();
+        #[cfg(target_os = "linux")]
+        if let Some(expected_session) = failed_session {
+            if recording.session_id != expected_session
+                || !recording
+                    .active
+                    .as_ref()
+                    .and_then(|active| active.recorder.as_ref())
+                    .is_some_and(|recorder| recorder.unexpected_failure().is_some())
+            {
+                return Ok(());
+            }
+        }
         if !(recording.is_recording || recording.is_paused) || recording.is_transitioning {
             return Ok(());
         }
@@ -4146,6 +4506,13 @@ pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
                         .to_string()
                 }
             };
+            #[cfg(target_os = "linux")]
+            emit_notice_on_monitor(
+                &handle,
+                message.clone(),
+                "exclamationmark.triangle.fill".into(),
+                completion_monitor,
+            );
             emit_error(&handle, message, None);
         } else {
             let completion_id = uuid::Uuid::new_v4().to_string();
@@ -4321,7 +4688,7 @@ fn finalize_recording(
             std::fs::copy(&segments[0], &merged_path)
                 .map_err(|error| format!("could not stage the Windows MP4: {error}"))?;
         } else {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             crate::record::merge_segments_native(&segments, &merged_path)
                 .map_err(|e| e.to_string())?;
             #[cfg(windows)]
@@ -4339,7 +4706,7 @@ fn finalize_recording(
                 })
                 .unwrap_or((0, 0, None))
         } else {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             {
                 crate::record::probe_video_native(&merged_path).unwrap_or((0, 0, None))
             }
@@ -4600,6 +4967,40 @@ pub fn mic_supported() -> bool {
     platform::mic_supported()
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformCapabilitiesDto {
+    pub recording: bool,
+    pub local_ocr: bool,
+    pub system_audio: bool,
+    pub microphone: bool,
+    pub click_highlights: bool,
+    pub video_editing: bool,
+    pub manual_updates: bool,
+}
+
+#[tauri::command]
+pub fn platform_capabilities() -> PlatformCapabilitiesDto {
+    PlatformCapabilitiesDto {
+        video_editing: !cfg!(target_os = "linux"),
+        manual_updates: cfg!(target_os = "linux"),
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+        recording: true,
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+        recording: false,
+        local_ocr: true,
+        #[cfg(any(windows, target_os = "macos"))]
+        system_audio: true,
+        #[cfg(not(any(windows, target_os = "macos")))]
+        system_audio: false,
+        microphone: platform::mic_supported(),
+        #[cfg(any(windows, target_os = "macos"))]
+        click_highlights: true,
+        #[cfg(not(any(windows, target_os = "macos")))]
+        click_highlights: false,
+    }
+}
+
 #[tauri::command]
 pub fn get_language(app: AppHandle) -> String {
     crate::state::load_language(&app)
@@ -4631,6 +5032,8 @@ pub fn get_locale() -> String {
 pub enum ShortcutRegistrationStatus {
     Enabled,
     Occupied,
+    #[cfg(target_os = "linux")]
+    SystemManaged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -4644,6 +5047,13 @@ fn shortcut_status(
     binding: tauri_plugin_global_shortcut::Shortcut,
     registered: bool,
 ) -> ShortcutStatusDto {
+    #[cfg(target_os = "linux")]
+    if crate::capture::linux::is_wayland() {
+        return ShortcutStatusDto {
+            label: "kiri --capture".into(),
+            status: ShortcutRegistrationStatus::SystemManaged,
+        };
+    }
     ShortcutStatusDto {
         label: crate::shortcut_settings::label(binding),
         status: if registered {
@@ -4741,6 +5151,12 @@ pub fn open_settings(action: String) -> Result<(), String> {
             .args(["/C", "start", url])
             .spawn();
     }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = action;
+        // Screen sharing and microphone grants are handled by the desktop
+        // portal dialogs; there is no single portable settings URL.
+    }
     Ok(())
 }
 
@@ -4755,10 +5171,11 @@ mod command_security_tests {
     use super::{
         capture_failure_requires_global_error, cleanup_finalization_files, commit_editor_update,
         complete_library_deletion, crop_annotation_source, crop_editor_source,
-        editor_save_destination, parse_editor_save_action, recording_channels, sanitize_frontend_log, validate_capture_png,
-        validate_editor_annotation_document, validate_replacement_metadata,
-        validate_staged_capture_annotation, write_editor_save, EditorCropPixels, EditorSaveAction,
-        ShortcutRegistrationStatus, EDITOR_ACTION_INVALID_ERROR, EDITOR_SAVE_ERROR,
+        editor_save_destination, parse_editor_save_action, recording_channels,
+        sanitize_frontend_log, validate_capture_png, validate_editor_annotation_document,
+        validate_replacement_metadata, validate_staged_capture_annotation, write_editor_save,
+        EditorCropPixels, EditorSaveAction, ShortcutRegistrationStatus,
+        EDITOR_ACTION_INVALID_ERROR, EDITOR_SAVE_ERROR,
     };
     use crate::core::annotation::AnnotationDocument;
     use crate::core::asset::{CaptureAsset, CaptureKind};
