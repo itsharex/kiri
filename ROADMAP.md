@@ -74,7 +74,7 @@ or completed GNOME desktop acceptance. See [Linux setup and acceptance](docs/lin
 - [x] Offline Tesseract OCR using system English, Simplified Chinese, and Japanese data
 - [x] Secret Service credentials for remote OCR profiles
 - [x] `.deb` configuration and Ubuntu build, install, and isolated X11 CI workflow
-- [ ] Verified Linux CI candidate: Rust checks, media tests, `.deb` installation, and X11 capture/clipboard/persistence
+- [x] Verified Linux CI candidate: Rust/media checks, `.deb` installation, and X11 capture, clipboard, OCR, recording, and persistence ([Ubuntu/X11 evidence](https://github.com/yuxino/kiri/actions/runs/36295511436/job/108553499500))
 - [ ] Installed Ubuntu GNOME Wayland acceptance, including portal cancel/retry, clipboard, OCR, and recording
 - [ ] Installed Ubuntu X11 acceptance beyond the virtual CI desktop
 - [ ] Wayland multiple displays and fractional-scale acceptance

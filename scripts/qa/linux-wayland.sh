@@ -28,7 +28,58 @@ for command in gnome-shell pipewire wireplumber dbus-run-session gsettings; do
 done
 
 qa_profile=''
-trap 'if [[ -n "$qa_profile" ]]; then rm -rf "$qa_profile"; fi' EXIT
+
+cleanup_profile() {
+  # This variable is assigned only by this script's mktemp call below.
+  local created_profile="$qa_profile"
+  qa_profile=''
+  [[ -n "$created_profile" ]] || return 0
+
+  local document_mount="$created_profile/runtime/doc"
+  local mount_type unmount_command
+  if ! command -v findmnt >/dev/null; then
+    printf 'QA profile retained (findmnt unavailable): %s\n' "$created_profile" >&2
+    return 0
+  fi
+  if mount_type="$(findmnt --noheadings --raw --output FSTYPE --mountpoint "$document_mount" 2>/dev/null)"; then
+    case "$mount_type" in
+      fuse|fuse.*)
+        if command -v fusermount3 >/dev/null; then
+          unmount_command=fusermount3
+        elif command -v fusermount >/dev/null; then
+          unmount_command=fusermount
+        else
+          printf 'QA profile retained (FUSE unmount tool unavailable): %s\n' "$created_profile" >&2
+          return 0
+        fi
+        if ! "$unmount_command" -u -- "$document_mount"; then
+          printf 'QA profile retained (document portal unmount failed): %s\n' "$created_profile" >&2
+          return 0
+        fi
+        if findmnt --mountpoint "$document_mount" >/dev/null 2>&1; then
+          printf 'QA profile retained (document portal is still mounted): %s\n' "$created_profile" >&2
+          return 0
+        fi
+        ;;
+      *)
+        printf 'QA profile retained (unexpected mount type %s): %s\n' "$mount_type" "$created_profile" >&2
+        return 0
+        ;;
+    esac
+  fi
+  if ! rm -rf --one-file-system -- "$created_profile"; then
+    printf 'QA profile cleanup incomplete; retained at: %s\n' "$created_profile" >&2
+  fi
+  return 0
+}
+
+cleanup_on_exit() {
+  local qa_exit_status=$?
+  trap - EXIT
+  cleanup_profile
+  exit "$qa_exit_status"
+}
+trap cleanup_on_exit EXIT
 
 # Denial is stored by the real permission-store service. Separate profiles make
 # both branches reproducible without deleting or pre-granting any permissions.
@@ -53,6 +104,5 @@ EOF
     KIRI_QA_PROFILE="$qa_profile" \
     dbus-run-session -- /usr/bin/python3 "$repository_root/scripts/qa/linux-wayland.py" \
     --executable "$executable" --output "$output/$scenario" --scenario "$scenario"
-  rm -rf "$qa_profile"
-  qa_profile=''
+  cleanup_profile
 done
