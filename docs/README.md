@@ -114,3 +114,4 @@ development.
 - [ADR 0049: Linux screenshot MVP and staged recording](adr/0049-linux-screenshot-mvp.md) — historical initial scope, superseded by ADR 0051.
 - [ADR 0050: Linux Wayland grim stills and Hyprland shortcut](adr/0050-linux-wayland-grim-and-hyprland-shortcut.md) — historical Hyprland implementation, superseded where noted.
 - [ADR 0051: Ubuntu Linux capture boundaries](adr/0051-ubuntu-linux-capture-boundaries.md) — current platform, shortcut, recording, and packaging contract.
+- [ADR 0052: High-contrast recorded click highlight](adr/0052-red-click-highlight.md)

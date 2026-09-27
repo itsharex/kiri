@@ -44,7 +44,7 @@ Linux. Preserve these decisions:
   Linux recording is silent and hides the floating control panel; use tray
   actions or `kiri --toggle-recording-pause` / `kiri --stop-recording`. ScreenCast
   consent must select the same display as the frozen screenshot.
-- The optional monochrome click ripple is visible live and is also captured.
+- The optional high-contrast red click ripple is visible live and is also captured.
 - The 3-2-1 countdown is centered and compact; it must not dim the selected
   recording region.
 - User-facing UI supports English, Simplified Chinese, and Japanese and follows
