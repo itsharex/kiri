@@ -160,8 +160,6 @@ jobs:
     needs: build-linux
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      KIRI_LINUX_WAYLAND_QA_DIR: ${{ runner.temp }}/kiri-linux-wayland-review
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -171,6 +169,7 @@ jobs:
       - name: Install the candidate and GNOME desktop-test dependencies
         env:
           KIRI_LINUX_DEB_DIR: ${{ runner.temp }}/kiri-linux-deb
+          KIRI_LINUX_WAYLAND_QA_DIR: ${{ runner.temp }}/kiri-linux-wayland-review
         run: |
           packages=("$KIRI_LINUX_DEB_DIR"/*.deb)
           test "${#packages[@]}" -eq 1
@@ -189,6 +188,8 @@ jobs:
           test -x /usr/bin/kiri
       - name: Exercise screenshot consent on an isolated GNOME Wayland desktop
         timeout-minutes: 8
+        env:
+          KIRI_LINUX_WAYLAND_QA_DIR: ${{ runner.temp }}/kiri-linux-wayland-review
         run: bash scripts/qa/linux-wayland.sh /usr/bin/kiri
       - uses: actions/upload-artifact@v7
         if: always()
