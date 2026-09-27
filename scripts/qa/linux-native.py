@@ -506,7 +506,12 @@ try:
     open_capture()
     drag_region((220, 240, 900, 620))
     wait_for_control("Done — Copy to clipboard · Return")
-    screenshot("selected-region.png")
+    preview = screenshot("selected-region.png")
+    # Exclude handles and the 1px selection border, then verify what the user
+    # sees is the same region that will be copied and saved.
+    report["preview_mean_pixel_error"] = compare(
+        preview.crop((228, 248, 892, 612)), expected.crop((8, 8, 672, 372)),
+        "selected-region preview")
     command("xdotool", "key", "--clearmodifiers", "Return")
     saved = wait_for("Return saves one captured image", lambda: assets() if len(assets()) == 1 else None)
     wait_for("successful capture closes its overlay", lambda: overlay() is None)

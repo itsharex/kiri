@@ -323,7 +323,16 @@ try:
         pause(0.2)
         button(False)
         pause()
-        screenshot("selected-region.png")
+        preview = screenshot("selected-region.png")
+        # Exclude handles and the selection border. A correct saved crop is
+        # insufficient if the frozen desktop was stretched in the overlay.
+        preview_difference = ImageChops.difference(
+            preview.crop((228, 248, 892, 612)), expected.crop((8, 8, 672, 372)))
+        preview_error = sum(ImageStat.Stat(preview_difference).mean) / 3
+        report["preview_mean_pixel_error"] = round(preview_error, 4)
+        if preview_error > 1.5:
+            preview_difference.save(output / "preview-difference.png")
+            raise RuntimeError(f"Wayland preview pixel mismatch: {preview_error:.3f}")
         key(0xff0d)
         saved = wait_for("real capture is persisted", lambda: assets() if len(assets()) == 1 else None)
         filename = Path(saved[0]["filename"])

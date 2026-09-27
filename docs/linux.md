@@ -177,7 +177,7 @@ directories. Its WebKit renderer uses software rendering without compositing
 for the virtual display; this does not exercise a physical GPU. A separate
 normal X11 test window displays public text and gray
 shapes. Kiri captures it with its shipping backend, then the script compares
-saved and clipboard pixels, recognizes the public text through the OCR UI, and
+the selected preview, saved and clipboard pixels, recognizes text through the OCR UI, and
 checks restart persistence. Recording starts through the overlay and uses the
 desktop commands to pause, resume, and stop. The exported MP4 is decoded with
 system GStreamer to check its size, silent audio layout, duration, and frames:
@@ -194,7 +194,7 @@ GNOME test dependencies are listed at the top of that script. Each consent
 scenario uses a fresh HOME/XDG profile, DBus session, and headless GNOME 46
 desktop with one virtual monitor and software rendering. The harness operates
 the real portal permission dialog, checks denial and approval, then exercises
-capture cancellation, repeat capture, and the pixels of a saved screenshot.
+capture cancellation, repeat capture, and matching preview and saved pixels.
 The `linux-wayland-review` artifact retains package identity, reports, desktop
 images, and service logs even when the check fails. This job is configured;
 passing evidence must come from its run. It does not cover recording, physical

@@ -807,7 +807,12 @@ export function OverlayWindow() {
       inert={completing}
       style={{
         position: "fixed",
-        inset: 0,
+        left: 0,
+        top: 0,
+        // Match selection and export coordinates even when the native
+        // full-screen WebView allocation differs from the captured display.
+        width: bounds.width,
+        height: bounds.height,
         // While the frozen capture is still loading, stay translucent so the
         // live screen shows through; the window becomes opaque once the
         // frozen image is ready (mirroring the original's freeze behavior).
