@@ -35,6 +35,7 @@ import {
   Star,
   Tag,
   TextCursorInput,
+  TriangleAlert,
   Trash2,
   Type,
   Undo2,
@@ -55,6 +56,8 @@ export type IconName =
   | "arrow.uturn.forward" // Redo
   | "checkmark" // Done
   | "checkmark.circle.fill" // notice: copied/saved
+  | "exclamationmark.triangle" // notice: capture error
+  | "exclamationmark.triangle.fill" // notice: operation error
   | "record.circle.fill" // notice: recording started
   | "video.fill" // notice: recording saved
   | "trash.slash" // notice: trash emptied
@@ -98,6 +101,8 @@ const ICONS: Record<IconName, React.ComponentType<Record<string, unknown>>> = {
   "arrow.uturn.forward": Redo2,
   checkmark: Check,
   "checkmark.circle.fill": CircleCheck,
+  "exclamationmark.triangle": TriangleAlert,
+  "exclamationmark.triangle.fill": TriangleAlert,
   "record.circle.fill": CircleDot,
   "video.fill": Film,
   "trash.slash": Trash2,
@@ -135,7 +140,9 @@ export function KiriIcon(props: {
   style?: React.CSSProperties;
 }) {
   const { name, size = 16, style } = props;
-  const Glyph = ICONS[name];
+  // Notice symbols arrive from Rust at runtime. An unknown symbol must not
+  // crash the entire feedback window while it is reporting an error.
+  const Glyph = ICONS[name] ?? TriangleAlert;
   return (
     <Glyph
       size={size}
