@@ -39,8 +39,10 @@ def find(name, timeout=35, scroll=False):
             window = desktop.windows(process=process.pid, visible_only=True)[0]
             window.set_focus()
             bounds = window.rectangle()
-            mouse.scroll(coords=(bounds.left + int(bounds.width() * 0.75),
-                                 bounds.top + int(bounds.height() * 0.65)), wheel_dist=-4)
+            # Scroll the outer settings pane from its right gutter. The OCR
+            # controls near the center can consume wheel events themselves.
+            mouse.scroll(coords=(bounds.right - 24,
+                                 bounds.top + int(bounds.height() * 0.5)), wheel_dist=-4)
         time.sleep(0.2)
     raise RuntimeError(f"Visible control not found: {name}")
 
