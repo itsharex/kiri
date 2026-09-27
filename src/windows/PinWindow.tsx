@@ -36,8 +36,8 @@ export function PinWindow({ id }: { id: string }) {
     <header className="pin-window__header">
       <strong>{t("Screenshot Reference")}</strong>
       <div className="pin-window__actions">
-        <button type="button" disabled={busy} onClick={() => void toggleTop()}>{t(onTop ? "Unpin" : "Pin on Top")}</button>
-        <button type="button" onClick={() => void getCurrentWindow().close()}>{t("Close")}</button>
+        <button className="kiri-pin-action" type="button" disabled={busy} onClick={() => void toggleTop()}>{t(onTop ? "Unpin" : "Pin on Top")}</button>
+        <button className="kiri-pin-action" type="button" onClick={() => void getCurrentWindow().close()}>{t("Close")}</button>
       </div>
     </header>
     {error && <p className="pin-window__error" role="alert">{t("Could not change window pinning on this desktop.")}</p>}
