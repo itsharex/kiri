@@ -9,7 +9,7 @@
   </p>
 </div>
 
-Kiri 支持 macOS、Windows，以及实验性的 Linux。按 `⇧⌘A`（macOS）或 `Shift+Ctrl+A`（Windows / Linux X11），选择窗口或区域，即可截图、标注、识别文字或录屏。Linux Wayland 请使用「截图」按钮，或在桌面设置中将快捷键绑定到 `kiri --capture`。截图会复制到剪贴板；截图、MP4 和 GIF 保存在本地素材库。
+Kiri 支持 macOS、Windows 和 Linux。按 `⇧⌘A`（macOS）或 `Shift+Ctrl+A`（Windows / Linux X11），选择窗口或区域，即可截图、标注、识别文字或录屏。Linux Wayland 请使用「截图」按钮，或在桌面设置中将快捷键绑定到 `kiri --capture`。截图会复制到剪贴板；截图、MP4 和 GIF 保存在本地素材库。
 
 <!-- project-demo-v1 -->
 <h2 align="center">演示</h2>
@@ -31,11 +31,11 @@ https://github.com/user-attachments/assets/13742f07-1845-4201-9295-39f83515547f
 
 每个视频工程只编辑一个源文件，不能把导入的多个视频合成一条时间轴。Windows 片段变速会同时改变音调，画面效果要求原视频不含旋转标记；Kiri 录屏符合此条件。
 
-Linux 主要面向 Ubuntu 24.04 / GNOME，并兼容 X11。Wayland 捕获目前要求只连接一台显示器，使用区域框选。Linux 录屏暂不支持声音或点击高亮，通过托盘或系统快捷键暂停、停止。本地 OCR 使用已安装的 Tesseract 英文、简体中文和日文数据；视频支持播放与 GIF 转换，暂不开放视频剪辑和导出。依赖、授权流程和待完成的桌面验收见 [Linux 指南](docs/linux.md)。
+Linux 主要面向 Ubuntu 24.04 / GNOME，并兼容 X11。Wayland 捕获目前要求只连接一台显示器，使用区域框选。Linux 录屏暂不支持声音或点击高亮，通过托盘或系统快捷键暂停、停止。本地 OCR 使用已安装的 Tesseract 英文、简体中文和日文数据；视频支持播放与 GIF 转换，暂不开放视频剪辑和导出。依赖、授权流程和平台说明见 [Linux 指南](docs/linux.md)。
 
 ## 下载与安装
 
-本 README 说明当前源码中的功能；已发布版本包含哪些功能，请查看相应更新记录。macOS Universal / Windows x64 安装包见 [GitHub Releases](https://github.com/yuxino/kiri/releases)。
+本 README 说明当前源码中的功能；已发布版本包含哪些功能，请查看相应更新记录。macOS Universal、Windows x64 和 Linux x64 安装包见 [GitHub Releases](https://github.com/yuxino/kiri/releases)。
 
 从 v1.4.9 起，macOS 与 Windows 安装版的设置页支持手动检查、下载并安装经过签名验证的更新；每一步都需要你明确点击，Kiri 不会后台检查或静默安装。v1.4.8 及更早版本需要先从 Releases 手动安装一次 v1.4.9 或更新版本，之后才能使用应用内更新。
 
@@ -43,7 +43,7 @@ Linux 主要面向 Ubuntu 24.04 / GNOME，并兼容 X11。Wayland 捕获目前�
 
 - **macOS 14+**：下载 Universal `.dmg`（Apple 芯片与 Intel），把 `Kiri.app` 拖入“应用程序”。截图与录屏需要“屏幕与系统音频录制”权限；点击高亮才需要“输入监控”。麦克风录制需要 macOS 15+。
 - **Windows 11（x64）**：提供 x64 安装包，完整捕获流程的真机验收进度见[路线图](ROADMAP.md)。运行 `.exe` 安装程序；屏幕捕获不需要额外系统授权，麦克风权限由 Windows 隐私设置控制。安装程序未经过 Authenticode 签名，SmartScreen 可能提示警告。
-- **Linux（实验性，Ubuntu 24.04 x64）**：可从源码构建 `.deb`，或使用 Linux CI 中的候选安装包，再执行 `sudo apt install ./kiri_VERSION_amd64.deb`（将 `VERSION` 换为实际版本）。这不代表 Linux 版本已经发布，请以实际 Release 附件为准。Linux 更新需要手动下载并安装新版软件包。GNOME portal 配置、Wayland 快捷键和验证范围见 [Linux 指南](docs/linux.md)。
+- **Linux（Ubuntu 24.04 x64）**：从 [Releases](https://github.com/yuxino/kiri/releases) 下载 `.deb`，再执行 `sudo apt install ./kiri_VERSION_amd64.deb`（将 `VERSION` 换为实际版本）。Linux 更新需要手动下载并安装新版软件包。GNOME portal 配置、Wayland 快捷键和平台说明见 [Linux 指南](docs/linux.md)。
 
 Windows 免安装使用：下载 `Kiri-<version>-Windows-x64-Portable.zip`，解压后直接运行 `kiri.exe`。此版本无需安装，但素材库和设置仍保存在 Windows 用户目录中；移动 ZIP 不会带走这些数据。绿色版的更新入口会打开 Releases，请手动下载新版 ZIP；不会运行 NSIS 安装更新。
 
@@ -83,6 +83,10 @@ macOS、Windows 与 Linux X11 可在**设置 → 通用**中修改或恢复截�
 - **⌘Z / ⇧⌘Z**（macOS）/ **Ctrl+Z / Shift+Ctrl+Z**（Windows / Linux）：撤销 / 重做
 
 Linux 录屏可通过 `kiri --toggle-recording-pause` 暂停或继续，通过 `kiri --stop-recording` 停止；也可以将这两个命令绑定到系统快捷键。
+
+## 致谢
+
+感谢 [@kerwin2046](https://github.com/kerwin2046) 在 [PR #20](https://github.com/yuxino/kiri/pull/20) 中提供 Linux 初始支持，也感谢他为这些代码投入的时间与心力。
 
 另见 [隐私说明](PRIVACY_ZH.md)、[路线图](ROADMAP.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md) 与[文档索引](docs/README.md)。
 

@@ -3,7 +3,7 @@
 Status: current for the Tauri 2 application.
 
 Kiri is a local-first desktop capture workspace for macOS, Windows, and
-experimental Linux. React renders the application windows, Rust owns capture,
+Linux. React renders the application windows, Rust owns capture,
 persistence, credentials, network access, and platform integration, and Tauri
 provides the window and IPC boundary.
 

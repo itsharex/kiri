@@ -62,9 +62,8 @@ Release validation still open:
 
 ## v1.6 — Linux capture workspace
 
-Experimental source targets Ubuntu 24.04 / GNOME, with X11 support. Implemented
-paths and configured checks below do not establish a published Linux release
-or completed GNOME desktop acceptance. See [Linux setup and acceptance](docs/linux.md).
+Kiri supports Ubuntu 24.04 / GNOME, with X11 compatibility.
+See [Linux setup and acceptance](docs/linux.md) for installation and verification details.
 
 - [x] X11 frozen capture and window bounds through `xcap`
 - [x] Single-display Wayland capture (`grim` where supported; Screenshot portal on GNOME)
