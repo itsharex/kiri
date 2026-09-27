@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 - **Copy text** from your screen or saved images with local OCR.
 - **Record** a region as MP4 or GIF. On macOS and Windows, include system audio, microphone, and click highlights.
 - **Edit videos** on macOS and Windows: trim, reorder, change speed, and add annotations or privacy masks.
-- **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash.
+- **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash. Paste an image from the clipboard to annotate or recognize it.
 
 ## Download
 

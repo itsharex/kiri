@@ -149,6 +149,30 @@ pub fn write_image_to_clipboard(png: &[u8]) -> Result<()> {
     }
 }
 
+/// Reads image pixels only for an explicit Paste Image action.
+pub fn read_image_from_clipboard() -> Result<Vec<u8>> {
+    #[cfg(target_os = "linux")]
+    {
+        linux::read_image_from_clipboard()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut clipboard = arboard::Clipboard::new().map_err(|error| anyhow::anyhow!(error))?;
+        let image = clipboard.get_image().map_err(|_| anyhow::anyhow!("The clipboard has no image."))?;
+        let width = u32::try_from(image.width).map_err(|_| anyhow::anyhow!("Clipboard image is too large."))?;
+        let height = u32::try_from(image.height).map_err(|_| anyhow::anyhow!("Clipboard image is too large."))?;
+        if width == 0 || height == 0 || width > 8192 || height > 8192 ||
+            (width as u64) * (height as u64) * 4 > 128 * 1024 * 1024 {
+            return Err(anyhow::anyhow!("Clipboard image is too large."));
+        }
+        let pixels = image::RgbaImage::from_raw(width, height, image.bytes.into_owned())
+            .ok_or_else(|| anyhow::anyhow!("Clipboard image is invalid."))?;
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(pixels).write_to(&mut png, image::ImageFormat::Png)?;
+        Ok(png.into_inner())
+    }
+}
+
 /// Writes plain text to the system clipboard.
 pub fn write_text_to_clipboard(text: &str) -> Result<()> {
     #[cfg(target_os = "linux")]

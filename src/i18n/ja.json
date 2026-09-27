@@ -583,5 +583,9 @@
   "The image could not be copied to the clipboard.": "画像をクリップボードにコピーできませんでした。",
   "The text could not be copied to the clipboard.": "テキストをクリップボードにコピーできませんでした。",
   "The file could not be copied to the clipboard.": "ファイルをクリップボードにコピーできませんでした。",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。"
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。",
+  "Paste Image": "画像を貼り付け",
+  "Paste Image (Cmd/Ctrl+V)": "画像を貼り付け（⌘V / Ctrl+V）",
+  "Clipboard image added to Library.": "クリップボードの画像をライブラリに追加しました。",
+  "Could not paste an image from the clipboard.": "クリップボードから画像を貼り付けられませんでした。"
 }
