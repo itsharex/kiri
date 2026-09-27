@@ -104,6 +104,14 @@ def owns(name):
                 "NameHasOwner", "(s)", (name,))[0]
 
 
+def overview_is_closed():
+    active = call("org.gnome.Shell", "/org/gnome/Shell", "org.freedesktop.DBus.Properties",
+                  "Get", "(ss)", ("org.gnome.Shell", "OverviewActive"))[0]
+    if isinstance(active, GLib.Variant):
+        active = active.unpack()
+    return active is False
+
+
 def send(method, signature=None, values=()):
     return call(REMOTE, remote_path, f"{REMOTE}.Session", method, signature, values)
 
@@ -193,6 +201,10 @@ try:
                             "--wayland-display", os.environ["WAYLAND_DISPLAY"]])
     wait_for("GNOME RemoteDesktop service", lambda: owns(REMOTE))
     wait_for("GNOME Screenshot service", lambda: owns("org.gnome.Shell.Screenshot"))
+    # The bus names appear before layoutManager's startup-complete signal.
+    # Its cover pane can still swallow input until this Shell 46 message.
+    wait_for("GNOME startup completes", lambda: "GNOME Shell started at" in
+             (output / "gnome-shell.log").read_text(errors="replace"))
     subprocess.run(["dbus-update-activation-environment", "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP",
                     "XDG_SESSION_TYPE", "GDK_BACKEND"], check=True, timeout=10)
     launch("portal-gnome", [daemon_path("xdg-desktop-portal-gnome"), "--verbose"])
@@ -251,6 +263,7 @@ try:
     layout.put(Gtk.Label(label="SCREEN CAPTURE 123"), 270, 265)
     fixture.show_all()
     key(0xff1b)  # Dismiss the initial GNOME overview with a real key event.
+    wait_for("GNOME overview closes", overview_is_closed)
     launch("kiri", [str(args.executable.resolve())])
     wait_for("Kiri library rendered", lambda: controls("Settings"))
     click(80, 160)  # Raise the visible test window behind the centered library.

@@ -91,8 +91,9 @@ window bounds for hover/click selection. Region dragging and annotation use
 the same editor as other platforms.
 
 X11 recording uses the installed GStreamer `ximagesrc` plugin directly; it does
-not require a ScreenCast authorization dialog. The Xvfb desktop check covers
-screenshots; native media tests separately cover MP4/GIF encoding and merging.
+not require a ScreenCast authorization dialog. The isolated Xvfb check exercises
+screenshots, local OCR, and recording pause/resume. Native media tests separately
+cover MP4/GIF encoding and merging. Check the candidate's reports for results.
 
 ## Feature boundaries
 
@@ -165,19 +166,29 @@ exercise the installed app on an isolated X11 desktop. Run that desktop check
 on Linux after installing a candidate:
 
 ```bash
-sudo apt install xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil
+sudo apt install xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil \
+  python3-gi python3-pyatspi at-spi2-core \
+  gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0
 bash scripts/qa/linux-native.sh /usr/bin/kiri
 ```
 
 The script creates a new Xvfb display, DBus session, and disposable HOME/XDG
-directories. A separate normal X11 test window displays public text and gray
+directories. Its WebKit renderer uses software rendering without compositing
+for the virtual display; this does not exercise a physical GPU. A separate
+normal X11 test window displays public text and gray
 shapes. Kiri captures it with its shipping backend, then the script compares
-saved and clipboard pixels and checks restart persistence. There is no runtime
-synthetic-capture mode. `linux-native-review/report.json`, images, and logs are
-the evidence; a configured workflow alone is not a passing result.
+saved and clipboard pixels, recognizes the public text through the OCR UI, and
+checks restart persistence. Recording starts through the overlay and uses the
+desktop commands to pause, resume, and stop. The exported MP4 is decoded with
+system GStreamer to check its size, silent audio layout, duration, and frames:
+both recorded scenes must appear, while the pause-only scene and recording
+controls must be absent. There is no runtime synthetic-capture mode.
+`linux-native-review/report.json`, media, images, and logs are the evidence;
+a configured workflow alone is not a passing result.
 
 A separate GNOME Wayland CI job downloads the same run's `kiri-linux-deb`
-artifact after the Linux build succeeds. It installs the package on Ubuntu
+artifact once it is available, including when the X11 desktop check fails.
+Both desktop checks must pass. It installs the package on Ubuntu
 24.04 and runs `bash scripts/qa/linux-wayland.sh /usr/bin/kiri`. The additional
 GNOME test dependencies are listed at the top of that script. Each consent
 scenario uses a fresh HOME/XDG profile, DBus session, and headless GNOME 46
@@ -194,7 +205,7 @@ displays, hardware graphics, or fractional scaling.
 | Rust/frontend checks | Logs for the exact commit | Required on each candidate |
 | GStreamer media tests | `linux-media-review` artifact | In-process native encoding; no ScreenCast consent proof |
 | `.deb` installation | Package SHA-256, control metadata, `ldd` output | CI install only; no public release implied |
-| X11 desktop smoke | `linux-native-review` report and screenshots | Virtual desktop; no GNOME Wayland proof |
+| X11 desktop smoke | `linux-native-review` report, screenshots, OCR result, and MP4 | Virtual desktop; no GNOME Wayland proof |
 | GNOME Wayland portal smoke | `linux-wayland-review` reports and screenshots | Virtual GNOME screenshot flow; no recording, hardware, or scaling proof |
 | GNOME Wayland desktop | Exact installed package, display/scale, portal actions, sample exports | Pending manual acceptance |
 | Ubuntu X11 hardware | Exact installed package and screenshot/recording samples | Pending manual acceptance |

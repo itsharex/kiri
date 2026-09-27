@@ -63,6 +63,8 @@ jobs:
     name: Build, test and package Linux (Ubuntu 24.04 / X11)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      deb-artifact-id: ${{ steps.upload-linux-deb.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -109,7 +111,9 @@ jobs:
             tesseract-ocr-eng \
             tesseract-ocr-chi-sim \
             tesseract-ocr-jpn \
-            xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil
+            xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil \
+            python3-gi python3-pyatspi at-spi2-core \
+            gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0
       - run: pnpm install --frozen-lockfile
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
@@ -148,6 +152,7 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
+        id: upload-linux-deb
         if: ${{ always() && hashFiles('src-tauri/target/release/bundle/deb/*.deb') != '' }}
         with:
           name: kiri-linux-deb
@@ -158,6 +163,7 @@ jobs:
   test-linux-wayland:
     name: GNOME Wayland portal checks (Ubuntu 24.04)
     needs: build-linux
+    if: ${{ !cancelled() && needs.build-linux.outputs.deb-artifact-id != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

@@ -134,7 +134,7 @@ pub async fn run_pipewire_region_capture(
     video_tx: crate::capture::VideoFrameSender,
     stop_flag: Arc<AtomicBool>,
 ) -> Result<()> {
-    if !is_wayland_session() {
+    if !crate::platform::linux::is_wayland_session() {
         return tokio::task::spawn_blocking(move || {
             run_x11_region_capture(
                 display,
@@ -249,12 +249,6 @@ pub async fn run_pipewire_region_capture(
     } else {
         result
     }
-}
-
-fn is_wayland_session() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some()
-        || std::env::var_os("WAYLAND_SOCKET").is_some()
-        || std::env::var("XDG_SESSION_TYPE").is_ok_and(|kind| kind == "wayland")
 }
 
 async fn portal_step<T, E: std::fmt::Display>(
