@@ -37,15 +37,17 @@ test("the repository has one canonical Tauri and Cargo project", () => {
   }
 });
 
-test("the default capability does not authorize removed windows", () => {
+test("pinned screenshot windows get only their dedicated topmost permission", () => {
   const capability = JSON.parse(
     readFileSync(join(repositoryRoot, "src-tauri", "capabilities", "default.json"), "utf8"),
   );
-  assert.equal(
-    capability.windows.includes("pin-*"),
-    false,
-    "the removed pinned-image window must not retain Tauri capabilities",
+  const pin = JSON.parse(
+    readFileSync(join(repositoryRoot, "src-tauri", "capabilities", "pin.json"), "utf8"),
   );
+  assert.equal(capability.windows.includes("pin-*"), true);
+  assert.equal(capability.permissions.includes("core:window:allow-set-always-on-top"), false);
+  assert.deepEqual(pin.windows, ["pin-*"]);
+  assert.deepEqual(pin.permissions, ["core:window:allow-set-always-on-top"]);
 });
 
 test("permission-sensitive macOS entry points never allow ad-hoc signing", () => {

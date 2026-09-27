@@ -583,5 +583,12 @@
   "The image could not be copied to the clipboard.": "无法将图片复制到剪贴板。",
   "The text could not be copied to the clipboard.": "无法将文字复制到剪贴板。",
   "The file could not be copied to the clipboard.": "无法将文件复制到剪贴板。",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "实验性 Wayland 截图目前只支持单屏。多屏请使用 X11 会话。"
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "实验性 Wayland 截图目前只支持单屏。多屏请使用 X11 会话。",
+  "Pin Screenshot on Top": "置顶截图",
+  "Screenshot Reference": "截图参考",
+  "Unpin": "取消置顶",
+  "Pin on Top": "重新置顶",
+  "Could not change window pinning on this desktop.": "当前桌面无法切换窗口置顶状态。",
+  "Pinned screenshot": "置顶截图",
+  "Could not pin this screenshot.": "无法置顶这张截图。"
 }

@@ -27,6 +27,9 @@ const EditorWindow = React.lazy(() =>
 const ViewerWindow = React.lazy(() =>
   import("./windows/ViewerWindow").then((module) => ({ default: module.ViewerWindow })),
 );
+const PinWindow = React.lazy(() =>
+  import("./windows/PinWindow").then((module) => ({ default: module.PinWindow })),
+);
 const ToastWindow = React.lazy(() =>
   import("./windows/ToastWindow").then((module) => ({ default: module.ToastWindow })),
 );
@@ -99,6 +102,8 @@ function App() {
       return <EditorWindow id={params.get("id") ?? ""} />;
     case "viewer":
       return <ViewerWindow id={params.get("id") ?? ""} />;
+    case "pin":
+      return <PinWindow id={params.get("id") ?? ""} />;
     case "toast":
       return (
         <ToastWindow

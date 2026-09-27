@@ -602,6 +602,12 @@ export function LibraryWindow() {
           disabled={asset.ocrText == null && assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
           onClick={run(() => setOcrAsset(asset))}
         />}
+        {asset.kind === "image" && asset.ocrText == null && !showingTrash && <MenuRow
+          icon="photo.on.rectangle"
+          label={t("Pin Screenshot on Top")}
+          disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
+          onClick={run(() => void api.pinAsset(asset.id).catch(() => setError({message:t("Could not pin this screenshot."),recovery:null})))}
+        />}
         <MenuRow
           icon="character.textbox"
           label={t("Rename")}

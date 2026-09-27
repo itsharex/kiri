@@ -583,5 +583,12 @@
   "The image could not be copied to the clipboard.": "画像をクリップボードにコピーできませんでした。",
   "The text could not be copied to the clipboard.": "テキストをクリップボードにコピーできませんでした。",
   "The file could not be copied to the clipboard.": "ファイルをクリップボードにコピーできませんでした。",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。"
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。",
+  "Pin Screenshot on Top": "スクリーンショットを最前面に固定",
+  "Screenshot Reference": "参照用スクリーンショット",
+  "Unpin": "固定を解除",
+  "Pin on Top": "最前面に固定",
+  "Could not change window pinning on this desktop.": "このデスクトップではウィンドウの固定を切り替えられませんでした。",
+  "Pinned screenshot": "固定したスクリーンショット",
+  "Could not pin this screenshot.": "このスクリーンショットを固定できませんでした。"
 }

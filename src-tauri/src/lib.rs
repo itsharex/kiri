@@ -218,6 +218,7 @@ pub fn run() {
             commands::batch_set_favorite,
             commands::copy_asset,
             commands::open_asset,
+            commands::pin_asset,
             commands::open_editor,
             commands::reveal_asset,
             commands::convert_to_gif,

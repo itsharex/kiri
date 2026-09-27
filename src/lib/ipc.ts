@@ -253,6 +253,7 @@ export const api = {
   setLanguage: (language: string) => invoke<void>("set_language", { language }),
   copyAsset: (id: string) => invoke<void>("copy_asset", { id }),
   openAsset: (id: string) => invoke<void>("open_asset", { id }),
+  pinAsset: (id: string) => invoke<void>("pin_asset", { id }),
   openEditor: (id: string) => invoke<void>("open_editor", { id }),
   revealAsset: (id: string) => invoke<void>("reveal_asset", { id }),
   loadVideoProject: (id:string) => invoke<VideoProjectSnapshot>("load_video_project",{id}),
