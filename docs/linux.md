@@ -1,11 +1,14 @@
 # Linux
 
 Kiri supports **Ubuntu 24.04 x64 with GNOME**, on Wayland and X11.
-Download the `.deb` from [GitHub Releases](https://github.com/yuxino/kiri/releases).
+Find published packages on [GitHub Releases](https://github.com/yuxino/kiri/releases).
+For a source revision not yet released, download its `kiri-linux-deb` artifact
+from a successful [build run](https://github.com/yuxino/kiri/actions/workflows/build.yml),
+or build the package below. Match the artifact to the revision you want to test.
 
 ## Install and update
 
-Download the `.deb` from Releases, then install it with `apt` so its
+Extract the artifact ZIP if needed, then install the `.deb` with `apt` so its
 dependencies are installed automatically:
 
 ```bash

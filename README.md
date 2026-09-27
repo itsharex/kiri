@@ -35,7 +35,7 @@ Linux targets Ubuntu 24.04 with GNOME, with X11 support. Wayland capture current
 
 ## Download and install
 
-This README describes the current source. For features in a published version, check its release notes. macOS Universal, Windows x64, and Linux x64 packages are listed on [GitHub Releases](https://github.com/yuxino/kiri/releases).
+This README describes the current source. For published packages and the platforms included in each version, check [GitHub Releases](https://github.com/yuxino/kiri/releases) and its release notes.
 
 Starting with v1.4.9, macOS and installed Windows builds can manually check, download, and install signature-verified updates from Settings. Every step requires an explicit click; Kiri does not check in the background or install silently. v1.4.8 and older builds need one manual installation of v1.4.9 or newer from Releases before in-app updates become available.
 
@@ -43,7 +43,7 @@ Use **Settings → About → Check for Updates** for routine updates. Download p
 
 - **macOS 14+**: download the Universal `.dmg` for Apple silicon and Intel, then drag `Kiri.app` to Applications. Capture requires **Screen & System Audio Recording**; **Input Monitoring** is needed only for click highlights. Microphone recording requires macOS 15+.
 - **Windows 11 (x64)**: an x64 installer is available. See the [roadmap](ROADMAP.md) for the remaining full capture-flow device acceptance. Run the `.exe` installer; screen capture needs no extra system permission, and microphone access follows Windows privacy settings. The installer is not Authenticode-signed, so SmartScreen may warn.
-- **Linux (Ubuntu 24.04 x64)**: download the `.deb` from [Releases](https://github.com/yuxino/kiri/releases), then install with `sudo apt install ./kiri_VERSION_amd64.deb`, replacing `VERSION` with the downloaded version. Linux updates use a manually downloaded replacement package. Follow the [Linux guide](docs/linux.md) for GNOME portal setup, Wayland shortcuts, and platform details.
+- **Linux (Ubuntu 24.04 x64)**: use a release's `.deb` attachment, or the `kiri-linux-deb` artifact from a successful [build run](https://github.com/yuxino/kiri/actions/workflows/build.yml) for a source revision not yet released. Extract the artifact ZIP if needed, then install with `sudo apt install ./kiri_VERSION_amd64.deb`, replacing `VERSION` with the downloaded version. Linux updates use a manually downloaded replacement package. Follow the [Linux guide](docs/linux.md) for GNOME portal setup, Wayland shortcuts, and platform details.
 
 For Windows without installation, download `Kiri-<version>-Windows-x64-Portable.zip`, extract it, and run `kiri.exe`. This is an extract-and-run build: Kiri still keeps its library and settings in your Windows user profile, so moving the ZIP does not move that data. The portable build opens Releases for manual ZIP updates; its in-app NSIS installer update is unavailable.
 

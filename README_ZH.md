@@ -35,7 +35,7 @@ Linux 主要面向 Ubuntu 24.04 / GNOME，并兼容 X11。Wayland 捕获目前�
 
 ## 下载与安装
 
-本 README 说明当前源码中的功能；已发布版本包含哪些功能，请查看相应更新记录。macOS Universal、Windows x64 和 Linux x64 安装包见 [GitHub Releases](https://github.com/yuxino/kiri/releases)。
+本 README 说明当前源码中的功能；已发布的安装包、各版本包含的平台和功能，请查看 [GitHub Releases](https://github.com/yuxino/kiri/releases) 及相应更新记录。
 
 从 v1.4.9 起，macOS 与 Windows 安装版的设置页支持手动检查、下载并安装经过签名验证的更新；每一步都需要你明确点击，Kiri 不会后台检查或静默安装。v1.4.8 及更早版本需要先从 Releases 手动安装一次 v1.4.9 或更新版本，之后才能使用应用内更新。
 
@@ -43,7 +43,7 @@ Linux 主要面向 Ubuntu 24.04 / GNOME，并兼容 X11。Wayland 捕获目前�
 
 - **macOS 14+**：下载 Universal `.dmg`（Apple 芯片与 Intel），把 `Kiri.app` 拖入“应用程序”。截图与录屏需要“屏幕与系统音频录制”权限；点击高亮才需要“输入监控”。麦克风录制需要 macOS 15+。
 - **Windows 11（x64）**：提供 x64 安装包，完整捕获流程的真机验收进度见[路线图](ROADMAP.md)。运行 `.exe` 安装程序；屏幕捕获不需要额外系统授权，麦克风权限由 Windows 隐私设置控制。安装程序未经过 Authenticode 签名，SmartScreen 可能提示警告。
-- **Linux（Ubuntu 24.04 x64）**：从 [Releases](https://github.com/yuxino/kiri/releases) 下载 `.deb`，再执行 `sudo apt install ./kiri_VERSION_amd64.deb`（将 `VERSION` 换为实际版本）。Linux 更新需要手动下载并安装新版软件包。GNOME portal 配置、Wayland 快捷键和平台说明见 [Linux 指南](docs/linux.md)。
+- **Linux（Ubuntu 24.04 x64）**：使用 Release 中的 `.deb` 附件；对于尚未发布的源码版本，可从对应的成功 [构建](https://github.com/yuxino/kiri/actions/workflows/build.yml) 下载 `kiri-linux-deb` artifact。若下载的是 artifact ZIP，先解压，再执行 `sudo apt install ./kiri_VERSION_amd64.deb`（将 `VERSION` 换为实际版本）。Linux 更新需要手动下载并安装新版软件包。GNOME portal 配置、Wayland 快捷键和平台说明见 [Linux 指南](docs/linux.md)。
 
 Windows 免安装使用：下载 `Kiri-<version>-Windows-x64-Portable.zip`，解压后直接运行 `kiri.exe`。此版本无需安装，但素材库和设置仍保存在 Windows 用户目录中；移动 ZIP 不会带走这些数据。绿色版的更新入口会打开 Releases，请手动下载新版 ZIP；不会运行 NSIS 安装更新。
 
