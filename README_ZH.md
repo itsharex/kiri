@@ -7,6 +7,12 @@
     · <strong>简体中文</strong>
     · <a href="README.md">English</a>
   </p>
+  <p>
+    <a href="https://github.com/yuxino/kiri/releases/latest"><img src="https://img.shields.io/github/v/release/yuxino/kiri?style=flat&amp;label=release&amp;color=555" alt="最新版本"></a>
+    <a href="https://github.com/yuxino/kiri/releases"><img src="https://img.shields.io/github/downloads/yuxino/kiri/total?style=flat&amp;label=total%20downloads&amp;color=555" alt="GitHub Release 附件累计下载次数"></a>
+    <a href="https://github.com/yuxino/kiri/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/yuxino/kiri/build.yml?branch=main&amp;event=push&amp;style=flat&amp;label=build" alt="main 分支构建状态"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/yuxino/kiri?style=flat&amp;color=555" alt="MIT 许可证"></a>
+  </p>
 </div>
 
 Kiri 支持 macOS、Windows 和 Linux。按 `⇧⌘A`（macOS）或 `Shift+Ctrl+A`（Windows / Linux X11），选择窗口或区域，即可截图、标注、识别文字或录屏。Linux Wayland 请使用「截图」按钮，或在桌面设置中将快捷键绑定到 `kiri --capture`。截图会复制到剪贴板；截图、MP4 和 GIF 保存在本地素材库。
