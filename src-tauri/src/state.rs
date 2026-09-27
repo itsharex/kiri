@@ -610,9 +610,15 @@ fn linux_recording_hides_feedback(app: &AppHandle) -> bool {
     app.try_state::<AppState>().is_some_and(|state| {
         // A caller may already own this lock. In that case omit feedback
         // rather than deadlocking or recording one of Kiri's own windows.
-        state.recording.try_lock().map(|recording| {
-            recording.configuration.is_some() && !recording.is_finalizing
-        }).unwrap_or(true)
+        state
+            .recording
+            .try_lock()
+            .map(|recording| {
+                // Finalizing begins before the capture worker has stopped. Keep
+                // feedback hidden until reset removes the configuration.
+                recording.configuration.is_some()
+            })
+            .unwrap_or(true)
     })
 }
 
@@ -622,10 +628,13 @@ fn show_completion_toast(app: &AppHandle, notice: &NoticeDto, monitor: Option<Mo
         if !gtk::is_initialized_main_thread() {
             let handle = app.clone();
             let notice = notice.clone();
-            let _ = app.run_on_main_thread(move || show_completion_toast(&handle, &notice, monitor));
+            let _ =
+                app.run_on_main_thread(move || show_completion_toast(&handle, &notice, monitor));
             return;
         }
-        if linux_recording_hides_feedback(app) { return; }
+        if linux_recording_hides_feedback(app) {
+            return;
+        }
     }
     let label = "toast";
     let window = match app.get_webview_window(label) {
@@ -707,10 +716,13 @@ pub fn show_completion_preview(
         if !gtk::is_initialized_main_thread() {
             let handle = app.clone();
             let preview = preview.clone();
-            let _ = app.run_on_main_thread(move || show_completion_preview(&handle, &preview, monitor));
+            let _ =
+                app.run_on_main_thread(move || show_completion_preview(&handle, &preview, monitor));
             return;
         }
-        if linux_recording_hides_feedback(app) { return; }
+        if linux_recording_hides_feedback(app) {
+            return;
+        }
     }
     let label = "toast";
     let asset_id = preview.asset_id.as_deref().unwrap_or_default();
@@ -1347,11 +1359,12 @@ mod tests {
         // Cancellation may abort an in-flight encoder preparation for this session.
         let token = flow.claim_startup().unwrap();
         assert!(flow.pending_start_is_current(id));
-        assert!(flow.complete_startup(token, ActiveRecording::default()).is_ok());
+        assert!(flow
+            .complete_startup(token, ActiveRecording::default())
+            .is_ok());
         // A delayed cancel must never discard an active recording.
         assert!(!flow.pending_start_is_current(id));
         flow.take_and_reset();
         assert!(!flow.pending_start_is_current(id));
     }
-
 }

@@ -21,7 +21,14 @@ impl FrameTimeline {
 
     pub(super) fn advance(&mut self, elapsed: Duration) -> Option<(Duration, Duration)> {
         let duration = elapsed.checked_sub(self.pending)?;
-        if duration < self.interval {
+        // Round into fixed frame slots rather than measuring an interval from
+        // the last accepted frame. A 30 fps source can deliver at 33, 67, 100
+        // ms after scheduling jitter; requiring another full 33.333 ms after
+        // each accepted sample would discard every other otherwise valid frame.
+        let slot = |time: Duration| {
+            (time.as_nanos() + self.interval.as_nanos() / 2) / self.interval.as_nanos()
+        };
+        if duration.is_zero() || slot(elapsed) <= slot(self.pending) {
             return None;
         }
         let previous = self.pending;
@@ -74,6 +81,19 @@ mod tests {
             timeline.finish(Duration::from_millis(1300)),
             (Duration::from_millis(1100), Duration::from_millis(200))
         );
+    }
+
+    #[test]
+    fn nominal_thirty_fps_survives_normal_delivery_jitter() {
+        let mut timeline = FrameTimeline::new(30);
+        let mut total = Duration::ZERO;
+        for millis in [33, 67, 100, 133, 167, 200] {
+            let (_, duration) = timeline
+                .advance(Duration::from_millis(millis))
+                .expect("a nominal 30 fps frame must not be dropped");
+            total += duration;
+        }
+        assert_eq!(total, Duration::from_millis(200));
     }
 
     #[test]

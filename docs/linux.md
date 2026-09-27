@@ -176,12 +176,26 @@ saved and clipboard pixels and checks restart persistence. There is no runtime
 synthetic-capture mode. `linux-native-review/report.json`, images, and logs are
 the evidence; a configured workflow alone is not a passing result.
 
+A separate GNOME Wayland CI job downloads the same run's `kiri-linux-deb`
+artifact after the Linux build succeeds. It installs the package on Ubuntu
+24.04 and runs `bash scripts/qa/linux-wayland.sh /usr/bin/kiri`. The additional
+GNOME test dependencies are listed at the top of that script. Each consent
+scenario uses a fresh HOME/XDG profile, DBus session, and headless GNOME 46
+desktop with one virtual monitor and software rendering. The harness operates
+the real portal permission dialog, checks denial and approval, then exercises
+capture cancellation, repeat capture, and the pixels of a saved screenshot.
+The `linux-wayland-review` artifact retains package identity, reports, desktop
+images, and service logs even when the check fails. This job is configured;
+passing evidence must come from its run. It does not cover recording, physical
+displays, hardware graphics, or fractional scaling.
+
 | Gate | Evidence to retain | Status boundary |
 | --- | --- | --- |
 | Rust/frontend checks | Logs for the exact commit | Required on each candidate |
 | GStreamer media tests | `linux-media-review` artifact | In-process native encoding; no ScreenCast consent proof |
 | `.deb` installation | Package SHA-256, control metadata, `ldd` output | CI install only; no public release implied |
 | X11 desktop smoke | `linux-native-review` report and screenshots | Virtual desktop; no GNOME Wayland proof |
+| GNOME Wayland portal smoke | `linux-wayland-review` reports and screenshots | Virtual GNOME screenshot flow; no recording, hardware, or scaling proof |
 | GNOME Wayland desktop | Exact installed package, display/scale, portal actions, sample exports | Pending manual acceptance |
 | Ubuntu X11 hardware | Exact installed package and screenshot/recording samples | Pending manual acceptance |
 

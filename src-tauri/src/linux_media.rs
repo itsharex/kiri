@@ -393,7 +393,8 @@ fn pump_capture_frames(
     pipeline
         .set_state(gstreamer::State::Playing)
         .context("Could not start Linux screen capture")?;
-    let mut last_frame = None::<Instant>;
+    let mut first_frame_at = None::<Instant>;
+    let mut frame_schedule = FrameTimeline::new(RecordingPolicy::FRAMES_PER_SECOND);
     let first_frame_deadline = Instant::now() + Duration::from_secs(15);
     let mut dropped = 0u64;
     while !stop.load(Ordering::Acquire) {
@@ -402,7 +403,7 @@ fn pump_capture_frames(
             if sink.is_eos() {
                 bail!("The screen sharing session ended unexpectedly.");
             }
-            if last_frame.is_none() && Instant::now() >= first_frame_deadline {
+            if first_frame_at.is_none() && Instant::now() >= first_frame_deadline {
                 bail!("The screen sharing session did not deliver a video frame.");
             }
             continue;
@@ -416,17 +417,16 @@ fn pump_capture_frames(
             bail!("The shared display size changed or differs from the screenshot; recording was stopped to avoid capturing the wrong region.");
         }
         let now = Instant::now();
-        if last_frame.is_some_and(|last| {
-            now.duration_since(last)
-                < Duration::from_nanos(
-                    1_000_000_000 / u64::from(RecordingPolicy::FRAMES_PER_SECOND),
-                )
-        }) {
+        if first_frame_at
+            .is_some_and(|origin| frame_schedule.advance(now.duration_since(origin)).is_none())
+        {
             continue;
         }
         let pixels = packed_sample_pixels(&sample, crop)?;
         match video_tx.try_send(pixels) {
-            Ok(()) => last_frame = Some(now),
+            Ok(()) => {
+                first_frame_at.get_or_insert(now);
+            }
             Err(mpsc::TrySendError::Full(_)) => {
                 dropped += 1;
                 if dropped == 1 || dropped.is_multiple_of(120) {
@@ -618,13 +618,16 @@ impl PreparedEncoder {
             .checked_mul(2)
             .ok_or_else(|| anyhow!("The encoder queue dimensions overflow."))?;
         let fps = config.fps;
+        // x264enc already produces complete AVC access units and codec_data.
+        // h264parse would clear their explicit duration in GstBaseParse and
+        // replace it with 1/fps, truncating a static recording's final frame.
         let pipeline = pipeline(
             &format!(
                 "appsrc name=src is-live=true format=time do-timestamp=false \
              caps=video/x-raw,format=BGRA,width={width},height={height},framerate={fps}/1 ! \
              videoconvert ! video/x-raw,format=I420 ! \
              x264enc tune=zerolatency speed-preset=superfast bitrate={} key-int-max={} ! \
-             video/x-h264,profile=baseline ! h264parse ! mp4mux ! filesink name=output",
+             video/x-h264,profile=baseline,stream-format=avc,alignment=au ! mp4mux ! filesink name=output",
                 bitrate / 1000,
                 fps * 2,
             ),
@@ -833,14 +836,16 @@ pub fn merge_segments(segments: &[PathBuf], out_path: &Path) -> Result<()> {
     if segments.len() == 1 {
         std::fs::copy(&segments[0], output.path()).context("Could not stage the recording")?;
     } else {
-        // concat adjusts segment running times. Re-mux its parsed H.264 output
-        // into a new MP4; writing the elementary stream directly is not MP4.
+        // qtdemux already supplies AVC access units, codec_data and exact MP4
+        // sample durations. Preserve these through concat, including the last
+        // held frame; another h264parse would replace its duration with 1/fps.
+        // concat adjusts segment running times before the fresh MP4 container.
         let mut description = String::from(
-            "concat name=c adjust-base=true ! h264parse ! video/x-h264,stream-format=avc,alignment=au ! mp4mux ! filesink name=output"
+            "concat name=c adjust-base=true ! video/x-h264,stream-format=avc,alignment=au ! mp4mux ! filesink name=output"
         );
         for index in 0..segments.len() {
             description.push_str(&format!(
-                " filesrc name=input_{index} ! qtdemux ! h264parse ! video/x-h264,stream-format=avc,alignment=au ! \
+                " filesrc name=input_{index} ! qtdemux ! video/x-h264,stream-format=avc,alignment=au ! \
                  queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! c.sink_{index}"
             ));
         }
@@ -1029,6 +1034,49 @@ mod tests {
     use super::*;
     use image::AnimationDecoder;
 
+    /// Copy only this test's isolated fixtures before TempDir drops, including
+    /// during an assertion panic. A failed native check must leave evidence.
+    struct ReviewArtifacts {
+        source: PathBuf,
+        name: &'static str,
+    }
+
+    impl ReviewArtifacts {
+        fn new(source: &Path, name: &'static str) -> Self {
+            Self {
+                source: source.to_owned(),
+                name,
+            }
+        }
+    }
+
+    impl Drop for ReviewArtifacts {
+        fn drop(&mut self) {
+            let Some(root) = std::env::var_os("KIRI_LINUX_MEDIA_QA_DIR") else {
+                return;
+            };
+            let destination = PathBuf::from(root).join(self.name);
+            if std::fs::create_dir_all(&destination).is_err() {
+                return;
+            }
+            let _ = std::fs::write(
+                destination.join("test-status.txt"),
+                if std::thread::panicking() {
+                    "failed\n"
+                } else {
+                    "passed\n"
+                },
+            );
+            if let Ok(entries) = std::fs::read_dir(&self.source) {
+                for entry in entries.flatten() {
+                    if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                        let _ = std::fs::copy(entry.path(), destination.join(entry.file_name()));
+                    }
+                }
+            }
+        }
+    }
+
     fn display() -> DisplayIdentity {
         DisplayIdentity {
             device_name: "test-display".into(),
@@ -1139,13 +1187,14 @@ mod tests {
             )
             .unwrap();
         encoder.appsrc.end_of_stream().unwrap();
-        wait_for_eos(&encoder.bus, FINALIZE_TIMEOUT, "Fixture encoding").unwrap();
+        let finalized = wait_for_eos(&encoder.bus, FINALIZE_TIMEOUT, "Fixture encoding");
         let PreparedEncoder {
             pipeline, output, ..
         } = encoder;
         drop(pipeline);
-        validate_recording(output.path(), Some((64, 48))).unwrap();
         output.persist_noclobber(path).unwrap();
+        finalized.unwrap();
+        validate_recording(path, Some((64, 48))).unwrap();
     }
 
     fn decoded_colors(video: &Path) -> Vec<[u8; 3]> {
@@ -1181,15 +1230,34 @@ mod tests {
     #[test]
     fn native_mp4_segments_keep_timing_and_merge() {
         let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "segments");
         let first = temp.path().join("first.mp4");
         let second = temp.path().join("second.mp4");
         let merged = temp.path().join("merged.mp4");
         fixture(&first, [0, 0, 255, 255], 400);
         fixture(&second, [255, 0, 0, 255], 600);
-        assert!((validate_recording(&first, Some((64, 48))).unwrap().2 - 0.4).abs() < 0.03);
-        assert!((validate_recording(&second, Some((64, 48))).unwrap().2 - 0.6).abs() < 0.03);
+        let first_duration = validate_recording(&first, Some((64, 48))).unwrap().2;
+        let second_duration = validate_recording(&second, Some((64, 48))).unwrap().2;
+        std::fs::write(
+            temp.path().join("segment-durations.txt"),
+            format!("first={first_duration}\nsecond={second_duration}\n"),
+        )
+        .unwrap();
+        assert!(
+            (first_duration - 0.4).abs() < 0.03,
+            "First segment duration was {first_duration}"
+        );
+        assert!(
+            (second_duration - 0.6).abs() < 0.03,
+            "Second segment duration was {second_duration}"
+        );
         merge_segments(&[first.clone(), second.clone()], &merged).unwrap();
         let duration = validate_recording(&merged, Some((64, 48))).unwrap().2;
+        std::fs::write(
+            temp.path().join("merged-duration.txt"),
+            format!("{duration}\n"),
+        )
+        .unwrap();
         assert!(
             (duration - 1.0).abs() < 0.05,
             "Merged duration was {duration}"
@@ -1207,14 +1275,17 @@ mod tests {
             colors[1]
         );
         let thumbnail = video_first_frame_png(&merged, 32).unwrap();
+        std::fs::write(temp.path().join("first-frame.png"), &thumbnail).unwrap();
         let image = image::load_from_memory(&thumbnail).unwrap();
         assert_eq!((image.width(), image.height()), (32, 24));
         let pixel = image.to_rgb8().get_pixel(0, 0).0;
         assert!(pixel[0] > 220 && pixel[2] < 30);
         let (gif, width, height, _) = export_gif(&merged, 32, 12).unwrap();
+        let staged_gif = temp.path().join("merged.gif");
+        std::fs::rename(gif, &staged_gif).unwrap();
         assert_eq!((width, height), (32, 24));
         let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
-            std::fs::File::open(&gif).unwrap(),
+            std::fs::File::open(&staged_gif).unwrap(),
         ))
         .unwrap();
         let frames = decoder.into_frames().collect_frames().unwrap();
@@ -1223,26 +1294,13 @@ mod tests {
             "Expected one second of GIF frames, got {}",
             frames.len()
         );
-        if let Some(directory) = std::env::var_os("KIRI_LINUX_MEDIA_QA_DIR") {
-            let directory = PathBuf::from(directory);
-            std::fs::create_dir_all(&directory).unwrap();
-            for (path, name) in [
-                (&first, "first.mp4"),
-                (&second, "second.mp4"),
-                (&merged, "merged.mp4"),
-                (&gif, "merged.gif"),
-            ] {
-                std::fs::copy(path, directory.join(name)).unwrap();
-            }
-            std::fs::write(directory.join("first-frame.png"), thumbnail).unwrap();
-            std::fs::write(directory.join("metadata.txt"), format!("width=64\nheight=48\nduration={duration}\nsegment_colors={colors:?}\ngif_frames={}\n", frames.len())).unwrap();
-        }
-        std::fs::remove_file(gif).unwrap();
+        std::fs::write(temp.path().join("metadata.txt"), format!("width=64\nheight=48\nduration={duration}\nsegment_colors={colors:?}\ngif_frames={}\n", frames.len())).unwrap();
     }
 
     #[test]
     fn native_encoder_preserves_static_screen_time_and_rejects_partial_output() {
         let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "static-screen");
         let output = temp.path().join("static.mp4");
         let (tx, rx) = mpsc::sync_channel(2);
         let encoder =
@@ -1277,6 +1335,7 @@ mod tests {
     #[test]
     fn merge_failure_keeps_original_segments_and_existing_destination() {
         let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "merge-failure");
         let first = temp.path().join("first.mp4");
         fixture(&first, [0, 0, 255, 255], 400);
         let bytes = std::fs::read(&first).unwrap();

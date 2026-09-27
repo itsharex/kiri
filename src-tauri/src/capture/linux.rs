@@ -64,9 +64,7 @@ pub fn capture_active_display() -> Result<CapturedDisplay> {
         });
     if let Err(error) = worker {
         FROZEN_CAPTURE_WORKER_ACTIVE.store(false, Ordering::Release);
-        return Err(anyhow!(
-            "Could not start the Linux capture worker: {error}"
-        ));
+        return Err(anyhow!("Could not start the Linux capture worker: {error}"));
     }
 
     match receiver.recv() {
@@ -86,47 +84,82 @@ fn capture_x11_display() -> Result<CapturedDisplay> {
     use x11rb::connection::Connection;
     use x11rb::protocol::xproto::ConnectionExt;
     let (connection, screen) = x11rb::connect(None)?;
-    let pointer = connection.query_pointer(connection.setup().roots[screen].root)?.reply()?;
+    let pointer = connection
+        .query_pointer(connection.setup().roots[screen].root)?
+        .reply()?;
     let monitor = xcap::Monitor::from_point(i32::from(pointer.root_x), i32::from(pointer.root_y))?;
     let image = monitor.capture_image()?;
     let (width, height) = image.dimensions();
     let scale = f64::from(monitor.scale_factor().unwrap_or(1.0)).max(1.0);
     let (x, y) = (monitor.x()?, monitor.y()?);
     let mut png = Vec::new();
-    image::codecs::png::PngEncoder::new_with_quality(&mut png,
-        image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::Adaptive)
-        .write_image(image.as_raw(), width, height, image::ExtendedColorType::Rgba8)?;
-    let frame = Rect::new(f64::from(x) / scale, f64::from(y) / scale,
-        f64::from(width) / scale, f64::from(height) / scale);
-    let window_rects = xcap::Window::all().unwrap_or_default().into_iter()
-        .filter(|window| window.pid().ok() != Some(std::process::id())
-            && !window.is_minimized().unwrap_or(true))
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut png,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    )
+    .write_image(
+        image.as_raw(),
+        width,
+        height,
+        image::ExtendedColorType::Rgba8,
+    )?;
+    let frame = Rect::new(
+        f64::from(x) / scale,
+        f64::from(y) / scale,
+        f64::from(width) / scale,
+        f64::from(height) / scale,
+    );
+    let window_rects = xcap::Window::all()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|window| {
+            window.pid().ok() != Some(std::process::id()) && !window.is_minimized().unwrap_or(true)
+        })
         .filter_map(|window| {
-            let rect = Rect::new(f64::from(window.x().ok()? - x) / scale,
+            let rect = Rect::new(
+                f64::from(window.x().ok()? - x) / scale,
                 f64::from(window.y().ok()? - y) / scale,
                 f64::from(window.width().ok()?) / scale,
-                f64::from(window.height().ok()?) / scale);
+                f64::from(window.height().ok()?) / scale,
+            );
             (rect.width > 0.0 && rect.height > 0.0).then_some(rect)
-        }).collect();
+        })
+        .collect();
     Ok(CapturedDisplay {
-        png_data: png.into(), pixel_width: i64::from(width), pixel_height: i64::from(height),
-        screen_frame: frame, backing_scale: scale, display_id: monitor.id()?, window_rects,
-        display_identity: Some(DisplayIdentity { device_name: monitor.name()?, physical_x: x,
-            physical_y: y, physical_width: width, physical_height: height, scale_factor: scale }),
+        png_data: png.into(),
+        pixel_width: i64::from(width),
+        pixel_height: i64::from(height),
+        screen_frame: frame,
+        backing_scale: scale,
+        display_id: monitor.id()?,
+        window_rects,
+        display_identity: Some(DisplayIdentity {
+            device_name: monitor.name()?,
+            physical_x: x,
+            physical_y: y,
+            physical_width: width,
+            physical_height: height,
+            scale_factor: scale,
+        }),
     })
 }
 
 fn capture_active_display_inner() -> Result<CapturedDisplay> {
-    if !is_wayland() { return capture_x11_display(); }
+    if !is_wayland() {
+        return capture_x11_display();
+    }
     let started = Instant::now();
     let png_bytes = capture_frozen_png()?;
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(&png_bytes)).with_guessed_format()?;
+    let mut reader =
+        image::ImageReader::new(std::io::Cursor::new(&png_bytes)).with_guessed_format()?;
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(256 * 1024 * 1024);
     limits.max_image_width = Some(16384);
     limits.max_image_height = Some(16384);
     reader.limits(limits);
-    let image = reader.decode()
+    let image = reader
+        .decode()
         .map_err(|error| anyhow!("The captured screenshot is not a valid image: {error}"))?;
     let pixel_width = i64::from(image.width());
     let pixel_height = i64::from(image.height());
@@ -156,8 +189,11 @@ fn capture_active_display_inner() -> Result<CapturedDisplay> {
         window_rects: Vec::new(),
         display_id: 1,
         display_identity: Some(DisplayIdentity {
-            device_name: "wayland-portal".into(), physical_x: 0, physical_y: 0,
-            physical_width: pixel_width as u32, physical_height: pixel_height as u32,
+            device_name: "wayland-portal".into(),
+            physical_x: 0,
+            physical_y: 0,
+            physical_width: pixel_width as u32,
+            physical_height: pixel_height as u32,
             scale_factor: backing_scale,
         }),
         backing_scale,
@@ -174,7 +210,9 @@ fn capture_frozen_png() -> Result<Vec<u8>> {
             return Ok(png_bytes);
         }
         Err(error) => {
-            log::info!("Linux frozen capture: grim unavailable ({error}); trying Screenshot portal");
+            log::info!(
+                "Linux frozen capture: grim unavailable ({error}); trying Screenshot portal"
+            );
         }
     }
     capture_portal_png()
@@ -184,8 +222,7 @@ fn capture_frozen_png() -> Result<Vec<u8>> {
 /// On Hyprland, prefer the focused output so the PNG matches one display
 /// (full-desktop grim spans every monitor and breaks overlay geometry).
 fn try_grim_screenshot() -> Result<Vec<u8>> {
-    if std::env::var_os("WAYLAND_DISPLAY").is_none()
-        && std::env::var_os("WAYLAND_SOCKET").is_none()
+    if std::env::var_os("WAYLAND_DISPLAY").is_none() && std::env::var_os("WAYLAND_SOCKET").is_none()
     {
         bail!("no Wayland display");
     }
@@ -201,11 +238,7 @@ fn try_grim_screenshot() -> Result<Vec<u8>> {
         .map_err(|error| anyhow!("grim could not be started: {error}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "grim exited with {}: {}",
-            output.status,
-            stderr.trim()
-        );
+        bail!("grim exited with {}: {}", output.status, stderr.trim());
     }
     if output.stdout.is_empty() {
         bail!("grim returned an empty screenshot");
@@ -239,12 +272,16 @@ fn hyprland_focused_monitor() -> Option<HyprlandMonitor> {
         return None;
     }
     let monitors: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    let monitor = monitors.as_array()?.iter().find(|monitor| {
-        monitor.get("focused").and_then(|value| value.as_bool()) == Some(true)
-    })?;
+    let monitor = monitors
+        .as_array()?
+        .iter()
+        .find(|monitor| monitor.get("focused").and_then(|value| value.as_bool()) == Some(true))?;
     Some(HyprlandMonitor {
         name: monitor.get("name")?.as_str()?.to_owned(),
-        width: monitor.get("width")?.as_f64().or_else(|| monitor.get("width")?.as_i64().map(|v| v as f64))?,
+        width: monitor
+            .get("width")?
+            .as_f64()
+            .or_else(|| monitor.get("width")?.as_i64().map(|v| v as f64))?,
         height: monitor
             .get("height")?
             .as_f64()
@@ -307,7 +344,8 @@ fn capture_portal_png() -> Result<Vec<u8>> {
         )
     })?;
     let mut png_bytes = Vec::new();
-    file.take(MAX_SCREENSHOT_BYTES + 1).read_to_end(&mut png_bytes)
+    file.take(MAX_SCREENSHOT_BYTES + 1)
+        .read_to_end(&mut png_bytes)
         .map_err(|error| anyhow!("The portal screenshot could not be read: {error}"))?;
     if png_bytes.len() as u64 > MAX_SCREENSHOT_BYTES {
         bail!("The portal screenshot is too large.");
@@ -319,8 +357,13 @@ fn capture_portal_png() -> Result<Vec<u8>> {
 async fn request_portal_screenshot() -> Result<url::Url> {
     // One user-visible authorization request; cancellation must not open a
     // second dialog. Allow time to read and answer the desktop's prompt.
-    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot(false)).await
-        .map_err(|_| anyhow!("Screen capture authorization timed out. Cancel the desktop dialog and try again."))?
+    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot(false))
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "Screen capture authorization timed out. Cancel the desktop dialog and try again."
+            )
+        })?
         .map_err(|error| anyhow!("Screen capture was cancelled or denied: {error}"))
 }
 
@@ -336,7 +379,10 @@ async fn take_screenshot(interactive: bool) -> Result<url::Url, ashpd::Error> {
 
 fn portal_uri_to_path(uri: &url::Url) -> Result<PathBuf> {
     if uri.scheme() != "file" {
-        bail!("The portal returned an unsupported screenshot URI scheme ({}).", uri.scheme());
+        bail!(
+            "The portal returned an unsupported screenshot URI scheme ({}).",
+            uri.scheme()
+        );
     }
     let path = uri
         .to_file_path()
@@ -354,10 +400,7 @@ pub(crate) struct LinuxMonitorHint {
     pub scale: f64,
 }
 
-pub(crate) fn apply_overlay_geometry(
-    display: &mut CapturedDisplay,
-    monitors: &[LinuxMonitorHint],
-) {
+pub(crate) fn apply_overlay_geometry(display: &mut CapturedDisplay, monitors: &[LinuxMonitorHint]) {
     let (backing_scale, screen_frame) =
         overlay_geometry_for_capture(display.pixel_width, display.pixel_height, monitors);
     display.backing_scale = backing_scale;
@@ -386,18 +429,16 @@ fn overlay_geometry_for_capture(
     let pixel_height = pixel_height as f64;
     let mut best: Option<(f64, f64, Rect)> = None;
 
-    let consider = |best: &mut Option<(f64, f64, Rect)>,
-                    mismatch: f64,
-                    scale: f64,
-                    logical: Rect| {
-        let better = match *best {
-            None => true,
-            Some((best_mismatch, _, _)) => mismatch < best_mismatch,
+    let consider =
+        |best: &mut Option<(f64, f64, Rect)>, mismatch: f64, scale: f64, logical: Rect| {
+            let better = match *best {
+                None => true,
+                Some((best_mismatch, _, _)) => mismatch < best_mismatch,
+            };
+            if better {
+                *best = Some((mismatch, scale.max(1.0), logical));
+            }
         };
-        if better {
-            *best = Some((mismatch, scale.max(1.0), logical));
-        }
-    };
 
     for monitor in monitors {
         let scale = monitor.scale.max(1.0);
@@ -585,6 +626,7 @@ fn inferred_desktop_scale(monitors: &[LinuxMonitorHint]) -> f64 {
 /// Options mirrored from the shared recording configuration surface.
 pub struct LinuxRecorder {
     stop_flag: Arc<AtomicBool>,
+    health: Arc<super::CaptureHealth>,
     worker: Option<std::thread::JoinHandle<Result<()>>>,
 }
 
@@ -602,14 +644,41 @@ impl LinuxRecorder {
         let shows_cursor = options.shows_cursor;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_for_worker = Arc::clone(&stop_flag);
+        Self::spawn_worker(stop_flag, move || {
+            run_screencast_session(
+                display,
+                region,
+                backing_scale,
+                shows_cursor,
+                video_tx,
+                stop_for_worker,
+            )
+        })
+    }
+
+    fn spawn_worker(
+        stop_flag: Arc<AtomicBool>,
+        capture: impl FnOnce() -> Result<()> + Send + 'static,
+    ) -> Result<Self> {
+        let health = Arc::new(super::CaptureHealth::default());
+        let worker_health = Arc::clone(&health);
         let worker = std::thread::Builder::new()
             .name("kiri-linux-recorder".into())
             .spawn(move || {
-                run_screencast_session(display, region, backing_scale, shows_cursor, video_tx, stop_for_worker)
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(capture))
+                    .unwrap_or_else(|_| Err(anyhow!("The Linux recorder worker panicked.")));
+                let message = result
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "The Linux capture stream ended unexpectedly.".into());
+                worker_health.report_unexpected_stop(message);
+                result
             })
             .map_err(|error| anyhow!("Could not start the Linux recorder: {error}"))?;
         Ok(Self {
             stop_flag,
+            health,
             worker: Some(worker),
         })
     }
@@ -624,16 +693,61 @@ impl LinuxRecorder {
 }
 
 impl PlatformRecorder for LinuxRecorder {
+    fn unexpected_failure(&self) -> Option<String> {
+        self.health.unexpected_failure()
+    }
+
     fn stop(&mut self) -> Result<()> {
+        self.health.begin_expected_stop();
         self.stop_flag.store(true, Ordering::Release);
         if let Some(worker) = self.worker.take() {
             match worker.join() {
-                Ok(result) => result,
+                Ok(result) => result?,
                 Err(_) => bail!("The Linux recorder worker panicked."),
             }
-        } else {
-            Ok(())
         }
+        if let Some(error) = self.health.unexpected_failure() {
+            bail!(error);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod recorder_failure_tests {
+    use super::*;
+
+    #[test]
+    fn portal_failure_is_visible_before_an_explicit_stop() {
+        let mut recorder = LinuxRecorder::spawn_worker(Arc::new(AtomicBool::new(false)), || {
+            bail!("Screen sharing was denied.")
+        })
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !recorder.worker.as_ref().unwrap().is_finished() {
+            assert!(Instant::now() < deadline, "capture worker did not finish");
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            recorder.unexpected_failure().as_deref(),
+            Some("Screen sharing was denied.")
+        );
+        assert!(recorder.stop().is_err());
+    }
+
+    #[test]
+    fn user_stop_does_not_report_an_unexpected_capture_failure() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let capture_stop = Arc::clone(&stop);
+        let mut recorder = LinuxRecorder::spawn_worker(stop, move || {
+            while !capture_stop.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            Ok(())
+        })
+        .unwrap();
+        recorder.stop().unwrap();
+        assert!(recorder.unexpected_failure().is_none());
     }
 }
 
@@ -670,8 +784,12 @@ mod overlay_geometry_tests {
     #[test]
     fn hyprland_scaled_secondary_origin_is_already_logical() {
         let monitor = super::HyprlandMonitor {
-            name: "DP-2".into(), width: 2560.0, height: 1440.0,
-            scale: 2.0, x: 1920.0, y: -180.0,
+            name: "DP-2".into(),
+            width: 2560.0,
+            height: 1440.0,
+            scale: 2.0,
+            x: 1920.0,
+            y: -180.0,
         };
         let hint = super::hyprland_monitor_hint(&monitor);
         let (scale, frame) = overlay_geometry_for_capture(2560, 1440, &[hint]);

@@ -144,6 +144,14 @@ fn logical_monitor_frame(x: i32, y: i32, width: u32, height: u32, scale: f64) ->
 pub trait PlatformRecorder: Send {
     fn stop(&mut self) -> anyhow::Result<()>;
 
+    /// Portal and pipeline failures arrive after Linux capture was requested.
+    /// The session clock observes them so a denied request cannot leave the
+    /// application stuck in recording mode until the user stops it manually.
+    #[cfg(target_os = "linux")]
+    fn unexpected_failure(&self) -> Option<String> {
+        None
+    }
+
     /// Windows keeps one Media Foundation encoder open while capture is
     /// paused so resuming never requires segment concatenation.
     fn pause(&mut self) -> anyhow::Result<()> {

@@ -70,7 +70,7 @@ jobs:
         with:
           workspaces: src-tauri
           cache-on-failure: true
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -154,6 +154,49 @@ jobs:
           path: src-tauri/target/release/bundle/deb/*.deb
           retention-days: 5
           if-no-files-found: error
+
+  test-linux-wayland:
+    name: GNOME Wayland portal checks (Ubuntu 24.04)
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      KIRI_LINUX_WAYLAND_QA_DIR: ${{ runner.temp }}/kiri-linux-wayland-review
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: kiri-linux-deb
+          path: ${{ runner.temp }}/kiri-linux-deb
+      - name: Install the candidate and GNOME desktop-test dependencies
+        env:
+          KIRI_LINUX_DEB_DIR: ${{ runner.temp }}/kiri-linux-deb
+        run: |
+          packages=("$KIRI_LINUX_DEB_DIR"/*.deb)
+          test "${#packages[@]}" -eq 1
+          test -f "${packages[0]}"
+          mkdir -p "$KIRI_LINUX_WAYLAND_QA_DIR"
+          dpkg-deb --info "${packages[0]}" > "$KIRI_LINUX_WAYLAND_QA_DIR/package-info.txt"
+          sha256sum "${packages[0]}" > "$KIRI_LINUX_WAYLAND_QA_DIR/package-sha256.txt"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            "${packages[0]}" \
+            gnome-shell gnome-settings-daemon \
+            xdg-desktop-portal xdg-desktop-portal-gnome pipewire wireplumber \
+            libgl1-mesa-dri libegl-mesa0 dbus-x11 at-spi2-core python3-pyatspi \
+            python3-gi python3-pil gir1.2-gtk-3.0 gir1.2-gstreamer-1.0 \
+            gir1.2-gst-plugins-base-1.0 gstreamer1.0-pipewire
+          test -x /usr/bin/kiri
+      - name: Exercise screenshot consent on an isolated GNOME Wayland desktop
+        timeout-minutes: 8
+        run: bash scripts/qa/linux-wayland.sh /usr/bin/kiri
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-wayland-review
+          path: ${{ runner.temp }}/kiri-linux-wayland-review/
+          retention-days: 5
+          if-no-files-found: warn
 
   build-macos:
     name: Compile macOS app (${{ matrix.arch }})

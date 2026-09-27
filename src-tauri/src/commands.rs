@@ -176,7 +176,11 @@ pub fn list_assets(
     let mut context = state.library.lock().unwrap();
     let library = context.library().map_err(|error| error.to_string())?;
     let assets = library.search(&query, showing_trash);
-    Ok(assets.iter().filter(|asset| showing_trash || asset.ocr_text.is_none()).map(asset_dto).collect())
+    Ok(assets
+        .iter()
+        .filter(|asset| showing_trash || asset.ocr_text.is_none())
+        .map(asset_dto)
+        .collect())
 }
 
 fn with_asset_mutation(
@@ -424,7 +428,10 @@ pub fn open_asset(app: AppHandle, id: String) -> Result<(), String> {
     let win_h = 640.0f64;
     let win_w = (win_h * aspect).clamp(360.0, 1200.0);
     let asset_id = asset.id;
-    let window_title = format!("{} — Kiri", asset.title.as_deref().unwrap_or(&asset.filename));
+    let window_title = format!(
+        "{} — Kiri",
+        asset.title.as_deref().unwrap_or(&asset.filename)
+    );
     std::thread::Builder::new()
         .name("kiri-open-viewer".into())
         .spawn(move || {
@@ -1697,21 +1704,15 @@ pub fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
         display.backing_scale
     );
 
-    finish_frozen_capture(
-        &app,
-        display,
-        pid,
-        name,
-        was_kiri_frontmost,
-        hidden_windows,
-    )
+    finish_frozen_capture(&app, display, pid, name, was_kiri_frontmost, hidden_windows)
 }
 
 #[cfg(target_os = "linux")]
 #[tauri::command]
 pub async fn start_capture(app: AppHandle) -> Result<CaptureContextDto, String> {
     tauri::async_runtime::spawn_blocking(move || start_linux_capture_from_shortcut(app))
-        .await.map_err(|error| error.to_string())?
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[cfg(target_os = "linux")]
@@ -1725,13 +1726,17 @@ struct LinuxCapturePrep {
 /// Freeze the display on a worker thread, then create GTK windows on the
 /// main thread. Running `start_capture` entirely off-thread panics tao.
 #[cfg(target_os = "linux")]
-pub(crate) fn start_linux_capture_from_shortcut(app: AppHandle) -> Result<CaptureContextDto, String> {
+pub(crate) fn start_linux_capture_from_shortcut(
+    app: AppHandle,
+) -> Result<CaptureContextDto, String> {
     log::info!("start_linux_capture_from_shortcut: beginning capture flow");
     let state = app.state::<AppState>();
     if let Some(session) = state.capture.lock().unwrap().session.as_ref() {
         return Ok(capture_context(session));
     }
-    let _start_permit = state.capture_start.try_begin()
+    let _start_permit = state
+        .capture_start
+        .try_begin()
         .ok_or("Screen capture is already starting.")?;
 
     let prep = linux_run_on_main(&app, {
@@ -1785,7 +1790,9 @@ where
 
 #[cfg(target_os = "linux")]
 fn linux_capture_preflight(app: &AppHandle) -> Result<LinuxCapturePrep, String> {
-    if crate::capture::linux::is_wayland() && app.available_monitors().map_err(|e| e.to_string())?.len() != 1 {
+    if crate::capture::linux::is_wayland()
+        && app.available_monitors().map_err(|e| e.to_string())?.len() != 1
+    {
         return Err("Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.".into());
     }
     let state = app.state::<AppState>();
@@ -1830,14 +1837,14 @@ fn linux_capture_commit(
     let state = app.state::<AppState>();
     let _transition = state.library_transition.lock().unwrap();
     // A library move can finish while the portal permission dialog is open.
-    state.library.lock().unwrap().library().map_err(|error| error.to_string())?;
+    state
+        .library
+        .lock()
+        .unwrap()
+        .library()
+        .map_err(|error| error.to_string())?;
     if state.capture.lock().unwrap().session.is_some() {
-        restore_capture_origin(
-            app,
-            &prep.hidden_windows,
-            prep.was_kiri_frontmost,
-            prep.pid,
-        );
+        restore_capture_origin(app, &prep.hidden_windows, prep.was_kiri_frontmost, prep.pid);
         return Err("Screen capture is already starting.".into());
     }
     let mut display = display;
@@ -3363,7 +3370,10 @@ fn create_countdown_window(
         return Err(error.to_string());
     }
     #[cfg(target_os = "linux")]
-    platform::configure_transient_window(&window, platform::TransientWindowRole::RecordingCountdown);
+    platform::configure_transient_window(
+        &window,
+        platform::TransientWindowRole::RecordingCountdown,
+    );
     Ok(())
 }
 
@@ -3385,11 +3395,15 @@ pub async fn recording_countdown_ready(
         recording.configuration.clone().unwrap()
     };
     platform::place_transient_window(
-        &window, configuration.screen_frame, configuration.backing_scale,
-    ).map_err(|error| error.to_string())?;
+        &window,
+        configuration.screen_frame,
+        configuration.backing_scale,
+    )
+    .map_err(|error| error.to_string())?;
     platform::set_window_capture_excluded(&app, "countdown", true);
     platform::configure_transient_window(
-        &window, platform::TransientWindowRole::RecordingCountdown,
+        &window,
+        platform::TransientWindowRole::RecordingCountdown,
     );
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
@@ -3404,10 +3418,7 @@ pub fn get_recording_state(app: AppHandle) -> crate::state::RecordingStateDto {
 }
 
 #[tauri::command]
-pub async fn cancel_recording_flow(
-    app: AppHandle,
-    session_id: uuid::Uuid,
-) -> Result<(), String> {
+pub async fn cancel_recording_flow(app: AppHandle, session_id: uuid::Uuid) -> Result<(), String> {
     let abandoned = {
         let state = app.state::<AppState>();
         let mut recording = state.recording.lock().unwrap();
@@ -3749,7 +3760,9 @@ fn start_recorder(
     #[cfg(target_os = "linux")]
     {
         let recorder = crate::capture::linux::LinuxRecorder::start(
-            configuration.display_identity.clone()
+            configuration
+                .display_identity
+                .clone()
                 .ok_or("The captured Linux display could not be identified.")?,
             configuration.region,
             configuration.backing_scale,
@@ -3885,6 +3898,10 @@ fn spawn_recording_clock(app: &AppHandle, session_id: uuid::Uuid) {
     let handle = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_millis(250));
+        #[cfg(target_os = "linux")]
+        if let Err(error) = stop_failed_linux_recording(&handle, session_id) {
+            log::error!("recording: failed Linux session cleanup: {error}");
+        }
         let should_continue = {
             let state = handle.state::<AppState>();
             let recording = state.recording.lock().unwrap();
@@ -4316,11 +4333,29 @@ pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
-    log::info!("stop_recording: called");
+    stop_recording_session(app, None)
+}
+
+#[cfg(target_os = "linux")]
+fn stop_failed_linux_recording(app: &AppHandle, session_id: uuid::Uuid) -> Result<(), String> {
+    stop_recording_session(app.clone(), Some(session_id))
+}
+
+fn stop_recording_session(
+    app: AppHandle,
+    failed_session: Option<uuid::Uuid>,
+) -> Result<(), String> {
+    if failed_session.is_none() {
+        log::info!("stop_recording: called");
+    }
     let abandoned_startup = {
         let state = app.state::<AppState>();
         let mut recording = state.recording.lock().unwrap();
-        if recording.is_starting && !recording.is_recording && !recording.is_paused {
+        if failed_session.is_none()
+            && recording.is_starting
+            && !recording.is_recording
+            && !recording.is_paused
+        {
             let abandoned = recording.take_and_reset();
             emit_recording_state(&app, &recording);
             Some(abandoned)
@@ -4346,6 +4381,18 @@ pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
     ) = {
         let state = app.state::<AppState>();
         let mut recording = state.recording.lock().unwrap();
+        #[cfg(target_os = "linux")]
+        if let Some(expected_session) = failed_session {
+            if recording.session_id != expected_session
+                || !recording
+                    .active
+                    .as_ref()
+                    .and_then(|active| active.recorder.as_ref())
+                    .is_some_and(|recorder| recorder.unexpected_failure().is_some())
+            {
+                return Ok(());
+            }
+        }
         if !(recording.is_recording || recording.is_paused) || recording.is_transitioning {
             return Ok(());
         }
@@ -4459,6 +4506,13 @@ pub async fn stop_recording(app: AppHandle) -> Result<(), String> {
                         .to_string()
                 }
             };
+            #[cfg(target_os = "linux")]
+            emit_notice_on_monitor(
+                &handle,
+                message.clone(),
+                "exclamationmark.triangle.fill".into(),
+                completion_monitor,
+            );
             emit_error(&handle, message, None);
         } else {
             let completion_id = uuid::Uuid::new_v4().to_string();
@@ -4995,7 +5049,10 @@ fn shortcut_status(
 ) -> ShortcutStatusDto {
     #[cfg(target_os = "linux")]
     if crate::capture::linux::is_wayland() {
-        return ShortcutStatusDto { label: "kiri --capture".into(), status: ShortcutRegistrationStatus::SystemManaged };
+        return ShortcutStatusDto {
+            label: "kiri --capture".into(),
+            status: ShortcutRegistrationStatus::SystemManaged,
+        };
     }
     ShortcutStatusDto {
         label: crate::shortcut_settings::label(binding),
@@ -5114,10 +5171,11 @@ mod command_security_tests {
     use super::{
         capture_failure_requires_global_error, cleanup_finalization_files, commit_editor_update,
         complete_library_deletion, crop_annotation_source, crop_editor_source,
-        editor_save_destination, parse_editor_save_action, recording_channels, sanitize_frontend_log, validate_capture_png,
-        validate_editor_annotation_document, validate_replacement_metadata,
-        validate_staged_capture_annotation, write_editor_save, EditorCropPixels, EditorSaveAction,
-        ShortcutRegistrationStatus, EDITOR_ACTION_INVALID_ERROR, EDITOR_SAVE_ERROR,
+        editor_save_destination, parse_editor_save_action, recording_channels,
+        sanitize_frontend_log, validate_capture_png, validate_editor_annotation_document,
+        validate_replacement_metadata, validate_staged_capture_annotation, write_editor_save,
+        EditorCropPixels, EditorSaveAction, ShortcutRegistrationStatus,
+        EDITOR_ACTION_INVALID_ERROR, EDITOR_SAVE_ERROR,
     };
     use crate::core::annotation::AnnotationDocument;
     use crate::core::asset::{CaptureAsset, CaptureKind};
