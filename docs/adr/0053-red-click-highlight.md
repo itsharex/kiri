@@ -1,4 +1,4 @@
-# ADR 0052: High-contrast recorded click highlight
+# ADR 0053: High-contrast recorded click highlight
 
 - Status: Proposed
 - Date: 2026-09-27
