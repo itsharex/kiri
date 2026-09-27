@@ -387,6 +387,10 @@ display without taking focus and is protected/excluded from subsequent captures.
 - Batch asset mutations validate every identifier, publish `library.json` once,
   and update memory only after that write succeeds. Permanent deletion removes
   files only after the new index is durable.
+- Batch export opens the selected flattened image or media files from the active
+  library, then copies them to a user-chosen folder without changing the index.
+  Existing destination names receive numbered copies; per-file failures are
+  reported and do not discard successful copies.
 - OCR profile metadata is stored in the app configuration directory; secrets
   never appear in that JSON, IPC responses, or logs.
 - Credential replacement and deletion use a non-secret journal so interrupted

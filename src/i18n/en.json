@@ -583,5 +583,8 @@
   "The image could not be copied to the clipboard.": "The image could not be copied to the clipboard.",
   "The text could not be copied to the clipboard.": "The text could not be copied to the clipboard.",
   "The file could not be copied to the clipboard.": "The file could not be copied to the clipboard.",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays."
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.",
+  "Export Selected": "Export Selected",
+  "Exported {n} files": "Exported {n} files",
+  "Some selected files could not be exported.": "Some selected files could not be exported."
 }

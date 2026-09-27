@@ -49,6 +49,8 @@ export interface AssetDto {
   gifEligible: boolean;
 }
 
+export interface BatchExportResultDto { exported: number; failed: string[]; }
+
 export type LibraryAvailability = "ready" | "unavailable" | "migrating";
 
 export interface LibraryStatusDto {
@@ -243,6 +245,8 @@ export const api = {
   batchPermanentlyDelete: (ids: string[]) => invoke<void>("batch_permanently_delete", { ids }),
   batchSetFavorite: (ids: string[], favorite: boolean) =>
     invoke<void>("batch_set_favorite", { ids, favorite }),
+  exportSelectedAssets: (ids: string[]) =>
+    invoke<BatchExportResultDto | null>("export_selected_assets", { ids }),
   showConfirmDialog: (
     kind: string,
     title: string,

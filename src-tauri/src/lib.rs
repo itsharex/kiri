@@ -5,6 +5,7 @@
 
 mod capture;
 mod commands;
+mod batch_export;
 mod core;
 mod diagnostics;
 mod gif;
@@ -216,6 +217,7 @@ pub fn run() {
             commands::batch_restore,
             commands::batch_permanently_delete,
             commands::batch_set_favorite,
+            batch_export::export_selected_assets,
             commands::copy_asset,
             commands::open_asset,
             commands::open_editor,

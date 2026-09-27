@@ -583,5 +583,8 @@
   "The image could not be copied to the clipboard.": "无法将图片复制到剪贴板。",
   "The text could not be copied to the clipboard.": "无法将文字复制到剪贴板。",
   "The file could not be copied to the clipboard.": "无法将文件复制到剪贴板。",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "实验性 Wayland 截图目前只支持单屏。多屏请使用 X11 会话。"
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "实验性 Wayland 截图目前只支持单屏。多屏请使用 X11 会话。",
+  "Export Selected": "导出所选文件",
+  "Exported {n} files": "已导出 {n} 个文件",
+  "Some selected files could not be exported.": "部分所选文件导出失败。"
 }

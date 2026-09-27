@@ -583,5 +583,8 @@
   "The image could not be copied to the clipboard.": "画像をクリップボードにコピーできませんでした。",
   "The text could not be copied to the clipboard.": "テキストをクリップボードにコピーできませんでした。",
   "The file could not be copied to the clipboard.": "ファイルをクリップボードにコピーできませんでした。",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。"
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。",
+  "Export Selected": "選択したファイルを書き出す",
+  "Exported {n} files": "{n} 件のファイルを書き出しました",
+  "Some selected files could not be exported.": "選択した一部のファイルを書き出せませんでした。"
 }
