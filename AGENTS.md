@@ -17,7 +17,7 @@ Read it before editing, then read `docs/architecture.md`.
 
 ## Product contract
 
-Kiri is a local-first capture utility for macOS, Windows, and experimental
+Kiri is a local-first capture utility for macOS, Windows, and
 Linux. Preserve these decisions:
 
 - The default global capture shortcut is `⇧⌘A` on macOS and `Shift+Ctrl+A` on

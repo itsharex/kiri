@@ -9,7 +9,7 @@
   </p>
 </div>
 
-Kiri supports macOS, Windows, and experimental Linux. Press `⇧⌘A` on macOS or `Shift+Ctrl+A` on Windows and Linux X11, then select a window or region to capture, annotate, recognize text, or record. On Linux Wayland, use the Capture button or assign a desktop shortcut to `kiri --capture`. Screenshots are copied to the clipboard; screenshots, MP4 recordings, and GIFs are saved in the local library.
+Kiri supports macOS, Windows, and Linux. Press `⇧⌘A` on macOS or `Shift+Ctrl+A` on Windows and Linux X11, then select a window or region to capture, annotate, recognize text, or record. On Linux Wayland, use the Capture button or assign a desktop shortcut to `kiri --capture`. Screenshots are copied to the clipboard; screenshots, MP4 recordings, and GIFs are saved in the local library.
 
 <!-- project-demo-v1 -->
 <h2 align="center">Demo</h2>
@@ -31,11 +31,11 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 
 Video projects use one source file at a time; importing several videos does not combine them. On Windows, clip-speed changes also change audio pitch, and video effects require a source without rotation metadata. Kiri recordings meet that requirement.
 
-Linux targets Ubuntu 24.04 with GNOME, with X11 support. Wayland capture currently requires one connected display and uses region selection. Linux recording is silent, without click highlights; pause and stop use the tray or desktop shortcuts. Local OCR uses installed Tesseract English, Simplified Chinese, and Japanese data. Videos support playback and GIF conversion; video editing/export is unavailable. See the [Linux guide](docs/linux.md) for dependencies, permissions, and pending desktop acceptance.
+Linux targets Ubuntu 24.04 with GNOME, with X11 support. Wayland capture currently requires one connected display and uses region selection. Linux recording is silent, without click highlights; pause and stop use the tray or desktop shortcuts. Local OCR uses installed Tesseract English, Simplified Chinese, and Japanese data. Videos support playback and GIF conversion; video editing/export is unavailable. See the [Linux guide](docs/linux.md) for dependencies, permissions, and platform details.
 
 ## Download and install
 
-This README describes the current source. For features in a published version, check its release notes. macOS Universal and Windows x64 installers are listed on [GitHub Releases](https://github.com/yuxino/kiri/releases).
+This README describes the current source. For features in a published version, check its release notes. macOS Universal, Windows x64, and Linux x64 packages are listed on [GitHub Releases](https://github.com/yuxino/kiri/releases).
 
 Starting with v1.4.9, macOS and installed Windows builds can manually check, download, and install signature-verified updates from Settings. Every step requires an explicit click; Kiri does not check in the background or install silently. v1.4.8 and older builds need one manual installation of v1.4.9 or newer from Releases before in-app updates become available.
 
@@ -43,7 +43,7 @@ Use **Settings → About → Check for Updates** for routine updates. Download p
 
 - **macOS 14+**: download the Universal `.dmg` for Apple silicon and Intel, then drag `Kiri.app` to Applications. Capture requires **Screen & System Audio Recording**; **Input Monitoring** is needed only for click highlights. Microphone recording requires macOS 15+.
 - **Windows 11 (x64)**: an x64 installer is available. See the [roadmap](ROADMAP.md) for the remaining full capture-flow device acceptance. Run the `.exe` installer; screen capture needs no extra system permission, and microphone access follows Windows privacy settings. The installer is not Authenticode-signed, so SmartScreen may warn.
-- **Linux (experimental, Ubuntu 24.04 x64)**: build the `.deb` from source or use a candidate from the Linux CI artifact. Install with `sudo apt install ./kiri_VERSION_amd64.deb`, replacing `VERSION` with the downloaded version. This does not imply a published Linux release; check the actual release assets. Linux updates use a manually downloaded replacement package. Follow the [Linux guide](docs/linux.md) for GNOME portal setup, Wayland shortcuts, and validation limits.
+- **Linux (Ubuntu 24.04 x64)**: download the `.deb` from [Releases](https://github.com/yuxino/kiri/releases), then install with `sudo apt install ./kiri_VERSION_amd64.deb`, replacing `VERSION` with the downloaded version. Linux updates use a manually downloaded replacement package. Follow the [Linux guide](docs/linux.md) for GNOME portal setup, Wayland shortcuts, and platform details.
 
 For Windows without installation, download `Kiri-<version>-Windows-x64-Portable.zip`, extract it, and run `kiri.exe`. This is an extract-and-run build: Kiri still keeps its library and settings in your Windows user profile, so moving the ZIP does not move that data. The portable build opens Releases for manual ZIP updates; its in-app NSIS installer update is unavailable.
 
@@ -83,6 +83,10 @@ On macOS, Windows, and Linux X11, the capture shortcut can be changed or restore
 - **⌘Z / ⇧⌘Z** (macOS) / **Ctrl+Z / Shift+Ctrl+Z** (Windows and Linux): undo / redo
 
 Linux recording can be controlled with `kiri --toggle-recording-pause` and `kiri --stop-recording`, including commands assigned to desktop shortcuts.
+
+## Thanks
+
+Thanks to [@kerwin2046](https://github.com/kerwin2046) for contributing the initial Linux support in [PR #20](https://github.com/yuxino/kiri/pull/20), and for the time and care put into the implementation.
 
 See [PRIVACY.md](PRIVACY.md), [ROADMAP.md](ROADMAP.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the [documentation index](docs/README.md).
 

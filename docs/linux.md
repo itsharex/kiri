@@ -1,16 +1,12 @@
-# Linux (experimental)
+# Linux
 
-The initial target is **Ubuntu 24.04 x64 with GNOME**, with X11 compatibility.
-This guide describes the current source and candidate `.deb` packaging. It
-does not announce a Linux release or claim completed GNOME desktop acceptance.
-Check [the actual release assets](https://github.com/yuxino/kiri/releases)
-before assuming a published Linux package is available.
+Kiri supports **Ubuntu 24.04 x64 with GNOME**, on Wayland and X11.
+Download the `.deb` from [GitHub Releases](https://github.com/yuxino/kiri/releases).
 
 ## Install and update
 
-Build the package below, or download the `kiri-linux-deb` artifact from a
-successful [build workflow](../.github/workflows/build.yml) for the exact
-revision you want to test. Extract the artifact ZIP, then install the `.deb`:
+Download the `.deb` from Releases, then install it with `apt` so its
+dependencies are installed automatically:
 
 ```bash
 # Replace VERSION with the version in the downloaded filename.
@@ -137,7 +133,7 @@ pnpm install --frozen-lockfile
 pnpm tauri dev
 ```
 
-Build an installable candidate from the repository root:
+Build an installable package from the repository root:
 
 ```bash
 pnpm tauri build --bundles deb --config src-tauri/tauri.linux.conf.json

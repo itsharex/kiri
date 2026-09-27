@@ -6,7 +6,7 @@ application or a durable product decision.
 ## User guides
 
 - [Video editing](video-editing.md) · [视频剪辑](video-editing.zh-CN.md) — import, trim, annotate, save, and export a local video.
-- [Linux](linux.md) — experimental Ubuntu/GNOME setup, X11 compatibility,
+- [Linux](linux.md) — Ubuntu/GNOME setup, X11 compatibility,
   manual updates, feature limits, and separate CI/desktop acceptance.
 
 ## Current sources of truth
