@@ -7,6 +7,25 @@ Thanks for helping make kiri better.
 Use Rust 1.88+, Node.js 20.19+ (or 22.12+), and pnpm. macOS development
 requires macOS 14+; Windows-specific behavior is also built in CI.
 
+Install Xcode Command Line Tools on macOS, MSVC C++ build tools on Windows,
+or the [Ubuntu dependencies](docs/linux.md#build-from-source) on Linux.
+
+```bash
+git clone https://github.com/yuxino/kiri.git
+cd kiri
+pnpm install --frozen-lockfile
+pnpm tauri dev
+# Compile the application without packaging an installer:
+pnpm tauri build --no-bundle
+```
+
+macOS development requires a stable signing identity; see the
+[signing guide](docs/adr/0008-stable-development-signing-identity.md).
+Use the Tauri commands: a plain `cargo build` executable does not include
+frontend assets.
+
+Before submitting changes:
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm test:release-tools
