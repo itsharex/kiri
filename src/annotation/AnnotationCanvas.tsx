@@ -578,8 +578,15 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           return;
         }
 
-        if (t === "select") {
-          const current = history.elements;
+        const current = history.elements;
+        const selectedLine = selectedIndex === null ? null : current[selectedIndex];
+        const editingSelectedLine =
+          (t === "line" || t === "arrow") &&
+          selectedLine?.kind === t &&
+          (Math.hypot(p.x - selectedLine.start.x, p.y - selectedLine.start.y) <= 10 * hitTestScale.radial ||
+            Math.hypot(p.x - selectedLine.end.x, p.y - selectedLine.end.y) <= 10 * hitTestScale.radial ||
+            markIndexAt(current, p, hitTestScale) === selectedIndex);
+        if (t === "select" || editingSelectedLine) {
           let handleInteraction: string | null = null;
           if (selectedIndex !== null && current[selectedIndex] && !["line","arrow"].includes(current[selectedIndex].kind)) {
             handleInteraction = hitTestHandle(
@@ -685,13 +692,22 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         if (interaction.kind === "none") {
           if (toolRef.current === "mosaic" && mosaicShapeRef.current==="brush") setBrushCursor(p);
           else if (brushCursorRef.current) setBrushCursor(null);
-          if (toolRef.current === "select") {
+          if (toolRef.current === "select" || toolRef.current === "line" || toolRef.current === "arrow") {
             // Spec §6.7: handle → crosshair, over a mark → open hand,
             // otherwise arrow.
             const current = history.elements;
             const selected = selectedIndexRef.current;
             let cursor = "default";
-            if (selected !== null && current[selected] && !["line","arrow"].includes(current[selected].kind)) {
+            const selectedMark = selected === null ? null : current[selected];
+            const activeLine = selectedMark &&
+              (selectedMark.kind === "line" || selectedMark.kind === "arrow") &&
+              (toolRef.current === "select" || toolRef.current === selectedMark.kind);
+            if (activeLine &&
+              (Math.hypot(p.x - selectedMark.start.x, p.y - selectedMark.start.y) <= 10 * hitTestScale.radial ||
+                Math.hypot(p.x - selectedMark.end.x, p.y - selectedMark.end.y) <= 10 * hitTestScale.radial)) {
+              cursor = "crosshair";
+            }
+            if (toolRef.current === "select" && selected !== null && current[selected] && !["line","arrow"].includes(current[selected].kind)) {
               if (
                 hitTestHandle(
                   p,
@@ -704,7 +720,10 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
             }
             if (
               cursor === "default" &&
-              markIndexAt(current, p, hitTestScale) !== null
+              (toolRef.current === "select" || activeLine) &&
+              (toolRef.current === "select"
+                ? markIndexAt(current, p, hitTestScale) !== null
+                : markIndexAt(current, p, hitTestScale) === selected)
             ) {
               cursor = "grab";
             }

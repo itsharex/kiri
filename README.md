@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 
 ## What you can do
 
-- **Capture and annotate** a window or region. Crop, draw, add text, or apply mosaic; reopen saved screenshots to edit them.
+- **Capture and annotate** a window or region. Crop, draw, add text, or apply mosaic; reopen saved screenshots to edit them. Drag a selected line's endpoints or body to adjust it without changing tools.
 - **Copy text** from your screen or saved images with local OCR.
 - **Record** a region as MP4 or GIF. On macOS and Windows, include system audio, microphone, and click highlights.
 - **Edit videos** on macOS and Windows: trim, reorder, change speed, and add annotations or privacy masks.
