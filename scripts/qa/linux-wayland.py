@@ -167,6 +167,23 @@ def screenshot(name):
     return picture
 
 
+def fixture_frame(name):
+    picture = screenshot(name)
+    samples = [picture.getpixel(point) for point in ((330, 470), (510, 470), (690, 470))]
+    if all(max(abs(channel - expected) for channel in pixel) <= 1
+           for pixel, expected in zip(samples, (17, 119, 221))):
+        return picture
+    return None
+
+
+def overlay_frame(name):
+    picture = screenshot(name)
+    # Accessibility nodes can appear before WebKit paints. Reject a blank
+    # overlay; the saved-image comparison below proves the frozen pixels.
+    tones = [sum(picture.getpixel(point)) / 3 for point in ((330, 470), (510, 470), (690, 470))]
+    return picture if tones[1] - tones[0] > 20 and tones[2] - tones[1] > 20 else None
+
+
 def assets():
     index = library / "library.json"
     return json.loads(index.read_text()) if index.is_file() else []
@@ -266,9 +283,10 @@ try:
     wait_for("GNOME overview closes", overview_is_closed)
     launch("kiri", [str(args.executable.resolve())])
     wait_for("Kiri library rendered", lambda: controls("Settings"))
-    click(80, 160)  # Raise the visible test window behind the centered library.
-    pause(1)
-    expected = screenshot("source-desktop.png").crop((220, 240, 900, 620))
+    # GNOME can place the library at the top-left instead of centering it.
+    click(1240, 760)  # Exposed corner of the full-screen public test window.
+    source = wait_for("public fixture is visible", lambda: fixture_frame("source-desktop.png"))
+    expected = source.crop((220, 240, 900, 620))
     expected.save(output / "expected-region.png")
     capture()
     wait_for("real Screenshot permission dialog", lambda: controls("Allow") and controls("Deny"))
@@ -282,18 +300,22 @@ try:
         pause(2)
         if assets() or controls("Screenshot"):
             raise RuntimeError("Denied capture must not save an image or open an overlay")
+        if controls("Allow") or controls("Deny"):
+            raise RuntimeError("Denied capture opened another permission dialog")
         screenshot("denied-desktop.png")
         report["checks"].append("real portal denial reaches Kiri without saving or retrying a dialog")
     else:
         wait_for("Kiri screenshot overlay", lambda: controls("Screenshot"))
-        screenshot("capture-overlay.png")
+        wait_for("capture desktop content is visible", lambda: overlay_frame("capture-overlay.png"))
         key(0xff1b)
         wait_for("Escape closes capture", lambda: controls("Screenshot") is None)
         if assets():
             raise RuntimeError("Cancelled overlay unexpectedly saved an image")
-        click(80, 160)
+        click(1240, 760)
+        wait_for("public fixture is visible again", lambda: fixture_frame("repeat-source-desktop.png"))
         capture()
         wait_for("second screenshot overlay", lambda: controls("Screenshot"))
+        wait_for("second capture desktop content is visible", lambda: overlay_frame("repeat-capture-overlay.png"))
         move(220, 240)
         button(True)
         pause(0.2)

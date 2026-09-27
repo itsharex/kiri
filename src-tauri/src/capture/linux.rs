@@ -2,8 +2,7 @@
 //!
 //! Prefer the system `grim` binary when present (Hyprland/Sway/wlroots). The
 //! Screenshot portal is used as a fallback for GNOME/KDE and sandboxed builds
-//! that do not ship grim. Hyprland's portal often answers once and then hangs
-//! on later silent Screenshot calls, which is why grim is first.
+//! that do not ship grim.
 //!
 //! Window enumeration is best-effort and may be empty when the compositor does
 //! not expose usable bounds.
@@ -327,14 +326,10 @@ fn hyprland_monitor_hint(monitor: &HyprlandMonitor) -> LinuxMonitorHint {
 fn capture_portal_png() -> Result<Vec<u8>> {
     log::info!("Linux frozen capture: requesting Screenshot portal");
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| anyhow!("Could not start the portal runtime: {error}"))?;
-
-    let uri = runtime
-        .block_on(request_portal_screenshot())
-        .map_err(|error| anyhow!("{error}"))?;
+    // ashpd caches its DBus connection globally. Its socket reader must remain
+    // alive between screenshots and ScreenCast sessions, so both use Tauri's
+    // process-lifetime runtime from their dedicated blocking worker threads.
+    let uri = tauri::async_runtime::block_on(request_portal_screenshot())?;
 
     let path = portal_uri_to_path(&uri)?;
     let file = std::fs::File::open(&path).map_err(|error| {
@@ -759,21 +754,15 @@ fn run_screencast_session(
     video_tx: VideoFrameSender,
     stop_flag: Arc<AtomicBool>,
 ) -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| anyhow!("Could not start the ScreenCast runtime: {error}"))?;
-    runtime.block_on(async move {
-        crate::linux_media::run_pipewire_region_capture(
-            display,
-            region,
-            backing_scale,
-            shows_cursor,
-            video_tx,
-            stop_flag,
-        )
-        .await
-    })
+    // Share the same long-lived ashpd executor as the Screenshot portal.
+    tauri::async_runtime::block_on(crate::linux_media::run_pipewire_region_capture(
+        display,
+        region,
+        backing_scale,
+        shows_cursor,
+        video_tx,
+        stop_flag,
+    ))
 }
 
 #[cfg(test)]

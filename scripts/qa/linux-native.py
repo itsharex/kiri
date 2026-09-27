@@ -239,7 +239,11 @@ def wait_for_control(label, source=None):
             return None
         node, bounds = control
         region = (bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height)
-        pixels = ImageGrab.grab().convert("RGB").crop(region)
+        desktop = ImageGrab.grab().convert("RGB")
+        if region[0] < 0 or region[1] < 0 or region[2] > desktop.width or region[3] > desktop.height:
+            raise RuntimeError(f"UI control {label!r} extends beyond the screen: "
+                               f"bounds={region}, screen={desktop.size}")
+        pixels = desktop.crop(region)
         grayscale = pixels.convert("L")
         low, high = grayscale.getextrema()
         deviation = ImageStat.Stat(grayscale).stddev[0]
@@ -358,9 +362,11 @@ def discover_video(path):
 def frame_error(actual, expected):
     difference = ImageChops.difference(actual, expected)
     mean = sum(ImageStat.Stat(difference).mean) / 3
-    channels = difference.split()
-    largest = ImageChops.lighter(ImageChops.lighter(channels[0], channels[1]), channels[2])
-    histogram = largest.histogram()
+    # H.264 4:2:0 subsamples the coloured antialiasing at text edges. Keep the
+    # RGB mean check, but detect unexpected UI shapes in luminance so normal
+    # chroma loss does not look like an overlay over otherwise correct text.
+    luminance = ImageChops.difference(actual.convert("L"), expected.convert("L"))
+    histogram = luminance.histogram()
     changed = sum(histogram[33:]) / (actual.width * actual.height)
     return mean, changed
 
