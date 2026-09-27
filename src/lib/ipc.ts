@@ -39,6 +39,7 @@ export interface AssetDto {
   filename: string;
   title: string | null;
   ocrText: string | null;
+  ocrOriginalText: string | null;
   tags: string[];
   pixelWidth: number;
   pixelHeight: number;
@@ -208,6 +209,8 @@ export function isEditorRevisionMismatch(error: unknown): boolean {
 
 export const api = {
   listOcrRecords: (query: string) => invoke<AssetDto[]>("list_ocr_records", { query }),
+  updateOcrHistoryText: (id: string, expectedText: string, replacement: string | null) =>
+    invoke<AssetDto>("update_ocr_history_text", { id, expectedText, replacement }),
   recognizeAssetLocal: (id: string) => invoke<OcrRecognitionDto>("recognize_asset_local", { id }),
   copyHistoryText: (text: string) => invoke<void>("copy_history_text", { text }),
   listAssets: (query: string, showingTrash: boolean) =>
