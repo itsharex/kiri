@@ -20,7 +20,7 @@ desktop = Desktop(backend="uia")
 process = None
 
 
-def find(name, timeout=35):
+def find(name, timeout=35, scroll=False):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -33,7 +33,15 @@ def find(name, timeout=35):
                         return control
                 except Exception:
                     pass
-        time.sleep(0.1)
+        if scroll:
+            # Settings loads asynchronously; keep scrolling until the actual
+            # target is visible instead of assuming one early wheel event stuck.
+            window = desktop.windows(process=process.pid, visible_only=True)[0]
+            window.set_focus()
+            bounds = window.rectangle()
+            mouse.scroll(coords=(bounds.left + int(bounds.width() * 0.75),
+                                 bounds.top + int(bounds.height() * 0.65)), wheel_dist=-4)
+        time.sleep(0.2)
     raise RuntimeError(f"Visible control not found: {name}")
 
 
@@ -52,13 +60,7 @@ def smoke(executable, update_button, label):
     process = subprocess.Popen([str(executable)])
     try:
         find("Settings").click_input()
-        # About follows General and OCR settings in the scrollable page.
-        time.sleep(0.3)
-        window = desktop.windows(process=process.pid, visible_only=True)[0]
-        bounds = window.rectangle()
-        mouse.scroll(coords=(bounds.left + int(bounds.width() * 0.75),
-                             bounds.top + int(bounds.height() * 0.65)), wheel_dist=-12)
-        find(update_button)
+        find(update_button, scroll=True)
         report["checks"].append(f"{label} launches and shows the correct update route")
         keyboard.send_keys("^+a")
         find("Screenshot")

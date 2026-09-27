@@ -1,0 +1,68 @@
+name: Windows release package review
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag to verify without rebuilding
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download and install the existing draft package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Release version mismatch' }
+          $draft = gh release view $env:RELEASE_TAG --json isDraft | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $draft.isDraft) { throw 'Expected an existing draft release' }
+          gh release download $env:RELEASE_TAG --pattern "kiri_${version}_x64-setup.exe" --dir candidate
+          if ($LASTEXITCODE -ne 0) { throw 'Installer download failed' }
+          $installer = Get-Item "candidate/kiri_${version}_x64-setup.exe"
+          $install = Join-Path $env:RUNNER_TEMP 'kiri-installed-review'
+          $result = Start-Process $installer.FullName -ArgumentList @('/S', "/D=$install") -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Installation failed: $($result.ExitCode)" }
+          New-Item -ItemType Directory -Force src-tauri/target/release | Out-Null
+          Copy-Item (Join-Path $install 'kiri.exe') src-tauri/target/release/kiri.exe
+          ./scripts/package-windows-portable.ps1
+          "KIRI_QA_INSTALLED_EXE=$(Join-Path $install 'kiri.exe')" >> $env:GITHUB_ENV
+          "KIRI_QA_PORTABLE_EXE=$(Join-Path $env:RUNNER_TEMP 'kiri-portable-verify/kiri.exe')" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force windows-release-review | Out-Null
+          Get-FileHash $installer.FullName, (Join-Path $install 'kiri.exe'), "Kiri-$version-Windows-x64-Portable.zip" |
+            Select-Object Algorithm, Hash, @{Name='File';Expression={Split-Path $_.Path -Leaf}} |
+            ConvertTo-Json | Set-Content windows-release-review/package-hashes.json
+      - name: Verify both native packages
+        shell: pwsh
+        run: |
+          python -m pip install pywinauto==0.6.9
+          python scripts/qa/windows-release-native.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native package review failed' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-release-review
+          path: windows-release-review/
+          retention-days: 14
+      - name: Upload verified portable package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          gh release upload $env:RELEASE_TAG "Kiri-$version-Windows-x64-Portable.zip" --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Portable upload failed' }
