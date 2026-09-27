@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["deb"],
+    "createUpdaterArtifacts": false,
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2t64 | libasound2",
+          "libgbm1",
+          "libxcb1",
+          "libxcb-randr0",
+          "libxdo3",
+          "libtesseract5",
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-plugins-ugly",
+          "gstreamer1.0-libav",
+          "gstreamer1.0-pipewire",
+          "tesseract-ocr-eng",
+          "tesseract-ocr-chi-sim",
+          "tesseract-ocr-jpn",
+          "xdg-desktop-portal",
+          "xdg-utils"
+        ],
+        "recommends": [
+          "xdg-desktop-portal-gnome | xdg-desktop-portal-kde | xdg-desktop-portal-gtk | xdg-desktop-portal-wlr"
+        ]
+      }
+    }
+  }
+}

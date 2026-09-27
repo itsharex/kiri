@@ -109,6 +109,10 @@ pub fn label(shortcut: Shortcut) -> String {
 }
 
 pub fn replace(app: &AppHandle, value: Option<&str>) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if crate::capture::linux::is_wayland() {
+        return Err("Set a system keyboard shortcut for kiri --capture.".into());
+    }
     let candidate = value
         .map(parse)
         .transpose()?

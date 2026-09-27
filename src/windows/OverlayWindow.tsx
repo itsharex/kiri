@@ -9,6 +9,7 @@ import {
   api,
   DEFAULT_RECORDING_OPTIONS,
   type CaptureContextDto,
+  type PlatformCapabilitiesDto,
   type PreparedOcrRequestDto,
   type RecordingOptions,
 } from "../lib/ipc";
@@ -130,6 +131,15 @@ export function OverlayWindow() {
   const [remoteOcrFailed, setRemoteOcrFailed] = useState(false);
   const [recordOptions, setRecordOptions] = useState<RecordingOptions>(DEFAULT_RECORDING_OPTIONS);
   const [micSupported, setMicSupported] = useState(true);
+  const [platformCaps, setPlatformCaps] = useState<PlatformCapabilitiesDto>({
+    recording: true,
+    localOcr: true,
+    systemAudio: true,
+    microphone: true,
+    clickHighlights: true,
+    videoEditing: true,
+    manualUpdates: false,
+  });
   const [modeSelectorPosition, setModeSelectorPosition] = useState<Point | null>(null);
   const [modeSelectorDragging, setModeSelectorDragging] = useState(false);
   const canvasRef = useRef<AnnotationCanvasHandle>(null);
@@ -178,6 +188,10 @@ export function OverlayWindow() {
       });
     api.getRecordingOptions().then((options) => setRecordOptions(options)).catch(() => {});
     api.micSupported().then((supported) => setMicSupported(supported)).catch(() => {});
+    api.platformCapabilities().then((caps) => {
+      setPlatformCaps(caps);
+      setMicSupported(caps.microphone);
+    }).catch(() => {});
     // Load the frozen capture through a blob URL: canvas operations on the
     // custom-scheme image would taint the canvas and break PNG export.
     fetch(frozenCaptureUrl)
@@ -1108,7 +1122,10 @@ export function OverlayWindow() {
           anchor={selection}
           bounds={bounds}
           options={recordOptions}
-          micSupported={micSupported}
+          micSupported={micSupported && platformCaps.microphone}
+          systemAudioSupported={platformCaps.systemAudio}
+          clickHighlightsSupported={platformCaps.clickHighlights}
+          trayRecordingControls={platformCaps.manualUpdates}
           onChange={(next) => {
             // Spec (recording §3): persist each toggle change immediately.
             setRecordOptions(next);
@@ -1476,11 +1493,25 @@ function RecordOptionsPanel(props: {
   bounds: Rect;
   options: RecordingOptions;
   micSupported: boolean;
+  systemAudioSupported: boolean;
+  clickHighlightsSupported: boolean;
+  trayRecordingControls: boolean;
   onChange(options: RecordingOptions): void;
   onStart(): void;
   onCancel(): void;
 }) {
-  const { anchor, bounds, options, micSupported, onChange, onStart, onCancel } = props;
+  const {
+    anchor,
+    bounds,
+    options,
+    micSupported,
+    systemAudioSupported,
+    clickHighlightsSupported,
+    trayRecordingControls,
+    onChange,
+    onStart,
+    onCancel,
+  } = props;
   const gifOutput = options.outputFormat === "gif";
   const toggle = (
     key:
@@ -1615,13 +1646,15 @@ function RecordOptionsPanel(props: {
             <ToggleRow
               divider
               label={t("System audio")}
+              suffix={systemAudioSupported ? undefined : t("Unavailable on this platform")}
               checked={options.capturesSystemAudio}
               onToggle={() => toggle("capturesSystemAudio")}
+              disabled={!systemAudioSupported}
             />
             <ToggleRow
               divider
               label={t("Microphone")}
-              suffix={micSupported ? undefined : t("Requires macOS 15")}
+              suffix={micSupported ? undefined : t("Unavailable on this platform")}
               checked={options.capturesMicrophone}
               onToggle={() => toggle("capturesMicrophone")}
               disabled={!micSupported}
@@ -1638,11 +1671,13 @@ function RecordOptionsPanel(props: {
         <ToggleRow
           divider
           label={t("Highlight clicks")}
+          suffix={clickHighlightsSupported ? undefined : t("Unavailable on this platform")}
           checked={options.highlightsClicks}
           onToggle={() => toggle("highlightsClicks")}
-          disabled={!options.showsCursor}
+          disabled={!options.showsCursor || !clickHighlightsSupported}
         />
       </div>
+      {trayRecordingControls && <p style={{ margin: "8px 0", fontSize: 12 }}>{t("Use the tray menu to pause, resume, or stop recording.")}</p>}
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" className="kiri-primary-button" style={{ flex: 1, minHeight: 38, borderRadius: 10 }} onClick={onStart}>
           {gifOutput ? t("Start GIF Recording") : t("Start Recording")}

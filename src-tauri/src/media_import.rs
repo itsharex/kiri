@@ -122,7 +122,11 @@ fn probe_video(path: &Path) -> Result<(i64, i64, Option<f64>)> {
         Some(properties.Duration()?.Duration as f64 / 10_000_000.),
     ))
 }
-#[cfg(not(any(target_os = "macos", windows)))]
+#[cfg(target_os = "linux")]
+fn probe_video(path: &Path) -> Result<(i64, i64, Option<f64>)> {
+    crate::linux_media::probe_video(path).ok_or_else(|| anyhow::anyhow!("Video cannot be decoded"))
+}
+#[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
 fn probe_video(_: &Path) -> Result<(i64, i64, Option<f64>)> {
     bail!("Unsupported platform")
 }

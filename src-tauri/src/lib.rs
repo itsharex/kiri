@@ -14,6 +14,8 @@ mod media_import;
 mod microphone;
 #[cfg(target_os = "macos")]
 mod macos_media;
+#[cfg(target_os = "linux")]
+mod linux_media;
 mod ocr;
 mod ocr_commands;
 mod ocr_controller;
@@ -49,6 +51,8 @@ pub fn run() {
                 args.len(),
                 !cwd.is_empty()
             );
+            #[cfg(target_os = "linux")]
+            if handle_linux_action(app, &args) { return; }
             if let Err(error) = show_library_window(app, "single-instance") {
                 log::error!("[single-instance] library reopen failed: {error}");
             }
@@ -110,7 +114,13 @@ pub fn run() {
             app.manage(shortcut_settings::CaptureBinding::new(
                 shortcut_settings::load(app.handle()),
             ));
-            show_library_window(app.handle(), "startup").map_err(anyhow::Error::msg)?;
+            #[cfg(target_os = "linux")]
+            let capture_launch = std::env::args().any(|argument| argument == "--capture");
+            #[cfg(not(target_os = "linux"))]
+            let capture_launch = false;
+            if !capture_launch {
+                show_library_window(app.handle(), "startup").map_err(anyhow::Error::msg)?;
+            }
 
             // A conflicting system-wide shortcut must not prevent Kiri from
             // opening. Settings surfaces the unavailable binding and lets the
@@ -119,6 +129,11 @@ pub fn run() {
                 log::warn!("[shortcut] registration failed: {error}");
             }
             install_tray(app.handle())?;
+            #[cfg(target_os = "linux")]
+            {
+                let args = std::env::args().collect::<Vec<_>>();
+                handle_linux_action(app.handle(), &args);
+            }
             log::info!("[app] setup complete");
             Ok(())
         })
@@ -245,6 +260,7 @@ pub fn run() {
             commands::mic_supported,
             microphone::microphone_check,
             microphone::stop_microphone_check,
+            commands::platform_capabilities,
             commands::log_frontend_error,
             commands::get_locale,
             commands::get_language,
@@ -333,6 +349,8 @@ fn install_macos_app_icon() -> std::io::Result<()> {
 }
 
 pub(crate) fn register_shortcut(app: &tauri::AppHandle) -> tauri::Result<()> {
+    #[cfg(target_os = "linux")]
+    if capture::linux::is_wayland() { return Ok(()); }
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let shortcut = shortcut_settings::current(app);
     app.global_shortcut()
@@ -346,6 +364,8 @@ pub(crate) fn register_shortcut(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 pub(crate) fn capture_shortcut_is_registered(app: &tauri::AppHandle) -> bool {
+    #[cfg(target_os = "linux")]
+    if capture::linux::is_wayland() { return false; }
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     app.global_shortcut().is_registered(shortcut_settings::current(app))
 }
@@ -395,10 +415,10 @@ pub fn ensure_click_monitor(app: &tauri::AppHandle) -> tauri::Result<()> {
                 _ => return,
             };
             // Platform callbacks deliver platform-native global coordinates:
-            // macOS Quartz bottom-left points; Windows physical pixels.
+            // macOS Quartz bottom-left points; Windows/Linux physical pixels.
             #[cfg(target_os = "macos")]
             let (gx, gy) = (x, main_height - y);
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             let (gx, gy) = (x / scale, y / scale);
             #[cfg(target_os = "macos")]
             let _ = scale;
@@ -412,6 +432,45 @@ pub fn ensure_click_monitor(app: &tauri::AppHandle) -> tauri::Result<()> {
     let state = app.state::<AppState>();
     *state.click_monitor.lock().unwrap() = Some(monitor);
     Ok(())
+}
+
+/// A desktop-owned shortcut can forward an action to the resident instance.
+/// This works on GNOME Wayland without modifying compositor configuration.
+#[cfg(target_os = "linux")]
+fn handle_linux_action(app: &tauri::AppHandle, args: &[String]) -> bool {
+    if args.iter().any(|value| value == "--stop-recording") {
+        linux_recording_action(app, true);
+    } else if args.iter().any(|value| value == "--toggle-recording-pause") {
+        linux_recording_action(app, false);
+    } else if args.iter().any(|value| value == "--capture") {
+        schedule_capture_start(app, "desktop-shortcut");
+    } else {
+        return false;
+    }
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn linux_recording_action(app: &tauri::AppHandle, stop: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let (active, paused) = {
+            let state = app.state::<AppState>();
+            let recording = state.recording.lock().unwrap();
+            (recording.configuration.is_some(), recording.is_paused)
+        };
+        if !active { return; }
+        let result = if stop {
+            commands::stop_recording(app.clone()).await
+        } else if paused {
+            commands::resume_recording(app.clone()).await
+        } else {
+            commands::pause_recording(app.clone()).await
+        };
+        if let Err(error) = result {
+            state::emit_error(&app, error, None);
+        }
+    });
 }
 
 /// Menu-bar (macOS) / tray (Windows) icon with Capture, Open Library, and Quit.
@@ -438,7 +497,18 @@ fn build_tray_menu(
     let open_library = MenuItem::with_id(app, open_id, open_label, true, None::<&str>)?;
     let capture = MenuItem::with_id(app, capture_id, capture_label, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, quit_id, quit_label, true, None::<&str>)?;
-    Menu::with_items(app, &[&open_library, &capture, &quit])
+    let menu = Menu::with_items(app, &[&open_library, &capture, &quit])?;
+    #[cfg(target_os = "linux")]
+    {
+        let (pause_label, stop_label) = match language {
+            "zh-Hans" | "zh-CN" => ("暂停 / 继续录屏", "停止录屏"),
+            "ja" => ("録画を一時停止 / 再開", "録画を停止"),
+            _ => ("Pause / Resume Recording", "Stop Recording"),
+        };
+        menu.insert(&MenuItem::with_id(app, "pause-recording", pause_label, true, None::<&str>)?, 2)?;
+        menu.insert(&MenuItem::with_id(app, "stop-recording", stop_label, true, None::<&str>)?, 3)?;
+    }
+    Ok(menu)
 }
 
 pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle, language: &str) -> Result<(), String> {
@@ -485,6 +555,10 @@ fn install_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "capture" => {
                 schedule_capture_start(app, "tray");
             }
+            #[cfg(target_os = "linux")]
+            "pause-recording" => linux_recording_action(app, false),
+            #[cfg(target_os = "linux")]
+            "stop-recording" => linux_recording_action(app, true),
             "quit" => {
                 app.exit(0);
             }
@@ -513,13 +587,13 @@ fn schedule_capture_start(app: &tauri::AppHandle, source: &'static str) {
 
     let handle = app.clone();
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     {
         // Desktop capture and WebView2 controller creation must not occupy the
         // Tauri event-loop thread. A slow frame otherwise looks like an app
         // hang, and a second controller can wait for a COM callback that needs
         // the main STA to keep pumping messages.
-        if let Err(error) = spawn_windows_capture_start(move || {
+        if let Err(error) = spawn_capture_start(move || {
             // Keep the owned permit for the entire invocation. Drop
             // reopens scheduling on every success and failure path.
             let _permit = permit;
@@ -531,7 +605,34 @@ fn schedule_capture_start(app: &tauri::AppHandle, source: &'static str) {
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        // Portal screenshot waits off the GTK thread so the app stays responsive.
+        // Overlay creation must return to the main thread: tao panics if a GTK
+        // window request runs against an unrealized GdkWindow.
+        if let Err(error) = spawn_capture_start(move || {
+            let _permit = permit;
+            if let Err(error) = commands::start_linux_capture_from_shortcut(handle.clone()) {
+                log::warn!("[{source}] capture start returned: {error}");
+                let target = handle.clone();
+                let _ = handle.run_on_main_thread(move || {
+                    // CLI capture failures need a visible destination even on
+                    // desktops without a tray extension. Do not expose a Kiri
+                    // window in an unrelated recording already in progress.
+                    let active = target.state::<AppState>().recording.lock().unwrap().configuration.is_some();
+                    if !active {
+                        let _ = show_library_window(&target, "capture-error");
+                        state::emit_error(&target, error.clone(), None);
+                        state::emit_notice(&target, error, "exclamationmark.triangle".into());
+                    }
+                });
+            }
+        }) {
+            log::warn!("[{source}] could not spawn capture start: {error}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
     {
         let trigger = handle.clone();
         if let Err(error) = trigger.run_on_main_thread(move || {
@@ -549,8 +650,8 @@ fn schedule_capture_start(app: &tauri::AppHandle, source: &'static str) {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn spawn_windows_capture_start<F>(task: F) -> std::io::Result<std::thread::JoinHandle<()>>
+#[cfg(any(windows, target_os = "linux"))]
+fn spawn_capture_start<F>(task: F) -> std::io::Result<std::thread::JoinHandle<()>>
 where
     F: FnOnce() + Send + 'static,
 {
@@ -571,12 +672,12 @@ fn tray_labels(language: &str) -> (&'static str, &'static str, &'static str) {
 mod tests {
     use super::{tray_labels, tray_menu_entries};
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(windows, target_os = "linux"))]
     #[test]
-    fn windows_capture_start_uses_its_named_background_thread() {
+    fn capture_start_uses_its_named_background_thread() {
         let caller = std::thread::current().id();
         let (sender, receiver) = std::sync::mpsc::channel();
-        let worker = super::spawn_windows_capture_start(move || {
+        let worker = super::spawn_capture_start(move || {
             sender
                 .send((
                     std::thread::current().id(),

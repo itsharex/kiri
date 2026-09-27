@@ -20,6 +20,8 @@ export function ViewerWindow(props: { id: string }) {
   const [state, setState] = useState<ViewerState>(createViewerLoadingState());
   const [mediaRevision, setMediaRevision] = useState(0);
   const [ocrOpen, setOcrOpen] = useState(false);
+  const [videoEditing, setVideoEditing] = useState(false);
+  useEffect(() => { void api.platformCapabilities().then(caps => setVideoEditing(caps.videoEditing)).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -250,7 +252,7 @@ export function ViewerWindow(props: { id: string }) {
           key={`${props.id}:${mediaRevision}`}
           id={props.id}
           src={mediaUrl(props.id)}
-          editable={state.kind === "ready" && !state.asset.trashedAt}
+          editable={videoEditing && state.kind === "ready" && !state.asset.trashedAt}
           onClose={close}
           onError={() => void handleMediaError()}
         />

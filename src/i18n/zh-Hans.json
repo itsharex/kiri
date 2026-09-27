@@ -66,7 +66,7 @@
   "3-second countdown": "3 秒倒计时",
   "System audio": "系统声音",
   "Microphone": "麦克风",
-  "Requires macOS 15": "需要 macOS 15",
+  "Unavailable on this platform": "当前平台不可用",
   "Show pointer": "显示鼠标指针",
   "Highlight clicks": "显示点击高亮",
   "Start Recording": "开始录制",
@@ -571,5 +571,17 @@
   "Invalid capture shortcut.": "截图快捷键无效。",
   "Could not save the capture shortcut.": "无法保存截图快捷键。",
   "This shortcut is unavailable. Choose another combination.": "此快捷键不可用，请选择其他组合。",
-  "Could not change the capture shortcut.": "无法修改截图快捷键。"
+  "Could not change the capture shortcut.": "无法修改截图快捷键。",
+  "Linux updates are installed manually from a downloaded package.": "Linux 更新需要下载软件包后手动安装。",
+  "Set a system keyboard shortcut for kiri --capture.": "在系统键盘设置中，为 kiri --capture 配置快捷键。",
+  "Managed by the desktop": "由桌面环境管理",
+  "Use the tray menu to pause, resume, or stop recording.": "使用托盘菜单暂停、继续或停止录屏。",
+  "Local OCR needs a Tesseract language pack. Install English, Simplified Chinese, or Japanese language data.": "本地 OCR 需要 Tesseract 语言包。请安装英文、简体中文或日文语言数据。",
+  "The installed Tesseract language data could not be loaded.": "无法加载已安装的 Tesseract 语言数据。",
+  "The desktop clipboard is not available.": "系统剪贴板不可用。",
+  "The desktop clipboard did not respond.": "系统剪贴板没有响应。",
+  "The image could not be copied to the clipboard.": "无法将图片复制到剪贴板。",
+  "The text could not be copied to the clipboard.": "无法将文字复制到剪贴板。",
+  "The file could not be copied to the clipboard.": "无法将文件复制到剪贴板。",
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "实验性 Wayland 截图目前只支持单屏。多屏请使用 X11 会话。"
 }

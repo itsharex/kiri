@@ -7,11 +7,17 @@ pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
+#[cfg(target_os = "linux")]
+pub mod linux;
+
 #[cfg(target_os = "macos")]
 pub use macos as current;
 
 #[cfg(windows)]
 pub use windows as current;
+
+#[cfg(target_os = "linux")]
+pub use linux as current;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -65,7 +71,22 @@ pub fn configure_transient_window(window: &tauri::WebviewWindow, role: Transient
     #[cfg(target_os = "macos")]
     macos::configure_transient_window(window, role.policy());
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    if linux::is_wayland_session()
+        && matches!(
+            role,
+            TransientWindowRole::CaptureOverlay | TransientWindowRole::RecordingCountdown
+        )
+    {
+        // The compositor controls Wayland top-level placement. The Linux first
+        // release uses one display, so full-screen is the portable way to
+        // guarantee the capture canvas matches that display.
+        if let Err(error) = window.set_fullscreen(true) {
+            log::warn!("Could not make the capture window full-screen: {error}");
+        }
+    }
+
+    #[cfg(windows)]
     let _ = (window, role);
 }
 
@@ -107,26 +128,40 @@ pub fn place_transient_window(
 
 /// Writes PNG bytes to the system clipboard as an image.
 pub fn write_image_to_clipboard(png: &[u8]) -> Result<()> {
-    let image = image::load_from_memory(png).map_err(|error| anyhow::anyhow!(error))?;
-    let rgba = image.to_rgba8();
-    let (width, height) = rgba.dimensions();
-    let data = rgba.into_raw();
-    let mut clipboard = arboard::Clipboard::new().map_err(|error| anyhow::anyhow!(error))?;
-    clipboard
-        .set_image(arboard::ImageData {
-            width: width as usize,
-            height: height as usize,
-            bytes: std::borrow::Cow::Owned(data),
-        })
-        .map_err(|error| anyhow::anyhow!(error))
+    #[cfg(target_os = "linux")]
+    {
+        linux::write_image_to_clipboard(png)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let image = image::load_from_memory(png).map_err(|error| anyhow::anyhow!(error))?;
+        let rgba = image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let data = rgba.into_raw();
+        let mut clipboard = arboard::Clipboard::new().map_err(|error| anyhow::anyhow!(error))?;
+        clipboard
+            .set_image(arboard::ImageData {
+                width: width as usize,
+                height: height as usize,
+                bytes: std::borrow::Cow::Owned(data),
+            })
+            .map_err(|error| anyhow::anyhow!(error))
+    }
 }
 
 /// Writes plain text to the system clipboard.
 pub fn write_text_to_clipboard(text: &str) -> Result<()> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|error| anyhow::anyhow!(error))?;
-    clipboard
-        .set_text(text.to_string())
-        .map_err(|error| anyhow::anyhow!(error))
+    #[cfg(target_os = "linux")]
+    {
+        linux::write_text_to_clipboard(text)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut clipboard = arboard::Clipboard::new().map_err(|error| anyhow::anyhow!(error))?;
+        clipboard
+            .set_text(text.to_string())
+            .map_err(|error| anyhow::anyhow!(error))
+    }
 }
 
 /// Writes an existing regular file to the system clipboard as a file item.
@@ -144,12 +179,18 @@ pub fn write_file_to_clipboard(path: &Path) -> Result<()> {
         );
     }
 
-    let mut clipboard = arboard::Clipboard::new()
-        .map_err(|error| anyhow::anyhow!("The system clipboard is unavailable: {error}"))?;
-    clipboard
-        .set()
-        .file_list(&[path])
-        .map_err(|error| anyhow::anyhow!("The file could not be copied to the clipboard: {error}"))
+    #[cfg(target_os = "linux")]
+    {
+        linux::write_file_to_clipboard(path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut clipboard = arboard::Clipboard::new()
+            .map_err(|error| anyhow::anyhow!("The system clipboard is unavailable: {error}"))?;
+        clipboard.set().file_list(&[path]).map_err(|error| {
+            anyhow::anyhow!("The file could not be copied to the clipboard: {error}")
+        })
+    }
 }
 
 /// Shows a window without activating Kiri or moving keyboard focus to it.
@@ -161,7 +202,7 @@ pub fn show_window_without_activation(
     #[cfg(target_os = "macos")]
     current::show_window_without_activation(app, label, role.policy());
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     {
         let _ = role;
         current::show_window_without_activation(app, label);
@@ -207,7 +248,7 @@ pub fn window_capture_id(app: &tauri::AppHandle, label: &str) -> Option<u32> {
     macos::window_capture_id(app, label)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn window_capture_id(_app: &tauri::AppHandle, _label: &str) -> Option<u32> {
     None
 }

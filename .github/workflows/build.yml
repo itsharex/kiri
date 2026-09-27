@@ -59,6 +59,102 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: cargo test --manifest-path src-tauri/Cargo.toml
 
+  build-linux:
+    name: Build, test and package Linux (Ubuntu 24.04 / X11)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Linux build and desktop-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            pkg-config \
+            libxdo-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libpipewire-0.3-dev \
+            libasound2-dev \
+            libxcb-randr0-dev \
+            libgbm-dev \
+            libclang-dev \
+            libtesseract-dev \
+            libleptonica-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav \
+            gstreamer1.0-pipewire \
+            tesseract-ocr-eng \
+            tesseract-ocr-chi-sim \
+            tesseract-ocr-jpn \
+            xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil
+      - run: pnpm install --frozen-lockfile
+      - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+        env:
+          KIRI_LINUX_MEDIA_QA_DIR: ${{ runner.temp }}/kiri-linux-media-review
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-media-review
+          path: ${{ runner.temp }}/kiri-linux-media-review/
+          retention-days: 5
+          if-no-files-found: warn
+      - name: Build Debian package without updater signing
+        run: pnpm tauri build --bundles deb --config src-tauri/tauri.linux.conf.json
+      - name: Install and inspect the Debian package
+        run: |
+          packages=(src-tauri/target/release/bundle/deb/*.deb)
+          test "${#packages[@]}" -eq 1
+          test -f "${packages[0]}"
+          mkdir -p linux-native-review
+          dpkg-deb --info "${packages[0]}" > linux-native-review/package-info.txt
+          dpkg-deb --contents "${packages[0]}" > linux-native-review/package-contents.txt
+          sha256sum "${packages[0]}" > linux-native-review/package-sha256.txt
+          sudo apt-get install -y --no-install-recommends "$(realpath "${packages[0]}")"
+          test -x /usr/bin/kiri
+          ldd /usr/bin/kiri > linux-native-review/linked-libraries.txt
+          if grep -q 'not found' linux-native-review/linked-libraries.txt; then exit 1; fi
+      - name: Exercise the installed app on an isolated X11 desktop
+        timeout-minutes: 4
+        run: bash scripts/qa/linux-native.sh /usr/bin/kiri
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-native-review
+          path: linux-native-review/
+          retention-days: 5
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() && hashFiles('src-tauri/target/release/bundle/deb/*.deb') != '' }}
+        with:
+          name: kiri-linux-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
+          retention-days: 5
+          if-no-files-found: error
+
   build-macos:
     name: Compile macOS app (${{ matrix.arch }})
     strategy:

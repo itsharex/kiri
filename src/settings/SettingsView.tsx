@@ -213,6 +213,7 @@ function AboutSettingsSection() {
   const [currentVersion, setCurrentVersion] = useState("");
   const isWindows = /Windows/i.test(navigator.userAgent);
   const [isPortable, setIsPortable] = useState<boolean | null>(isWindows ? null : false);
+  const [manualUpdates, setManualUpdates] = useState(/Linux/i.test(navigator.userAgent));
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "idle" });
   const updateRef = useRef<Update | null>(null);
   const operationRef = useRef(false);
@@ -230,6 +231,7 @@ function AboutSettingsSection() {
   useEffect(() => {
     let active = true;
     mountedRef.current = true;
+    void api.platformCapabilities().then(caps => { if (active) setManualUpdates(caps.manualUpdates); }).catch(() => {});
     void getVersion()
       .then((version) => {
         if (active) setCurrentVersion(version);
@@ -252,7 +254,7 @@ function AboutSettingsSection() {
   }, []);
 
   const checkForUpdates = async () => {
-    if (isPortable !== false) return;
+    if (isPortable !== false || manualUpdates) return;
     if (operationRef.current) return;
     operationRef.current = true;
     setUpdateState({ kind: "checking" });
@@ -358,7 +360,7 @@ function AboutSettingsSection() {
     }
   };
 
-  let status = t(isPortable
+  let status = t(manualUpdates ? "Linux updates are installed manually from a downloaded package." : isPortable
     ? "Portable version: download the latest ZIP from Releases to update."
     : "Updates are checked only when you choose to check.");
   if (updateState.kind === "checking") {
@@ -401,7 +403,7 @@ function AboutSettingsSection() {
   const busy = ["checking", "downloading", "verifying", "installing", "relaunching"].includes(updateState.kind);
 
   const runPrimaryAction = () => {
-    if (isPortable) return void openRecoveryPage();
+    if (isPortable || manualUpdates) return void openRecoveryPage();
     if (isPortable === null) return;
     if (busy) return;
     if (updateState.kind === "available") return void downloadUpdate();
@@ -416,7 +418,7 @@ function AboutSettingsSection() {
     return void checkForUpdates();
   };
 
-  const buttonLabel = isPortable ? t("Open Releases Page") : updateState.kind === "checking"
+  const buttonLabel = (isPortable || manualUpdates) ? t("Open Releases Page") : updateState.kind === "checking"
     ? t("Checking…")
     : updateState.kind === "downloading" || updateState.kind === "verifying"
       ? t(updateState.kind === "verifying" ? "Verifying update signature…" : "Downloading…")
@@ -438,7 +440,7 @@ function AboutSettingsSection() {
         <div>
           <h2 id="about-settings-title">{t("About")}</h2>
           <p>
-            {t(isPortable
+            {t(manualUpdates ? "Linux updates are installed manually from a downloaded package." : isPortable
               ? "Portable version: download the latest ZIP from Releases to update."
               : "Check, download, and install updates only when you choose each step.")}
           </p>
@@ -688,13 +690,14 @@ function GeneralSettingsSection() {
         <div className="kiri-shortcut-copy">
           <strong>{t("Capture Shortcut")}</strong>
           <span>{shortcutStatus?.label ?? "—"}</span>
+          {shortcutStatus?.status === "systemManaged" && <span>{t("Set a system keyboard shortcut for kiri --capture.")}</span>}
           {shortcutError && <span role="alert">{t(shortcutError)}</span>}
         </div>
         <div className="kiri-shortcut-actions">
           <button
             type="button"
             className="kiri-button kiri-button--secondary"
-            disabled={shortcutBusy || !shortcutStatus}
+            disabled={shortcutBusy || !shortcutStatus || shortcutStatus.status === "systemManaged"}
             aria-pressed={recordingShortcut}
             onClick={(event) => void beginRecordingShortcut(event.currentTarget)}
             onBlur={stopRecordingShortcut}
@@ -714,12 +717,12 @@ function GeneralSettingsSection() {
           >
             {t(recordingShortcut ? "Press a new shortcut (Esc to cancel)" : "Change Shortcut")}
           </button>
-          <button type="button" className="kiri-button kiri-button--secondary" disabled={shortcutBusy || !shortcutStatus} onClick={() => void changeShortcut(null)}>
+          <button type="button" className="kiri-button kiri-button--secondary" disabled={shortcutBusy || !shortcutStatus || shortcutStatus.status === "systemManaged"} onClick={() => void changeShortcut(null)}>
             {t("Restore Default Shortcut")}
           </button>
           {shortcutStatus && (
             <span className="kiri-settings-badge" role="status" aria-live="polite">
-              {t(shortcutStatus.status === "enabled" ? "Enabled" : "In Use")}
+              {t(shortcutStatus.status === "systemManaged" ? "Managed by the desktop" : shortcutStatus.status === "enabled" ? "Enabled" : "In Use")}
             </span>
           )}
           {shortcutStatus?.status === "occupied" && (

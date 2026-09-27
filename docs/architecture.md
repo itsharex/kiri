@@ -2,10 +2,10 @@
 
 Status: current for the Tauri 2 application.
 
-Kiri is a local-first desktop capture workspace for macOS and Windows. React
-renders the application windows, Rust owns capture, persistence, credentials,
-network access, and platform integration, and Tauri provides the window and IPC
-boundary.
+Kiri is a local-first desktop capture workspace for macOS, Windows, and
+experimental Linux. React renders the application windows, Rust owns capture,
+persistence, credentials, network access, and platform integration, and Tauri
+provides the window and IPC boundary.
 
 ## Canonical project layout
 
@@ -19,7 +19,7 @@ boundary.
 - `src-tauri/src/capture/` and `src-tauri/src/platform/` contain platform
   implementations.
 - `scripts/` contains release checks, icon generation, stable macOS signing,
-  and Universal DMG verification.
+  Universal DMG verification, and isolated Linux desktop QA.
 
 There is deliberately no second root Cargo workspace or parallel Tauri app.
 Commands should use `--manifest-path src-tauri/Cargo.toml` when they are run
@@ -48,6 +48,11 @@ The backend owns window creation and validates commands against the expected
 window and active session. Frontend code never receives credentials or an
 unrestricted filesystem path.
 
+Linux does not show the floating `control-panel` or `ripple` during recording.
+The tray and explicit recording commands provide controls without relying on
+portal window exclusion. Linux video viewers expose playback and GIF conversion;
+the macOS/Windows video editor and export controls stay unavailable.
+
 ## Capture flow
 
 1. The native global shortcut asks Rust to start a capture session and records
@@ -61,13 +66,24 @@ unrestricted filesystem path.
    a slow or timed-out native freeze. Windows runs the complete startup on a
    dedicated thread: desktop capture and creation of a second WebView2
    controller never occupy or re-enter Tauri's main event-loop callback.
+   Linux freezes the display on a worker thread, then creates the overlay on
+   the GTK main thread. X11 uses the native shortcut plugin. Wayland does not
+   claim a successful XWayland grab or modify compositor bindings: users
+   configure `kiri --capture` as a desktop shortcut. Single-instance dispatch
+   routes that command to the running app without opening its library.
 2. macOS freezes the active display with ScreenCaptureKit. Windows frozen
    stills use the GDI path exposed through `xcap`; Windows Graphics Capture
-   remains the recording backend. Capture startup is single-flight, so a
-   repeated shortcut cannot enter a second native freeze. Windows gives the
-   desktop frame eight seconds to arrive, then uses fast lossless PNG encoding
-   and a direct `EnumWindows`/DWM collector for window hit-test bounds. The
-   collector excludes Kiri's own process before querying window metadata.
+   remains the recording backend. Linux X11 uses `xcap` for the monitor under
+   the pointer and its window bounds. Wayland checks for one connected display
+   before starting, then uses compatible system `grim` or the Screenshot
+   portal (GNOME). Wayland supplies no window hit-test bounds. Frozen-image
+   dimensions and monitor geometry must agree; multi-display Wayland capture
+   remains unavailable rather than mapping a selection to an uncertain screen.
+   Capture startup is single-flight, so a repeated shortcut cannot enter a
+   second native freeze. Windows gives the desktop frame eight seconds to
+   arrive, then uses fast lossless PNG encoding and a direct
+   `EnumWindows`/DWM collector for window hit-test bounds. The collector
+   excludes Kiri's own process before querying window metadata.
    Post-processing logs a warning after thirty seconds without abandoning an
    already captured frame. Stage-specific failures remain visible, and Kiri
    will not accumulate replacement workers while the original worker is still
@@ -84,7 +100,9 @@ unrestricted filesystem path.
    Rust also crops a pixel-aligned clean source from the still-live frozen
    display and stores it with the document without changing `library.json`.
 6. Rust copies the flattened PNG to the clipboard, imports it into the local
-   library, tears down the session, and restores focus.
+   library, tears down the session, and restores focus where the platform allows
+   it. GTK owns Linux clipboard contents beyond the overlay's lifetime. X11
+   can restore the original app; Wayland activation is compositor-controlled.
 7. A successful import presents the persisted asset in the resident completion
    window on the originating display. The preview does not take focus; a copy
    failure is reported without discarding the saved asset, and a save failure
@@ -178,7 +196,9 @@ file is still missing.
 
 ## OCR flow
 
-Local OCR is the default and runs through macOS Vision or Windows.Media.Ocr.
+Local OCR is the default and runs through macOS Vision, Windows.Media.Ocr, or
+system Tesseract on Linux. Linux selects installed `eng`, `chi_sim`, and `jpn`
+models from the configured or system data directory; it never downloads models.
 The normal local path does not use the network. OCR crop preparation waits for
 pointer release and uses that final endpoint, never an intermediate drag
 frame. Explicitly switching a completed screenshot selection to OCR reuses
@@ -186,7 +206,7 @@ that crop once. Plain clicks and partial drags do not prepare or send a crop
 (ADR 0028).
 
 Remote OCR profiles contain only non-secret metadata. API keys live in macOS
-Keychain or Windows Credential Manager. For a remote profile, Rust prepares
+Keychain, Windows Credential Manager, or the Linux Secret Service. For a remote profile, Rust prepares
 only the selected crop and returns a disclosure containing the profile,
 destination origin, model, pixel dimensions, and byte size. A visible Send or
 Retry action is required for every request. Return performs local OCR for that
@@ -224,8 +244,11 @@ MP4 with optional AAC audio and explicit BT.709 color metadata, keeping playback
 and Core Image export consistent at both small and HD dimensions. Legacy videos
 without color tags still depend on platform color-space inference.
 Windows uses Windows Graphics Capture plus WASAPI
-through `cpal`, then sends the buffers to Media Foundation. Neither platform
-resolves, downloads, or launches an external media encoder.
+through `cpal`, then sends the buffers to Media Foundation. Linux uses a portal
+ScreenCast session and PipeWire frames with system GStreamer for silent H.264
+MP4. Portal consent is separate from the frozen screenshot: the user must pick
+the same display, and the stream dimensions are validated before region capture.
+No platform resolves, downloads, or launches an external media encoder.
 
 The recording panel explicitly chooses the final MP4 or GIF output before
 capture starts; existing saved options without this field default to MP4. GIF
@@ -265,6 +288,11 @@ cleanup ownership and imported as a partial recording. AVFoundation validates
 and losslessly exports macOS segments as one MP4. Kiri control windows are excluded from exported frames,
 while an enabled click-ripple window is intentionally included.
 
+Linux uses tray pause/resume/stop actions or the explicit
+`--toggle-recording-pause` and `--stop-recording` commands. Its floating control
+panel is suppressed because portal capture cannot exclude it reliably. Audio
+inputs, microphone checks, and click highlights are unavailable on Linux.
+
 If a valid finalized MP4 cannot be imported because the active library is
 unavailable or rejects the write, Kiri moves it into a local recovery area
 with a manifest. The library exposes the pending count and a retry action.
@@ -284,10 +312,17 @@ loading the window cannot lose the starting state or its cancel action.
 Windows uses Media Foundation plus the bundled Rust GIF encoder for MP4
 recording, recovery validation, thumbnails, and MP4-to-GIF conversion. macOS
 uses AVFoundation and ImageIO for the same boundary, including pause-segment
-merging. Neither platform downloads or executes FFmpeg; library browsing and
-thumbnail generation are local and offline.
+merging. Linux uses system GStreamer plugins for PipeWire ScreenCast capture,
+H.264 MP4 encoding, thumbnails, and GIF export. No platform downloads or
+executes FFmpeg; library browsing and thumbnail generation are local and
+offline.
 
 ## Signed update flow
+
+This flow applies to macOS and installed Windows builds. Linux uses manually
+downloaded replacement `.deb` packages and does not create signed updater
+artifacts or expose the in-app installer. The release page is its explicit
+manual update route.
 
 Settings reads the installed version from Tauri's application metadata and
 does not run a background updater. A visible **Check for Updates** action asks
@@ -334,7 +369,8 @@ display without taking focus and is protected/excluded from subsequent captures.
 ## Persistence boundaries
 
 - The default macOS library is `~/Library/Application Support/kiri`; the
-  default Windows library is `%APPDATA%\\kiri`. Settings may move the one active
+  default Windows library is `%APPDATA%\\kiri`; Linux uses `$XDG_DATA_HOME/kiri`
+  or `~/.local/share/kiri`. Settings may move the one active
   library to another local directory or external disk.
 - The active root contains a schema/version marker, library UUID, and copy
   generation. A saved custom location must match that marker before Kiri loads
@@ -390,9 +426,16 @@ git diff --check
 
 Capture, recording, permission, focus, or overlay changes also require a
 stable-signed packaged-app check on macOS and the corresponding Windows CI and
-real-device acceptance.
+real-device acceptance. Linux CI builds and installs a `.deb`, runs native
+GStreamer tests, and invokes `scripts/qa/linux-native.sh` on Xvfb with disposable
+HOME/XDG directories. Screenshots of real test windows, clipboard pixels, and
+library persistence are distinct from GNOME Wayland/hardware acceptance; see
+[the Linux guide](linux.md).
 
 ## Video trimming and microphone checks
+
+The editing and microphone features in this section apply to macOS and Windows.
+Linux exposes video playback and GIF conversion only.
 
 The video viewer owns an ordered list of retained source intervals and timed
 normalized zoom/mask rectangles and independent annotation tracks. The screenshot
