@@ -52,9 +52,14 @@ belongs to a portal image. Select a region by dragging; Wayland window hover
 outlines and click-to-select windows are unavailable.
 
 GNOME may show a Screenshot permission dialog. Allow the screenshot and return
-to Kiri's selection overlay. Cancel closes the request without saving. On
-compatible wlroots desktops, installed `grim` may provide the still screenshot;
-it is optional and is not required on GNOME.
+to Kiri's selection overlay. Cancel closes the request without saving. If a
+first capture fails without a prompt, open Kiri's Library and select **Request
+Access** in the error banner. This asks GNOME to show its screenshot permission
+dialog while Kiri has focus. Choose **Allow**; Kiri discards the authorization
+image. Retry Capture for the normal whole-display selection overlay. If you
+deny or cancel the dialog, Kiri does not retry it automatically. On compatible
+wlroots desktops, installed `grim` may provide the still screenshot; it is
+optional on GNOME.
 
 Recording makes a separate ScreenCast request. **Select the same display** as
 the frozen screenshot. Kiri checks the supplied stream dimensions before using

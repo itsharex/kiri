@@ -22,7 +22,7 @@ use crate::core::library_location::{
 use crate::core::policy::{RecordingOptions, RecordingOutputFormat};
 use crate::core::recording_recovery::PendingRecording;
 use crate::platform;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use crate::state::RecoveryAction;
 use crate::state::{
     emit_asset_content_changed, emit_error, emit_library_changed, emit_notice, emit_notice_local,
@@ -1747,7 +1747,9 @@ pub(crate) fn start_linux_capture_from_shortcut(
     let display = match capture_backend::capture_active_display() {
         Ok(display) => display,
         Err(error) => {
-            let message = format!("Screen capture could not start: {error}");
+            let message = capture_backend::capture_error_message(&error);
+            let recovery = capture_backend::needs_portal_authorization(&error)
+                .then_some(RecoveryAction::AuthorizeScreenshot);
             log::error!("start_capture: display capture failed: {error}");
             let _ = linux_run_on_main(&app, {
                 let app = app.clone();
@@ -1759,7 +1761,7 @@ pub(crate) fn start_linux_capture_from_shortcut(
                         prep.was_kiri_frontmost,
                         prep.pid,
                     );
-                    emit_error(&app, message, None);
+                    emit_error(&app, message, recovery);
                     Ok(())
                 }
             });
@@ -5158,6 +5160,32 @@ pub fn open_settings(action: String) -> Result<(), String> {
         // portal dialogs; there is no single portable settings URL.
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn authorize_screenshot(window: WebviewWindow) -> Result<(), String> {
+    require_library_window(&window)?;
+    #[cfg(target_os = "linux")]
+    {
+        if !window.is_focused().unwrap_or(false) {
+            return Err("Focus the Kiri Library before requesting screenshot access.".into());
+        }
+        let state = window.state::<AppState>();
+        let _start_permit = state
+            .capture_start
+            .try_begin()
+            .ok_or("Screen capture is already starting.")?;
+        if state.capture.lock().unwrap().session.is_some() {
+            return Err("A capture session is already active.".into());
+        }
+        crate::capture::linux::authorize_portal_screenshot()
+            .await
+            .map_err(|error| format!("Screenshot authorization failed: {error}"))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("Screenshot authorization is only available on Linux.".into())
+    }
 }
 
 #[tauri::command]

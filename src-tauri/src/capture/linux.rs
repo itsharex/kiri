@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use ashpd::desktop::screenshot::Screenshot;
+use ashpd::desktop::ResponseError;
 
 use crate::core::geometry::Rect;
 use crate::record::{AudioChunkSender, AudioSpec};
@@ -29,6 +30,34 @@ use image::ImageEncoder;
 /// Hard upper bound on how long a single portal round-trip may take.
 const PORTAL_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SCREENSHOT_BYTES: u64 = 256 * 1024 * 1024;
+const PORTAL_ACCESS_GUIDANCE: &str = "Screenshot access was not granted. Request access from the Kiri Library, then try Capture again.";
+
+#[derive(Debug)]
+struct PortalAccessNotGranted(ashpd::Error);
+
+impl std::fmt::Display for PortalAccessNotGranted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Screen capture was cancelled or denied: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for PortalAccessNotGranted {}
+
+pub(crate) fn capture_error_message(error: &anyhow::Error) -> String {
+    if error.is::<PortalAccessNotGranted>() {
+        PORTAL_ACCESS_GUIDANCE.into()
+    } else {
+        format!("Screen capture could not start: {error}")
+    }
+}
+
+pub(crate) fn needs_portal_authorization(error: &anyhow::Error) -> bool {
+    error.is::<PortalAccessNotGranted>()
+}
 
 static FROZEN_CAPTURE_WORKER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -352,20 +381,40 @@ fn capture_portal_png() -> Result<Vec<u8>> {
 async fn request_portal_screenshot() -> Result<url::Url> {
     // One user-visible authorization request; cancellation must not open a
     // second dialog. Allow time to read and answer the desktop's prompt.
-    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot(false))
+    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot())
         .await
         .map_err(|_| {
             anyhow!(
                 "Screen capture authorization timed out. Cancel the desktop dialog and try again."
             )
         })?
-        .map_err(|error| anyhow!("Screen capture was cancelled or denied: {error}"))
+        .map_err(portal_request_error)
 }
 
-async fn take_screenshot(interactive: bool) -> Result<url::Url, ashpd::Error> {
+/// Ask for the initial GNOME grant while the Kiri Library is focused.
+/// GNOME only offers the persistent screenshot permission for a noninteractive
+/// request. Discard the resulting full-display image; this action grants access
+/// but does not start a capture session.
+pub(crate) async fn authorize_portal_screenshot() -> Result<()> {
+    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot())
+        .await
+        .map_err(|_| anyhow!("Screenshot authorization timed out."))?
+        .map_err(portal_request_error)?;
+    Ok(())
+}
+
+fn portal_request_error(error: ashpd::Error) -> anyhow::Error {
+    if matches!(error, ashpd::Error::Response(ResponseError::Other)) {
+        PortalAccessNotGranted(error).into()
+    } else {
+        anyhow!("Screen capture was cancelled or denied: {error}")
+    }
+}
+
+async fn take_screenshot() -> Result<url::Url, ashpd::Error> {
     let request = Screenshot::request()
-        .interactive(interactive)
-        .modal(interactive)
+        .interactive(false)
+        .modal(false)
         .send()
         .await?;
     let response = request.response()?;
@@ -705,6 +754,30 @@ impl PlatformRecorder for LinuxRecorder {
             bail!(error);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod portal_error_tests {
+    use super::*;
+
+    #[test]
+    fn ambiguous_portal_denial_gets_guidance_without_reopening_the_dialog() {
+        let error = portal_request_error(ashpd::Error::Response(ResponseError::Other));
+        assert!(error.to_string().contains("cancelled or denied"));
+        assert!(needs_portal_authorization(&error));
+        assert_eq!(capture_error_message(&error), PORTAL_ACCESS_GUIDANCE);
+    }
+
+    #[test]
+    fn explicit_cancellation_keeps_its_existing_message() {
+        let error = portal_request_error(ashpd::Error::Response(ResponseError::Cancelled));
+        assert!(!error.is::<PortalAccessNotGranted>());
+        assert!(!needs_portal_authorization(&error));
+        assert_eq!(
+            capture_error_message(&error),
+            "Screen capture could not start: Screen capture was cancelled or denied: Portal request didn't succeed: Cancelled"
+        );
     }
 }
 

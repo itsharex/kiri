@@ -329,6 +329,7 @@ export const api = {
   openReleasePage: () => invoke<void>("open_release_page"),
   isPortableBuild: () => invoke<boolean>("is_portable_build"),
   openSettings: (action: string) => invoke<void>("open_settings", { action }),
+  authorizeScreenshot: () => invoke<void>("authorize_screenshot"),
   quitApp: () => invoke<void>("quit_app"),
   getRecordingOptions: () => invoke<RecordingOptions>("get_recording_options"),
   setRecordingOptions: (options: RecordingOptions) =>

@@ -94,6 +94,7 @@ export function LibraryWindow() {
   const thumbnailRevisionsRef = useRef<Record<string, number>>({});
   const [notice, setNotice] = useState<NoticeDto | null>(null);
   const [error, setError] = useState<ErrorDto | null>(null);
+  const [screenshotAuthorizationBusy, setScreenshotAuthorizationBusy] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [gifConversionIds, setGifConversionIds] = useState<Set<string>>(new Set());
   // Menu anchor in viewport coordinates (mouse position on right-click, or
@@ -1213,13 +1214,25 @@ export function LibraryWindow() {
               type="button"
               className="kiri-primary-button"
               style={{ minHeight: 30, flexShrink: 0, whiteSpace: "nowrap" }}
+              disabled={screenshotAuthorizationBusy}
               onClick={() => {
+                if (error.recovery === "authorizeScreenshot") {
+                  setScreenshotAuthorizationBusy(true);
+                  void api.authorizeScreenshot()
+                    .then(() => {
+                      setError(null);
+                      showLocalNotice("Screenshot access is ready. Try Capture again.");
+                    })
+                    .catch(() => {})
+                    .finally(() => setScreenshotAuthorizationBusy(false));
+                  return;
+                }
                 if (error.recovery === "quitKiri") void api.quitApp().catch(() => {});
                 else void api.openSettings(error.recovery!).catch(() => {});
                 setError(null);
               }}
             >
-              {recoveryLabel(error.recovery)}
+              {screenshotAuthorizationBusy ? t("Requesting…") : recoveryLabel(error.recovery)}
             </button>
           )}
           <button
@@ -1294,6 +1307,8 @@ function recoveryLabel(recovery: string): string {
       return t("Open Input Monitoring Settings");
     case "openMicrophoneSettings":
       return t("Open Microphone Settings");
+    case "authorizeScreenshot":
+      return t("Request Access");
     default:
       return recovery;
   }
