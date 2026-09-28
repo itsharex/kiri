@@ -428,6 +428,8 @@ pub enum RecoveryAction {
     QuitKiri,
     OpenInputMonitoringSettings,
     OpenMicrophoneSettings,
+    #[cfg(target_os = "linux")]
+    AuthorizeScreenshot,
 }
 
 impl AppState {
@@ -852,11 +854,15 @@ pub fn emit_error(app: &AppHandle, message: String, recovery: Option<RecoveryAct
     // even when the UI stops re-prompting (see dedupe below).
     append_error_log(&message, recovery);
 
-    // Show a given error message at most once per launch. Repeated failures
-    // (e.g. a denied permission that the user already dismissed) would
-    // otherwise re-open the banner on every capture attempt; the first
-    // occurrence surfaces it, later ones are only logged.
-    if !mark_error_seen(&message) {
+    // Show most error messages at most once per launch. A portal denial may
+    // need the explicit Request Access action again after the user retries a
+    // capture, so keep that recovery banner available.
+    let first_occurrence = mark_error_seen(&message);
+    #[cfg(target_os = "linux")]
+    let explicit_portal_retry = recovery == Some(RecoveryAction::AuthorizeScreenshot);
+    #[cfg(not(target_os = "linux"))]
+    let explicit_portal_retry = false;
+    if !first_occurrence && !explicit_portal_retry {
         log::info!("[error] suppressed duplicate banner: {message}");
         return;
     }
@@ -866,6 +872,8 @@ pub fn emit_error(app: &AppHandle, message: String, recovery: Option<RecoveryAct
         RecoveryAction::QuitKiri => "quitKiri",
         RecoveryAction::OpenInputMonitoringSettings => "openInputMonitoringSettings",
         RecoveryAction::OpenMicrophoneSettings => "openMicrophoneSettings",
+        #[cfg(target_os = "linux")]
+        RecoveryAction::AuthorizeScreenshot => "authorizeScreenshot",
     });
     let _ = app.emit(
         "error",
@@ -910,6 +918,8 @@ fn append_error_log(message: &str, recovery: Option<RecoveryAction>) {
         Some(RecoveryAction::QuitKiri) => " [quitKiri]",
         Some(RecoveryAction::OpenInputMonitoringSettings) => " [openInputMonitoringSettings]",
         Some(RecoveryAction::OpenMicrophoneSettings) => " [openMicrophoneSettings]",
+        #[cfg(target_os = "linux")]
+        Some(RecoveryAction::AuthorizeScreenshot) => " [authorizeScreenshot]",
         None => "",
     };
     use std::io::Write;

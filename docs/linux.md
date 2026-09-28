@@ -53,12 +53,13 @@ outlines and click-to-select windows are unavailable.
 
 GNOME may show a Screenshot permission dialog. Allow the screenshot and return
 to Kiri's selection overlay. Cancel closes the request without saving. If a
-first capture from a desktop shortcut fails without showing that dialog, bring
-another window to the front and try Capture again. Kiri reports this recovery
-step instead of automatically opening another prompt, because GNOME returns the
-same denial response when someone explicitly chooses Deny. On compatible
-wlroots desktops, installed `grim` may provide the still screenshot; it is
-optional and is not required on GNOME.
+first capture fails without a prompt, open Kiri's Library and select **Request
+Access** in the error banner. This explicitly opens GNOME's interactive
+screenshot picker while Kiri has focus. Its image is discarded by Kiri; retry
+Capture afterward for the normal whole-display selection overlay. If you deny
+or cancel the picker, Kiri leaves access unchanged and does not retry the
+permission dialog automatically. On compatible wlroots desktops, installed
+`grim` may provide the still screenshot; it is optional on GNOME.
 
 Recording makes a separate ScreenCast request. **Select the same display** as
 the frozen screenshot. Kiri checks the supplied stream dimensions before using
