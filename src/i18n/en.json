@@ -78,6 +78,7 @@
   "Stop and Save Recording": "Stop and Save Recording",
   "Esc to cancel": "Esc to cancel",
   "Screenshot": "Screenshot",
+  "Screenshot access was not granted. If no system prompt appeared, focus a window and try Capture again.": "Screenshot access was not granted. If no system prompt appeared, focus a window and try Capture again.",
   "Record": "Record",
   "OCR": "OCR",
   "Drag to choose text to recognize   ·   Esc to cancel": "Drag to choose text to recognize   ·   Esc to cancel",

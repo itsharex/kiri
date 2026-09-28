@@ -1747,7 +1747,7 @@ pub(crate) fn start_linux_capture_from_shortcut(
     let display = match capture_backend::capture_active_display() {
         Ok(display) => display,
         Err(error) => {
-            let message = format!("Screen capture could not start: {error}");
+            let message = capture_backend::capture_error_message(&error);
             log::error!("start_capture: display capture failed: {error}");
             let _ = linux_run_on_main(&app, {
                 let app = app.clone();

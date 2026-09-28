@@ -78,6 +78,7 @@
   "Stop and Save Recording": "停止并保存录屏",
   "Esc to cancel": "按 Esc 取消",
   "Screenshot": "截图",
+  "Screenshot access was not granted. If no system prompt appeared, focus a window and try Capture again.": "未获得截图权限。如果没有出现系统授权提示，请先切到一个窗口，再重试 Kiri 的截图。",
   "Record": "录屏",
   "OCR": "文字",
   "Drag to choose text to recognize   ·   Esc to cancel": "拖动框选要识别的文字区域   ·   Esc 取消",

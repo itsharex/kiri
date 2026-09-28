@@ -78,6 +78,7 @@
   "Stop and Save Recording": "録画を停止して保存",
   "Esc to cancel": "Esc でキャンセル",
   "Screenshot": "スクリーンショット",
+  "Screenshot access was not granted. If no system prompt appeared, focus a window and try Capture again.": "スクリーンショットの許可が得られませんでした。システムの確認画面が出なかった場合は、ウィンドウを前面にしてからもう一度キャプチャしてください。",
   "Record": "録画",
   "OCR": "OCR",
   "Drag to choose text to recognize   ·   Esc to cancel": "テキストを選択してドラッグ  ·  Esc でキャンセル",
