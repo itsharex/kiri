@@ -21,6 +21,15 @@ export function getMenuFocusIndex(
   itemCount: number,
 ): number;
 
+export function getLibraryMenuPosition(input: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}): { left: number; top: number };
+
 export function getLibraryContentPoint(input: {
   clientX: number;
   clientY: number;

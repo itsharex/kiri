@@ -14,6 +14,7 @@ import {
   getLibraryCardInteraction,
   getLibraryCardPrimaryAction,
   getLibraryContentPoint,
+  getLibraryMenuPosition,
   getMenuFocusIndex,
 } from "../src/windows/library-card-interaction.js";
 
@@ -106,6 +107,18 @@ test("card menus support native arrow and edge keyboard navigation", () => {
   assert.equal(getMenuFocusIndex("ArrowDown", -1, 4), 0);
   assert.equal(getMenuFocusIndex("ArrowUp", -1, 4), 3);
   assert.equal(getMenuFocusIndex("ArrowDown", 0, 0), -1);
+});
+
+test("card menu placement uses its actual height and stays near the trigger", () => {
+  assert.deepEqual(getLibraryMenuPosition({
+    x: 400, y: 150, width: 196, height: 370, viewportWidth: 1200, viewportHeight: 800,
+  }), { left: 400, top: 154 });
+  assert.deepEqual(getLibraryMenuPosition({
+    x: 1120, y: 720, width: 196, height: 370, viewportWidth: 1200, viewportHeight: 800,
+  }), { left: 924, top: 346 });
+  assert.deepEqual(getLibraryMenuPosition({
+    x: 400, y: 300, width: 196, height: 500, viewportWidth: 1200, viewportHeight: 600,
+  }), { left: 400, top: 90 });
 });
 
 test("rubber-band pointer coordinates do not count container padding twice", () => {

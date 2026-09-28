@@ -72,6 +72,9 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
         owner.hooks[index] = { deps, cleanup: create() };
       });
     },
+    useLayoutEffect(create, deps) {
+      React.useEffect(create, deps);
+    },
   };
   const window = {
     addEventListener(name, callback) {
