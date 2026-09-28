@@ -381,7 +381,7 @@ fn capture_portal_png() -> Result<Vec<u8>> {
 async fn request_portal_screenshot() -> Result<url::Url> {
     // One user-visible authorization request; cancellation must not open a
     // second dialog. Allow time to read and answer the desktop's prompt.
-    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot(false))
+    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot())
         .await
         .map_err(|_| {
             anyhow!(
@@ -391,11 +391,12 @@ async fn request_portal_screenshot() -> Result<url::Url> {
         .map_err(portal_request_error)
 }
 
-/// Ask for the initial GNOME grant while a Kiri window is focused. The
-/// interactive portal result is intentionally discarded: it may contain a
-/// selected window or area rather than Kiri's required whole display.
+/// Ask for the initial GNOME grant while the Kiri Library is focused.
+/// GNOME only offers the persistent screenshot permission for a noninteractive
+/// request. Discard the resulting full-display image; this action grants access
+/// but does not start a capture session.
 pub(crate) async fn authorize_portal_screenshot() -> Result<()> {
-    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot(true))
+    tokio::time::timeout(PORTAL_TIMEOUT, take_screenshot())
         .await
         .map_err(|_| anyhow!("Screenshot authorization timed out."))?
         .map_err(portal_request_error)?;
@@ -410,10 +411,10 @@ fn portal_request_error(error: ashpd::Error) -> anyhow::Error {
     }
 }
 
-async fn take_screenshot(interactive: bool) -> Result<url::Url, ashpd::Error> {
+async fn take_screenshot() -> Result<url::Url, ashpd::Error> {
     let request = Screenshot::request()
-        .interactive(interactive)
-        .modal(interactive)
+        .interactive(false)
+        .modal(false)
         .send()
         .await?;
     let response = request.response()?;
