@@ -96,6 +96,7 @@ export function LibraryWindow() {
   const [error, setError] = useState<ErrorDto | null>(null);
   const [screenshotAuthorizationBusy, setScreenshotAuthorizationBusy] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menuFocusFirst, setMenuFocusFirst] = useState(false);
   const [gifConversionIds, setGifConversionIds] = useState<Set<string>>(new Set());
   // Menu anchor in viewport coordinates (mouse position on right-click, or
   // the ⋯ button's corner), so the menu appears where the user looked.
@@ -288,12 +289,15 @@ export function LibraryWindow() {
   useEffect(() => {
     if (menuFor === null) return;
     const frame = requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLButtonElement>(".kiri-card-menu button:not(:disabled)")
-        ?.focus();
+      const menu = document.querySelector<HTMLDivElement>(".kiri-card-menu");
+      if (menuFocusFirst) {
+        menu?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+      } else {
+        menu?.focus();
+      }
     });
     return () => cancelAnimationFrame(frame);
-  }, [menuFor]);
+  }, [menuFor, menuFocusFirst]);
 
   // Changing section/query clears the selection so the bar never points at
   // assets that are no longer visible.
@@ -441,12 +445,13 @@ export function LibraryWindow() {
     loaded && (libraryStatusError || libraryStatus?.availability === "unavailable");
   const libraryMigrating = loaded && libraryStatus?.availability === "migrating";
 
-  const openMenu = (id: string, x: number, y: number, trigger?: HTMLButtonElement) => {
+  const openMenu = (id: string, x: number, y: number, trigger?: HTMLButtonElement, focusFirst = false) => {
     if (menuFor === id) {
       closeMenu();
       return;
     }
     menuTriggerRef.current = trigger ?? null;
+    setMenuFocusFirst(focusFirst);
     setMenuFor(id);
     setMenuPos({ x, y });
   };
@@ -550,6 +555,7 @@ export function LibraryWindow() {
         id={`kiri-card-menu-${asset.id}`}
         className="kiri-card-menu"
         role="menu"
+        tabIndex={-1}
         aria-label={t("More Actions")}
         onKeyDown={(event) => {
           if (event.key === "Tab") {
@@ -1116,7 +1122,7 @@ export function LibraryWindow() {
                     availability={assetAvailability[asset.id]}
                     thumbnailRevision={thumbnailRevisions[asset.id] ?? 0}
                     menuOpen={menuFor === asset.id}
-                    onMenu={(x, y, trigger) => openMenu(asset.id, x, y, trigger)}
+                    onMenu={(x, y, trigger, focusFirst) => openMenu(asset.id, x, y, trigger, focusFirst)}
                     menu={menuFor === asset.id ? itemMenu(asset) : null}
                     selected={selection.has(asset.id)}
                     selectionActive={selectionIds.length > 0}
@@ -1374,7 +1380,7 @@ function AssetCard(props: {
   availability?: AssetAvailability;
   thumbnailRevision: number;
   menuOpen: boolean;
-  onMenu(x: number, y: number, trigger?: HTMLButtonElement): void;
+  onMenu(x: number, y: number, trigger?: HTMLButtonElement, focusFirst?: boolean): void;
   menu: React.ReactNode;
   onOpen(): void;
   selected: boolean;
@@ -1536,7 +1542,7 @@ function AssetCard(props: {
         // Right-click shows the localized action menu at the cursor
         // (same as ⋯), never the webview's system context menu.
         e.preventDefault();
-        onMenu(e.clientX, e.clientY);
+        onMenu(e.clientX, e.clientY, undefined, e.button === 0 && !e.ctrlKey);
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -1899,7 +1905,7 @@ function AssetCard(props: {
               const rect = e.currentTarget.getBoundingClientRect();
               // Anchor the menu below the ⋯ button; edge-flip handled in
               // menuStyle (left-aligned so a near-right flip stays sane).
-              onMenu(rect.left, rect.bottom + 4, e.currentTarget);
+              onMenu(rect.left, rect.bottom + 4, e.currentTarget, e.detail === 0);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();

@@ -104,6 +104,7 @@ test("card menus support native arrow and edge keyboard navigation", () => {
   assert.equal(getMenuFocusIndex("Home", 2, 4), 0);
   assert.equal(getMenuFocusIndex("End", 1, 4), 3);
   assert.equal(getMenuFocusIndex("ArrowDown", -1, 4), 0);
+  assert.equal(getMenuFocusIndex("ArrowUp", -1, 4), 3);
   assert.equal(getMenuFocusIndex("ArrowDown", 0, 0), -1);
 });
 
