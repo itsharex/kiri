@@ -22,7 +22,7 @@ use crate::core::library_location::{
 use crate::core::policy::{RecordingOptions, RecordingOutputFormat};
 use crate::core::recording_recovery::PendingRecording;
 use crate::platform;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use crate::state::RecoveryAction;
 use crate::state::{
     emit_asset_content_changed, emit_error, emit_library_changed, emit_notice, emit_notice_local,
