@@ -77,3 +77,44 @@ test("load failures are not presented as empty history", async () => {
   assert.equal(hasText(tree, "Your text, ready to revisit"), false);
   component.unmount();
 });
+
+test("OCR history saves a correction, restores the original, and cancels an edit", async () => {
+  let current = record("ocr-1", "tezt");
+  const changes = [];
+  const harness = createLibraryHarness({
+    listOcrRecords: async () => [current],
+    updateOcrHistoryText: async (id, expectedText, replacement) => {
+      changes.push([id, expectedText, replacement]);
+      current = { ...current, ocrText: replacement ?? current.ocrOriginalText,
+        ocrOriginalText: replacement == null ? null : current.ocrOriginalText ?? expectedText };
+      return current;
+    },
+  }, source);
+  const component = harness.mount("TextHistory");
+  component.render(); await pause(5); await settleRequests();
+  let tree = component.render();
+  button(tree, "Edit Text").props.onClick();
+  tree = component.render();
+  const editor = nodes(tree).find((node) => node?.props?.editor?.type === "textarea")?.props.editor;
+  editor.props.onChange({ target: { value: "text" } });
+  tree = component.render();
+  button(tree, "Save").props.onClick(); await settleRequests();
+  tree = component.render();
+  assert.deepEqual(changes[0], ["ocr-1", "tezt", "text"]);
+  assert.equal(hasText(tree, "text"), true);
+  assert.ok(button(tree, "Restore Original Text"));
+  button(tree, "Restore Original Text").props.onClick(); await settleRequests();
+  tree = component.render();
+  assert.deepEqual(changes[1], ["ocr-1", "text", null]);
+  assert.equal(hasText(tree, "tezt"), true);
+  assert.equal(button(tree, "Restore Original Text"), undefined);
+  button(tree, "Edit Text").props.onClick();
+  tree = component.render();
+  nodes(tree).find((node) => node?.props?.editor?.type === "textarea")?.props.editor.props.onChange({ target: { value: "discarded" } });
+  tree = component.render();
+  button(tree, "Cancel").props.onClick();
+  tree = component.render();
+  assert.equal(hasText(tree, "tezt"), true);
+  assert.equal(changes.length, 2);
+  component.unmount();
+});

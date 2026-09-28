@@ -224,7 +224,7 @@ never remain hidden behind the OCR result surface.
 Successful, nonempty local and remote OCR results persist as image assets with
 optional `ocrText` metadata and an independent PNG snapshot (ADR 0030). A single
 index commit records both, rolling back new files if persistence fails. The
-capture grid excludes these records; Text History searches their text and
+capture grid excludes these records; Text History searches their corrected text and
 reads them without reopening the capture overlay. Trash and library migration
 use the existing asset lifecycle. Snapshots cannot enter the annotation editor.
 

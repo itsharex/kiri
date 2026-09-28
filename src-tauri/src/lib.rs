@@ -238,6 +238,7 @@ pub fn run() {
             commands::rename_asset,
             commands::set_tags,
             ocr_commands::list_ocr_records,
+            ocr_commands::update_ocr_history_text,
             ocr_commands::recognize_asset_local,
             ocr_commands::copy_history_text,
             ocr_commands::get_ocr_provider_settings,

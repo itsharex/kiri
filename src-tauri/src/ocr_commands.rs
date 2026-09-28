@@ -611,6 +611,28 @@ pub fn list_ocr_records(
 }
 
 #[tauri::command]
+pub fn update_ocr_history_text(
+    window: WebviewWindow,
+    app: AppHandle,
+    id: String,
+    expected_text: String,
+    replacement: Option<String>,
+) -> Result<AssetDto, String> {
+    require_library_window(&window)?;
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid text history record.".to_string())?;
+    let state = app.state::<AppState>();
+    let mut context = state.library.lock().unwrap();
+    let asset = context
+        .library_mut()
+        .map_err(|error| error.to_string())?
+        .update_ocr_text(&id, &expected_text, replacement)
+        .map_err(|error| error.to_string())?;
+    drop(context);
+    emit_library_changed(&app);
+    Ok(asset_dto(&asset))
+}
+
+#[tauri::command]
 pub async fn recognize_asset_local(
     window: WebviewWindow,
     app: AppHandle,

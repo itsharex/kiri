@@ -12,6 +12,9 @@
 .text-history__footnote { margin: 0; padding: 14px 20px; border-top: 1px solid var(--kiri-surface-border); }
 .text-history__detail { flex: 1; min-width: 0; overflow: auto; padding: 22px 32px; background: var(--kiri-card); }
 .text-history__record-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+.text-history__record-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.text-reader__editor { display: block; box-sizing: border-box; width: 100%; min-height: 220px; resize: vertical; padding: 12px; margin-bottom: 24px; border: 1px solid var(--kiri-surface-border); border-radius: 8px; background: var(--kiri-card); color: var(--kiri-label); font: inherit; line-height: 1.65; }
+.text-reader__editor:focus-visible { outline: 2px solid var(--kiri-label); outline-offset: 2px; }
 .text-reader { min-width: 0; }
 .text-reader__actions { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding-bottom: 20px; }
 .text-reader__caption { font-weight: 600; letter-spacing: .04em; }

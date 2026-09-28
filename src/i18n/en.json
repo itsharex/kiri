@@ -587,5 +587,9 @@
   "The image could not be copied to the clipboard.": "The image could not be copied to the clipboard.",
   "The text could not be copied to the clipboard.": "The text could not be copied to the clipboard.",
   "The file could not be copied to the clipboard.": "The file could not be copied to the clipboard.",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays."
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.",
+  "Edit Text": "Edit Text",
+  "Restore Original Text": "Restore Original Text",
+  "Edit recognized text": "Edit recognized text",
+  "Couldn't save the text. Reload Text History and try again.": "Couldn't save the text. Reload Text History and try again."
 }

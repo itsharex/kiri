@@ -587,5 +587,9 @@
   "The image could not be copied to the clipboard.": "画像をクリップボードにコピーできませんでした。",
   "The text could not be copied to the clipboard.": "テキストをクリップボードにコピーできませんでした。",
   "The file could not be copied to the clipboard.": "ファイルをクリップボードにコピーできませんでした。",
-  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。"
+  "Experimental Wayland capture currently requires one display. Use an X11 session for multiple displays.": "実験的な Wayland キャプチャは現在 1 画面のみ対応しています。複数の画面では X11 セッションを使用してください。",
+  "Edit Text": "テキストを編集",
+  "Restore Original Text": "元の認識結果に戻す",
+  "Edit recognized text": "認識したテキストを編集",
+  "Couldn't save the text. Reload Text History and try again.": "テキストを保存できませんでした。テキスト履歴を開き直して、もう一度お試しください。"
 }
