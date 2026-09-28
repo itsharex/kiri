@@ -144,6 +144,24 @@ requirement="$(
   exit 1
 }
 
+# A valid certificate alone does not preserve macOS privacy grants. Keep the
+# public release on the same designated requirement as the installed app.
+installed_app="/Applications/Kiri.app"
+if [[ -d "$installed_app" ]]; then
+  installed_requirement="$(
+    codesign --display --requirements - "$installed_app" 2>&1 |
+      sed -n 's/^#*[[:space:]]*designated => //p'
+  )"
+  if [[ -z "$installed_requirement" || "$installed_requirement" != "$requirement" ]]; then
+    if [[ "${KIRI_ALLOW_IDENTITY_CHANGE:-0}" != "1" ]]; then
+      echo "package-macos-release: packaged app does not match the installed Kiri signing identity" >&2
+      echo "package-macos-release: set KIRI_SIGNING_IDENTITY to the installed certificate fingerprint" >&2
+      exit 1
+    fi
+    echo "package-macos-release: warning: explicit signing identity migration requested" >&2
+  fi
+fi
+
 echo "verified Universal macOS release: $dmg"
 echo "verified signed updater assets: $updater_archive and $updater_signature"
 echo "architectures: $architectures; minimum macOS: $expected_macos"
