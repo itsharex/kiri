@@ -813,6 +813,7 @@ button:active:not(:disabled) {
 
 .kiri-card-menu {
   transform-origin: top left;
+  outline: none; /* Pointer-opened menus focus the container, then arrows focus rows. */
 }
 
 /* --- Capture overlay: mode selector (Screenshot / Record / OCR) --- */
