@@ -153,11 +153,19 @@ def stop(child):
 
 
 def show_fixture():
+    # The library can remain above the Tk source even after lift() on Openbox.
+    # Minimize only Kiri's isolated QA windows before taking reference pixels.
+    for window in windows():
+        command("xdotool", "windowminimize", window)
     fixture.deiconify()
     fixture.lift()
     fixture.focus_force()
     fixture.update()
-    pause()
+    wait_for("public fixture is in front", lambda: (
+        (image := ImageGrab.grab().convert("RGB")).getpixel((300, 450))[0] < 40
+        and 90 < image.getpixel((500, 450))[0] < 150
+        and image.getpixel((680, 450))[0] > 190
+    ))
 
 
 def open_capture():
