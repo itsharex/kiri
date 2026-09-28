@@ -540,6 +540,8 @@ frame/audio rate conversion. Viewer playback speed is independent of clip speed.
 The library's import command is restricted to the library window. Native file
 selection and WebView file drops share a bounded background import path. Images
 use bounded Rust decoders, apply orientation and normalize to a temporary PNG;
+explicit Paste Image reads desktop clipboard pixels only on request and sends
+them through the same bounded PNG import path. Text inputs keep normal paste;
 video files are copied to an isolated snapshot and probed through platform media
 APIs. The import checks library identity/generation before publishing each asset.
 Per-file failures are reported alongside successful imports without discarding

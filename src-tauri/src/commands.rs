@@ -1262,6 +1262,31 @@ pub async fn import_media(
 }
 
 #[tauri::command]
+pub async fn paste_clipboard_image(window: WebviewWindow, app: AppHandle) -> Result<AssetDto, String> {
+    require_library_window(&window)?;
+    let state = app.state::<AppState>();
+    let (identity, generation) = {
+        let context = state.library.lock().unwrap();
+        (context.expected_library_id(), context.expected_library_generation())
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let png = platform::read_image_from_clipboard().map_err(|error| error.to_string())?;
+        let prepared = crate::media_import::prepare_clipboard_png(&png).map_err(|error| error.to_string())?;
+        let state = app.state::<AppState>();
+        let mut context = state.library.lock().unwrap();
+        if context.expected_library_id() != identity || context.expected_library_generation() != generation {
+            return Err("Library changed during import.".to_string());
+        }
+        let asset = context.library_mut().map_err(|error| error.to_string())?
+            .import_file_with_title(prepared.file.path(), CaptureKind::Image, "png", prepared.width,
+                prepared.height, None, None, None).map_err(|error| error.to_string())?;
+        drop(context);
+        emit_library_changed(&app);
+        Ok(asset_dto(&asset))
+    }).await.map_err(|_| "Clipboard image import stopped unexpectedly.".to_string())?
+}
+
+#[tauri::command]
 pub async fn export_video_copy(
     app: AppHandle,
     window: WebviewWindow,

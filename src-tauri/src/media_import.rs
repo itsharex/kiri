@@ -23,6 +23,15 @@ pub fn display_title(path: &Path) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
+pub fn prepare_clipboard_png(png: &[u8]) -> Result<PreparedMedia> {
+    if png.is_empty() || png.len() > 32 * 1024 * 1024 {
+        bail!("Clipboard image is empty or too large");
+    }
+    let source = tempfile::Builder::new().suffix(".png").tempfile()?;
+    std::fs::write(source.path(), png)?;
+    prepare(source.path())
+}
+
 pub fn prepare(path: &Path) -> Result<PreparedMedia> {
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
@@ -162,5 +171,16 @@ mod tests {
         let path = dir.path().join("bad.png");
         std::fs::write(&path, b"not an image").unwrap();
         assert!(prepare(&path).is_err());
+    }
+    #[test]
+    fn clipboard_image_is_validated_and_normalized() {
+        let image = image::RgbaImage::from_pixel(23, 17, image::Rgba([20, 40, 60, 255]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image).write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let imported = prepare_clipboard_png(png.get_ref()).unwrap();
+        assert_eq!((imported.width, imported.height), (23, 17));
+        assert_eq!(imported.kind, CaptureKind::Image);
+        assert!(prepare_clipboard_png(b"not an image").is_err());
+        assert!(prepare_clipboard_png(&[]).is_err());
     }
 }

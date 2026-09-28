@@ -228,6 +228,7 @@ pub fn run() {
             video_project_commands::load_video_project,
             video_project_commands::save_video_project,
             commands::import_media,
+            commands::paste_clipboard_image,
             commands::start_capture,
             commands::authorize_screenshot,
             commands::cancel_capture,

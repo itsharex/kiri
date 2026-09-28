@@ -342,6 +342,7 @@ export const api = {
   setRecordingOptions: (options: RecordingOptions) =>
     invoke<void>("set_recording_options", { options }),
   importMedia: (paths?:string[]) => invoke<{ids:string[];failed:number}>("import_media",{paths:paths??null}),
+  pasteClipboardImage: () => invoke<AssetDto>("paste_clipboard_image"),
   getAnnotationAppearance: () =>
     invoke<AppearanceSettings>("get_annotation_appearance"),
   setAnnotationAppearance: (appearance: AppearanceSettings) =>

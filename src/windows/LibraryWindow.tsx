@@ -734,6 +734,32 @@ export function LibraryWindow() {
     catch{setMediaImportMessage(t("Could not import these files. Choose supported local images or videos."));}
     finally{mediaImporting.current=false;setMediaImportBusy(false);}
   },[libraryStatus?.availability,refresh]);
+  const pasteImage=useCallback(async()=>{
+    if(mediaImporting.current||libraryStatus?.availability!=="ready")return;
+    mediaImporting.current=true;setMediaImportBusy(true);setMediaImportMessage("");
+    try{
+      await api.pasteClipboardImage();
+      queryRef.current="";showingTrashRef.current=false;
+      setQuery("");setSection("library");setDestination("captures");
+      setKindFilter("all");setFavoritesOnly(false);setTagFilter(null);setSelection(new Set());
+      gridScrollRef.current?.scrollTo({top:0});
+      setMediaImportMessage(t("Clipboard image added to Library."));
+      await refresh();
+    }catch{setMediaImportMessage(t("Could not paste an image from the clipboard."));}
+    finally{mediaImporting.current=false;setMediaImportBusy(false);}
+  },[libraryStatus?.availability,refresh]);
+  useEffect(()=>{
+    if(destination!=="captures"||showingTrash)return;
+    const onKeyDown=(event:KeyboardEvent)=>{
+      if(event.key.toLowerCase()!=="v"||!(event.metaKey||event.ctrlKey)||event.altKey||event.shiftKey)return;
+      const target=event.target;
+      if(target instanceof Element && target.closest("input, textarea, [contenteditable], [role='textbox']"))return;
+      event.preventDefault();
+      void pasteImage();
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return()=>window.removeEventListener("keydown",onKeyDown);
+  },[destination,showingTrash,pasteImage]);
   useEffect(()=>{
     let disposed=false;let stop:(()=>void)|undefined;
     void getCurrentWebview().onDragDropEvent(event=>{
@@ -784,6 +810,7 @@ export function LibraryWindow() {
 
           <div className="library-control-panel__actions">
             {destination==="captures"&&!showingTrash&&<button type="button" className="kiri-button kiri-button--secondary" disabled={mediaImportBusy||libraryStatus?.availability!=="ready"} title={t("Import local images or videos")} onClick={()=>void importMedia()}><ImagePlus size={15}/>{t(mediaImportBusy?"Importing…":"Import media")}</button>}
+            {destination==="captures"&&!showingTrash&&<button type="button" className="kiri-button kiri-button--secondary" disabled={mediaImportBusy||libraryStatus?.availability!=="ready"} title={t("Paste Image (Cmd/Ctrl+V)")} onClick={()=>void pasteImage()}><KiriIcon name="doc.on.doc" size={15}/>{t("Paste Image")}</button>}
             {destination === "captures" &&
               !libraryStatusError &&
               libraryStatus?.availability === "ready" && (
