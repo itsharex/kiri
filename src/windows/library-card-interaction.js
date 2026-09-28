@@ -26,6 +26,18 @@ export function getMenuFocusIndex(key, current, itemCount) {
   return current;
 }
 
+export function getLibraryMenuPosition({ x, y, width, height, viewportWidth, viewportHeight }) {
+  const pad = 10;
+  const gap = 4;
+  const maxLeft = Math.max(pad, viewportWidth - width - pad);
+  const maxTop = Math.max(pad, viewportHeight - height - pad);
+  const left = Math.min(Math.max(x + width > viewportWidth - pad ? x - width : x, pad), maxLeft);
+  const below = y + gap;
+  const above = y - height - gap;
+  const preferredTop = below + height <= viewportHeight - pad || above < pad ? below : above;
+  return { left, top: Math.min(Math.max(preferredTop, pad), maxTop) };
+}
+
 export function getLibraryContentPoint({
   clientX,
   clientY,

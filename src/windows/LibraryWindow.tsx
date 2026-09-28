@@ -1,7 +1,7 @@
 // LibraryWindow — the main window: asset grid, search, sections, trash,
 // notices, and error recovery. Port of LibraryView.swift + AppModel.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {getCurrentWebview} from "@tauri-apps/api/webview";
 import {ImagePlus} from "lucide-react";
 import { createPortal } from "react-dom";
@@ -31,6 +31,7 @@ import {
   getLibraryCardInteraction,
   getLibraryCardPrimaryAction,
   getLibraryContentPoint,
+  getLibraryMenuPosition,
   getMenuFocusIndex,
 } from "./library-card-interaction.js";
 
@@ -101,6 +102,8 @@ export function LibraryWindow() {
   // Menu anchor in viewport coordinates (mouse position on right-click, or
   // the ⋯ button's corner), so the menu appears where the user looked.
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [menuStyle, setMenuStyle] = useState<{ left: number; top: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [shortcutStatus, setShortcutStatus] = useState<ShortcutStatusDto | null>(null);
   const [kindFilter, setKindFilter] = useState<"all" | "image" | "video" | "gif">("all");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -263,6 +266,7 @@ export function LibraryWindow() {
     const trigger = menuTriggerRef.current;
     setMenuFor(null);
     setMenuPos(null);
+    setMenuStyle(null);
     menuTriggerRef.current = null;
     if (restoreFocus && trigger?.isConnected) {
       requestAnimationFrame(() => trigger.focus());
@@ -446,7 +450,7 @@ export function LibraryWindow() {
   const libraryMigrating = loaded && libraryStatus?.availability === "migrating";
 
   const openMenu = (id: string, x: number, y: number, trigger?: HTMLButtonElement, focusFirst = false) => {
-    if (menuFor === id) {
+    if (menuFor === id && trigger && menuTriggerRef.current === trigger) {
       closeMenu();
       return;
     }
@@ -454,40 +458,49 @@ export function LibraryWindow() {
     setMenuFocusFirst(focusFirst);
     setMenuFor(id);
     setMenuPos({ x, y });
+    setMenuStyle(null);
   };
 
-  // Clicking anywhere outside a card menu closes it (matches native menus).
+  // Capture pointer-down before the grid's pointer handlers can consume it.
+  // The current trigger is left to its click handler so a second click toggles.
   useEffect(() => {
-    const close = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && target.closest(".kiri-card-menu")) return;
+    if (menuFor === null) return;
+    const close = (e: PointerEvent) => {
+      const target = e.target;
+      if (target instanceof Element &&
+          (target.closest(".kiri-card-menu") || menuTriggerRef.current?.contains(target))) return;
       closeMenu();
     };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [closeMenu]);
+    const closeOnBlur = () => closeMenu();
+    document.addEventListener("pointerdown", close, true);
+    window.addEventListener("blur", closeOnBlur);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("blur", closeOnBlur);
+    };
+  }, [closeMenu, menuFor]);
 
-  // Keep the open menu inside the window (flip when near the right/bottom
-  // edge) — mirrors how native context menus avoid the screen edges.
-  // Menu heights vary (image cards get "Copy"; trash gets "Delete
-  // Permanently"), so estimate generously and clamp to the viewport.
-  const menuStyle = useMemo(() => {
-    if (!menuPos) return undefined;
-    const MENU_W = 196;
-    const MENU_H = 280;
-    const pad = 10;
-    const right = menuPos.x + MENU_W;
-    const bottom = menuPos.y + 8 + MENU_H;
-    const flipX = right > window.innerWidth - pad;
-    const flipY = bottom > window.innerHeight - pad;
-    // Flip upward keeps the menu's bottom edge at the trigger point (the
-    // window is short, ~640px, so bottom-anchored triggers usually flip).
-    const left = flipX ? Math.max(pad, menuPos.x - MENU_W) : menuPos.x;
-    const top = flipY
-      ? Math.max(pad, menuPos.y - MENU_H)
-      : Math.min(menuPos.y + 8, window.innerHeight - MENU_H - pad);
-    return { left, top };
-  }, [menuPos]);
+  // Measure the rendered menu: available actions and translated labels change
+  // its size. A guessed height can put it over the toolbar or offscreen.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (menuFor === null || !menuPos || !menu) return;
+    const place = () => setMenuStyle(getLibraryMenuPosition({
+      ...menuPos,
+      width: menu.offsetWidth,
+      height: menu.offsetHeight,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    }));
+    place();
+    window.addEventListener("resize", place);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    observer?.observe(menu);
+    return () => {
+      window.removeEventListener("resize", place);
+      observer?.disconnect();
+    };
+  }, [menuFor, menuPos]);
 
   // Run a menu action then close the menu (native menus dismiss on click).
   const run = useCallback(
@@ -552,6 +565,7 @@ export function LibraryWindow() {
   const itemMenu = useCallback(
     (asset: AssetDto) => (
       <div
+        ref={menuRef}
         id={`kiri-card-menu-${asset.id}`}
         className="kiri-card-menu"
         role="menu"
@@ -583,7 +597,8 @@ export function LibraryWindow() {
         onDoubleClick={(event) => event.stopPropagation()}
         style={{
           position: "fixed",
-          ...(menuStyle ?? { left: 0, top: 0 }),
+          ...(menuStyle ?? { left: menuPos?.x ?? 0, top: menuPos?.y ?? 0 }),
+          visibility: menuStyle ? "visible" : "hidden",
           background: "color-mix(in srgb, var(--kiri-elevated) 92%, transparent)",
           backdropFilter: "blur(18px)",
           WebkitBackdropFilter: "blur(18px)",
@@ -591,6 +606,8 @@ export function LibraryWindow() {
           borderRadius: 14,
           padding: 6,
           minWidth: 196,
+          maxHeight: "calc(100vh - 20px)",
+          overflowY: "auto",
           boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
           zIndex: 100,
           display: "flex",
@@ -717,6 +734,7 @@ export function LibraryWindow() {
       assetAvailability,
       closeMenu,
       gifConversionIds,
+      menuPos,
       menuStyle,
       restoreMissing,
       run,
