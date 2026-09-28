@@ -76,6 +76,20 @@ fn desktop_clipboard() -> Result<gtk::Clipboard> {
     ))
 }
 
+pub fn read_image_from_clipboard() -> Result<Vec<u8>> {
+    on_gtk_main_thread(|| {
+        let image = desktop_clipboard()?.wait_for_image()
+            .ok_or_else(|| anyhow!("The clipboard has no image."))?;
+        let width = image.width();
+        let height = image.height();
+        if width <= 0 || height <= 0 || width > 8192 || height > 8192 ||
+            i64::from(width) * i64::from(height) * 4 > 128 * 1024 * 1024 {
+            return Err(anyhow!("Clipboard image is too large."));
+        }
+        image.save_to_bufferv("png", &[]).map_err(Into::into)
+    })
+}
+
 /// The callback and owned PNG remain alive after this function returns, until
 /// another application takes clipboard ownership or Kiri exits.
 pub fn write_image_to_clipboard(png: &[u8]) -> Result<()> {

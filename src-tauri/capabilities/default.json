@@ -10,6 +10,7 @@
     "control-panel",
     "ripple",
     "viewer-*",
+    "pin-*",
     "toast",
     "confirm"
   ],

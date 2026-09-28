@@ -83,6 +83,7 @@ pub struct AssetDto {
     pub filename: String,
     pub title: Option<String>,
     pub ocr_text: Option<String>,
+    pub ocr_original_text: Option<String>,
     pub tags: Vec<String>,
     pub pixel_width: i64,
     pub pixel_height: i64,
@@ -132,6 +133,7 @@ pub(crate) fn asset_dto(asset: &CaptureAsset) -> AssetDto {
         filename: asset.filename.clone(),
         title: asset.title.clone(),
         ocr_text: asset.ocr_text.clone(),
+        ocr_original_text: asset.ocr_original_text.clone(),
         tags: asset.tags.clone(),
         pixel_width: asset.pixel_width,
         pixel_height: asset.pixel_height,
@@ -464,6 +466,50 @@ pub fn open_asset(app: AppHandle, id: String) -> Result<(), String> {
         })
         .map_err(|error| format!("The preview could not be opened: {error}"))?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn pin_asset(window: WebviewWindow, app: AppHandle, id: String) -> Result<(), String> {
+    if window.label() != "library" { return Err("Only the library can pin a screenshot.".into()); }
+    let parsed = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid screenshot.".to_string())?;
+    let asset = {
+        let state = app.state::<AppState>();
+        let mut context = state.library.lock().unwrap();
+        let library = context.library().map_err(|error| error.to_string())?;
+        let asset = library.asset_by_id(&parsed).cloned()
+            .ok_or_else(|| "Screenshot not found.".to_string())?;
+        if asset.kind != CaptureKind::Image || asset.ocr_text.is_some() || asset.trashed_at.is_some() {
+            return Err("Only active screenshots can be pinned.".into());
+        }
+        library.readable_asset_url(&asset).map_err(|error| error.to_string())?;
+        asset
+    };
+    let label = format!("pin-{}", asset.id.to_string().to_lowercase());
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show(); let _ = window.set_focus();
+        return Ok(());
+    }
+    let aspect = if asset.pixel_width > 0 && asset.pixel_height > 0 {
+        (asset.pixel_width as f64 / asset.pixel_height as f64).clamp(0.5, 3.0)
+    } else { 1.0 };
+    let width = (340.0 * aspect).clamp(240.0, 680.0);
+    let asset_id = asset.id;
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.show(); let _ = window.set_focus(); return Ok(());
+        }
+        WebviewWindowBuilder::new(&app, label,
+            WebviewUrl::App(format!("index.html?window=pin&id={asset_id}").into()))
+            .title("Pinned Screenshot — Kiri")
+            .inner_size(width, 380.0)
+            .min_inner_size(220.0, 180.0)
+            .resizable(true)
+            .decorations(true)
+            .always_on_top(true)
+            .build().map_err(|error| format!("Pinned screenshot could not be opened: {error}"))?;
+        log::info!("[pin] screenshot opened asset_id={asset_id}");
+        Ok(())
+    }).await.map_err(|error| format!("Pinned screenshot window stopped: {error}"))?
 }
 
 #[tauri::command]
@@ -1257,6 +1303,31 @@ pub async fn import_media(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn paste_clipboard_image(window: WebviewWindow, app: AppHandle) -> Result<AssetDto, String> {
+    require_library_window(&window)?;
+    let state = app.state::<AppState>();
+    let (identity, generation) = {
+        let context = state.library.lock().unwrap();
+        (context.expected_library_id(), context.expected_library_generation())
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let png = platform::read_image_from_clipboard().map_err(|error| error.to_string())?;
+        let prepared = crate::media_import::prepare_clipboard_png(&png).map_err(|error| error.to_string())?;
+        let state = app.state::<AppState>();
+        let mut context = state.library.lock().unwrap();
+        if context.expected_library_id() != identity || context.expected_library_generation() != generation {
+            return Err("Library changed during import.".to_string());
+        }
+        let asset = context.library_mut().map_err(|error| error.to_string())?
+            .import_file_with_title(prepared.file.path(), CaptureKind::Image, "png", prepared.width,
+                prepared.height, None, None, None).map_err(|error| error.to_string())?;
+        drop(context);
+        emit_library_changed(&app);
+        Ok(asset_dto(&asset))
+    }).await.map_err(|_| "Clipboard image import stopped unexpectedly.".to_string())?
 }
 
 #[tauri::command]
@@ -5331,6 +5402,7 @@ mod command_security_tests {
             filename: "missing.png".into(),
             title: None,
             ocr_text: None,
+            ocr_original_text: None,
             tags: Vec::new(),
             pixel_width: 10,
             pixel_height: 20,

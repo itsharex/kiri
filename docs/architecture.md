@@ -41,12 +41,17 @@ modules.
 | `ripple` | Optional recorded click highlight |
 | `editor-*` | Full screenshot editor |
 | `viewer-*` | Image, video, or GIF viewer |
+| `pin-*` | Resizable flattened screenshot reference; optionally topmost |
 | `toast` | Passive status feedback or an interactive completion preview |
 | `confirm` | Destructive-action confirmation |
 
 The backend owns window creation and validates commands against the expected
 window and active session. Frontend code never receives credentials or an
 unrestricted filesystem path.
+
+Each active screenshot has at most one pin window. It reads the saved flattened
+image through the existing local media route. Unpinning or closing that window
+does not change the library asset.
 
 Linux does not show the floating `control-panel` or `ripple` during recording.
 The tray and explicit recording commands provide controls without relying on
@@ -224,7 +229,7 @@ never remain hidden behind the OCR result surface.
 Successful, nonempty local and remote OCR results persist as image assets with
 optional `ocrText` metadata and an independent PNG snapshot (ADR 0030). A single
 index commit records both, rolling back new files if persistence fails. The
-capture grid excludes these records; Text History searches their text and
+capture grid excludes these records; Text History searches their corrected text and
 reads them without reopening the capture overlay. Trash and library migration
 use the existing asset lifecycle. Snapshots cannot enter the annotation editor.
 
@@ -387,6 +392,10 @@ display without taking focus and is protected/excluded from subsequent captures.
 - Batch asset mutations validate every identifier, publish `library.json` once,
   and update memory only after that write succeeds. Permanent deletion removes
   files only after the new index is durable.
+- Batch export opens the selected flattened image or media files from the active
+  library, then copies them to a user-chosen folder without changing the index.
+  Existing destination names receive numbered copies; per-file failures are
+  reported and do not discard successful copies.
 - OCR profile metadata is stored in the app configuration directory; secrets
   never appear in that JSON, IPC responses, or logs.
 - Credential replacement and deletion use a non-secret journal so interrupted
@@ -536,6 +545,8 @@ frame/audio rate conversion. Viewer playback speed is independent of clip speed.
 The library's import command is restricted to the library window. Native file
 selection and WebView file drops share a bounded background import path. Images
 use bounded Rust decoders, apply orientation and normalize to a temporary PNG;
+explicit Paste Image reads desktop clipboard pixels only on request and sends
+them through the same bounded PNG import path. Text inputs keep normal paste;
 video files are copied to an isolated snapshot and probed through platform media
 APIs. The import checks library identity/generation before publishing each asset.
 Per-file failures are reported alongside successful imports without discarding

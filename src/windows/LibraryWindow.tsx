@@ -107,6 +107,9 @@ export function LibraryWindow() {
   // Batch selection starts only from a rubber-band drag. Ordinary card clicks
   // open the asset and never introduce selection chrome.
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportFailures, setExportFailures] = useState<string[]>([]);
+  const [exportError, setExportError] = useState(false);
   // Drag-to-select (rubber band): pointer origin + current corner in the
   // scroll container's coordinates; null when not band-selecting.
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -603,6 +606,12 @@ export function LibraryWindow() {
           disabled={asset.ocrText == null && assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
           onClick={run(() => setOcrAsset(asset))}
         />}
+        {asset.kind === "image" && asset.ocrText == null && !showingTrash && <MenuRow
+          icon="photo.on.rectangle"
+          label={t("Pin Screenshot on Top")}
+          disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
+          onClick={run(() => void api.pinAsset(asset.id).catch(() => setError({message:t("Could not pin this screenshot."),recovery:null})))}
+        />}
         <MenuRow
           icon="character.textbox"
           label={t("Rename")}
@@ -731,6 +740,32 @@ export function LibraryWindow() {
     catch{setMediaImportMessage(t("Could not import these files. Choose supported local images or videos."));}
     finally{mediaImporting.current=false;setMediaImportBusy(false);}
   },[libraryStatus?.availability,refresh]);
+  const pasteImage=useCallback(async()=>{
+    if(mediaImporting.current||libraryStatus?.availability!=="ready")return;
+    mediaImporting.current=true;setMediaImportBusy(true);setMediaImportMessage("");
+    try{
+      await api.pasteClipboardImage();
+      queryRef.current="";showingTrashRef.current=false;
+      setQuery("");setSection("library");setDestination("captures");
+      setKindFilter("all");setFavoritesOnly(false);setTagFilter(null);setSelection(new Set());
+      gridScrollRef.current?.scrollTo({top:0});
+      setMediaImportMessage(t("Clipboard image added to Library."));
+      await refresh();
+    }catch{setMediaImportMessage(t("Could not paste an image from the clipboard."));}
+    finally{mediaImporting.current=false;setMediaImportBusy(false);}
+  },[libraryStatus?.availability,refresh]);
+  useEffect(()=>{
+    if(destination!=="captures"||showingTrash)return;
+    const onKeyDown=(event:KeyboardEvent)=>{
+      if(event.key.toLowerCase()!=="v"||!(event.metaKey||event.ctrlKey)||event.altKey||event.shiftKey)return;
+      const target=event.target;
+      if(target instanceof Element && target.closest("input, textarea, [contenteditable], [role='textbox']"))return;
+      event.preventDefault();
+      void pasteImage();
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return()=>window.removeEventListener("keydown",onKeyDown);
+  },[destination,showingTrash,pasteImage]);
   useEffect(()=>{
     let disposed=false;let stop:(()=>void)|undefined;
     void getCurrentWebview().onDragDropEvent(event=>{
@@ -781,6 +816,7 @@ export function LibraryWindow() {
 
           <div className="library-control-panel__actions">
             {destination==="captures"&&!showingTrash&&<button type="button" className="kiri-button kiri-button--secondary" disabled={mediaImportBusy||libraryStatus?.availability!=="ready"} title={t("Import local images or videos")} onClick={()=>void importMedia()}><ImagePlus size={15}/>{t(mediaImportBusy?"Importing…":"Import media")}</button>}
+            {destination==="captures"&&!showingTrash&&<button type="button" className="kiri-button kiri-button--secondary" disabled={mediaImportBusy||libraryStatus?.availability!=="ready"} title={t("Paste Image (Cmd/Ctrl+V)")} onClick={()=>void pasteImage()}><KiriIcon name="doc.on.doc" size={15}/>{t("Paste Image")}</button>}
             {destination === "captures" &&
               !libraryStatusError &&
               libraryStatus?.availability === "ready" && (
@@ -912,12 +948,31 @@ export function LibraryWindow() {
           </button>
         </div>
       )}
+      {(exportFailures.length > 0 || exportError) && <div className="library-recovery-banner" role="alert">
+        <div>
+          <strong>{t("Some selected files could not be exported.")}</strong>
+          {exportFailures.length > 0 && <ul>{exportFailures.map((name) => <li key={name}>{name}</li>)}</ul>}
+        </div>
+        <button type="button" className="kiri-button kiri-button--secondary" onClick={() => { setExportFailures([]); setExportError(false); }}>{t("Close")}</button>
+      </div>}
       {/* Grid */}
       {selectionIds.length > 0 && (
         <BatchActionBar
           count={selectionIds.length}
           showingTrash={showingTrash}
           allFavorites={selectionIds.length > 0 && selectionIds.every((id) => assets.find((a) => a.id === id)?.isFavorite)}
+          busy={exportBusy}
+          onExport={() => {
+            if (exportBusy) return;
+            setExportBusy(true); setExportFailures([]); setExportError(false);
+            void api.exportSelectedAssets(selectionIds).then((result) => {
+              if (!result) return;
+              if (result.exported > 0) showLocalNotice(t("Exported {n} files").replace("{n}", String(result.exported)));
+              setExportFailures(result.failed);
+              const failed = new Set(result.failed);
+              setSelection(new Set(assets.filter((asset) => failed.has(asset.filename)).map((asset) => asset.id)));
+            }).catch(() => setExportError(true)).finally(() => setExportBusy(false));
+          }}
           onRestore={() => {
             void api
               .batchRestore(selectionIds)
@@ -2081,13 +2136,15 @@ function BatchActionBar(props: {
   count: number;
   showingTrash: boolean;
   allFavorites: boolean;
+  busy: boolean;
+  onExport(): void;
   onRestore(): void;
   onDelete(): void;
   onMoveToTrash(): void;
   onToggleFavorite(): void;
   onClear(): void;
 }) {
-  const { count, showingTrash, allFavorites, onRestore, onDelete, onMoveToTrash, onToggleFavorite, onClear } = props;
+  const { count, showingTrash, allFavorites, busy, onExport, onRestore, onDelete, onMoveToTrash, onToggleFavorite, onClear } = props;
   const countLabel = t("Selected {n}").replace("{n}", String(count));
   return (
     <div
@@ -2128,6 +2185,7 @@ function BatchActionBar(props: {
         </>
       ) : (
         <>
+          <BatchBarButton icon="folder" label={t("Export Selected")} onClick={onExport} disabled={busy} />
           <BatchBarButton icon="trash" label={t("Delete (N)").replace("{n}", String(count))} destructive onClick={onMoveToTrash} />
           <BatchBarButton
             icon={allFavorites ? "star.fill" : "star"}
@@ -2149,13 +2207,15 @@ function BatchBarButton(props: {
   onClick(): void;
   destructive?: boolean;
   accent?: boolean;
+  disabled?: boolean;
 }) {
-  const { icon, label, onClick, destructive, accent } = props;
+  const { icon, label, onClick, destructive, accent, disabled } = props;
   return (
     <button
       type="button"
       className="kiri-batch-button"
       data-variant={destructive ? "destructive" : accent ? "accent" : undefined}
+      disabled={disabled}
       onClick={onClick}
     >
       <KiriIcon name={icon} size={13} />

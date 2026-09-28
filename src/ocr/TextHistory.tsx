@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, mediaUrl, onLibraryChanged, type AssetDto, type OcrRecognitionDto } from "../lib/ipc";
 import { KiriIcon } from "../components/KiriIcons";
 import { t } from "../i18n";
 import "./text-history.css";
 
-export function TextReader({ text, imageId, saved = true }: {
-  text: string; imageId?: string; saved?: boolean;
+export function TextReader({ text, imageId, saved = true, editor }: {
+  text: string; imageId?: string; saved?: boolean; editor?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -29,16 +29,16 @@ export function TextReader({ text, imageId, saved = true }: {
   return <div className="text-reader">
     <div className="text-reader__actions">
       <span className="text-reader__caption">{t("Recognized Text")}</span>
-      <button type="button" className="kiri-button kiri-button--primary" disabled={!text.trim()} onClick={() => void copy()}>
+      {!editor && <button type="button" className="kiri-button kiri-button--primary" disabled={!text.trim()} onClick={() => void copy()}>
         <KiriIcon name={copied ? "checkmark" : "doc.on.doc"} size={14} />
         {t(copied ? "Text Copied" : "Copy Text")}
-      </button>
+      </button>}
     </div>
     {copyError && <p className="text-history__error" role="alert">{t("Couldn't copy text.")}</p>}
     {!saved && text.trim() && <p className="text-history__error" role="status">{t("History wasn't saved. Copy the text before closing.")}</p>}
-    <div className="text-reader__body" tabIndex={0} role="region" aria-label={t("Recognized Text")}>
+    {editor ?? <div className="text-reader__body" tabIndex={0} role="region" aria-label={t("Recognized Text")}>
       {text.trim() ? text : t("No Text Found")}
-    </div>
+    </div>}
     {imageId && <details className="text-reader__source" key={imageId}>
       <summary><KiriIcon name="photo.on.rectangle" size={14} />{t("View Source Image")}</summary>
       {imageFailed ? <p role="status">{t("Can't read this file")}</p> :
@@ -96,6 +96,10 @@ export function TextHistory() {
   const [loadError, setLoadError] = useState(false);
   const [mutationError, setMutationError] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState(false);
   const [revision, setRevision] = useState(0);
   const search = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -125,6 +129,17 @@ export function TextHistory() {
     return () => window.removeEventListener("keydown", keydown);
   }, []);
   const selected = records.find((item) => item.id === selectedId);
+  useEffect(() => { setEditing(false); setEditError(false); }, [selectedId]);
+  const saveCorrection = async (replacement: string | null) => {
+    if (!selected || saving || !selected.ocrText) return;
+    setSaving(true); setEditError(false);
+    try {
+      const updated = await api.updateOcrHistoryText(selected.id, selected.ocrText, replacement);
+      setRecords((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setEditing(false);
+    } catch { setEditError(true); }
+    finally { setSaving(false); }
+  };
   const remove = async () => {
     if (!selected || deleting) return;
     setDeleting(true); setMutationError(false);
@@ -141,7 +156,7 @@ export function TextHistory() {
       <div className="text-history__list" aria-label={t("Text History")} aria-busy={loading}>
         {records.map((record) => <button type="button" key={record.id} className="ocr-history__item"
           aria-current={selectedId === record.id ? "true" : undefined}
-          onClick={() => { setSelectedId(record.id); setMutationError(false); }}>
+          onClick={() => { if (saving) return; setSelectedId(record.id); setMutationError(false); }}>
           <span className="text-history__excerpt">{record.ocrText}</span>
           <time dateTime={new Date(record.createdAt).toISOString()}>{new Date(record.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
         </button>)}
@@ -153,10 +168,23 @@ export function TextHistory() {
         selected ? <>
           <header className="text-history__record-header">
             <time>{new Date(selected.createdAt).toLocaleString()}</time>
-            <button type="button" className="kiri-icon-button" disabled={deleting || loading} onClick={() => void remove()} title={t("Move to Trash")} aria-label={t("Move to Trash")}><KiriIcon name="trash" size={16} /></button>
+            <div className="text-history__record-actions">
+              {editing ? <>
+                <button type="button" className="kiri-button kiri-button--secondary" disabled={saving} onClick={() => { setEditing(false); setEditError(false); }}>{t("Cancel")}</button>
+                <button type="button" className="kiri-button kiri-button--primary" disabled={saving || !draft.trim()} onClick={() => void saveCorrection(draft)}>{t("Save")}</button>
+              </> : <>
+                {selected.ocrOriginalText != null && <button type="button" className="kiri-button kiri-button--secondary" disabled={saving || deleting} onClick={() => void saveCorrection(null)}>{t("Restore Original Text")}</button>}
+                <button type="button" className="kiri-button kiri-button--secondary" disabled={saving || deleting} onClick={() => { setDraft(selected.ocrText ?? ""); setEditing(true); setEditError(false); }}>{t("Edit Text")}</button>
+                <button type="button" className="kiri-icon-button" disabled={deleting || loading || saving} onClick={() => void remove()} title={t("Move to Trash")} aria-label={t("Move to Trash")}><KiriIcon name="trash" size={16} /></button>
+              </>}
+            </div>
           </header>
           {mutationError && <p role="alert" className="text-history__error">{t("Couldn't move this text to Trash.")}</p>}
-          <TextReader key={selected.id} text={selected.ocrText ?? ""} imageId={selected.id} />
+          {editError && <p role="alert" className="text-history__error">{t("Couldn't save the text. Reload Text History and try again.")}</p>}
+          <TextReader key={selected.id} text={selected.ocrText ?? ""} imageId={selected.id}
+            editor={editing ? <textarea autoFocus className="text-reader__editor" value={draft} onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setEditing(false); setEditError(false); } }}
+              aria-label={t("Edit recognized text")} maxLength={1024 * 1024} /> : undefined} />
         </> : <div className="text-history__empty" role="status"><KiriIcon name="text.viewfinder" size={32} />
           <h2>{t(loading ? "Loading…" : query ? "No matching text" : "Your text, ready to revisit")}</h2>
           {!loading && <p>{t(query ? "Try another word or clear the search." : "Recognize text from your screen or a saved screenshot. It will appear here.")}</p>}

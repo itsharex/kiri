@@ -39,6 +39,7 @@ export interface AssetDto {
   filename: string;
   title: string | null;
   ocrText: string | null;
+  ocrOriginalText: string | null;
   tags: string[];
   pixelWidth: number;
   pixelHeight: number;
@@ -48,6 +49,8 @@ export interface AssetDto {
   trashedAt: number | null;
   gifEligible: boolean;
 }
+
+export interface BatchExportResultDto { exported: number; failed: string[]; }
 
 export type LibraryAvailability = "ready" | "unavailable" | "migrating";
 
@@ -208,6 +211,8 @@ export function isEditorRevisionMismatch(error: unknown): boolean {
 
 export const api = {
   listOcrRecords: (query: string) => invoke<AssetDto[]>("list_ocr_records", { query }),
+  updateOcrHistoryText: (id: string, expectedText: string, replacement: string | null) =>
+    invoke<AssetDto>("update_ocr_history_text", { id, expectedText, replacement }),
   recognizeAssetLocal: (id: string) => invoke<OcrRecognitionDto>("recognize_asset_local", { id }),
   copyHistoryText: (text: string) => invoke<void>("copy_history_text", { text }),
   listAssets: (query: string, showingTrash: boolean) =>
@@ -243,6 +248,8 @@ export const api = {
   batchPermanentlyDelete: (ids: string[]) => invoke<void>("batch_permanently_delete", { ids }),
   batchSetFavorite: (ids: string[], favorite: boolean) =>
     invoke<void>("batch_set_favorite", { ids, favorite }),
+  exportSelectedAssets: (ids: string[]) =>
+    invoke<BatchExportResultDto | null>("export_selected_assets", { ids }),
   showConfirmDialog: (
     kind: string,
     title: string,
@@ -253,6 +260,7 @@ export const api = {
   setLanguage: (language: string) => invoke<void>("set_language", { language }),
   copyAsset: (id: string) => invoke<void>("copy_asset", { id }),
   openAsset: (id: string) => invoke<void>("open_asset", { id }),
+  pinAsset: (id: string) => invoke<void>("pin_asset", { id }),
   openEditor: (id: string) => invoke<void>("open_editor", { id }),
   revealAsset: (id: string) => invoke<void>("reveal_asset", { id }),
   loadVideoProject: (id:string) => invoke<VideoProjectSnapshot>("load_video_project",{id}),
@@ -335,6 +343,7 @@ export const api = {
   setRecordingOptions: (options: RecordingOptions) =>
     invoke<void>("set_recording_options", { options }),
   importMedia: (paths?:string[]) => invoke<{ids:string[];failed:number}>("import_media",{paths:paths??null}),
+  pasteClipboardImage: () => invoke<AssetDto>("paste_clipboard_image"),
   getAnnotationAppearance: () =>
     invoke<AppearanceSettings>("get_annotation_appearance"),
   setAnnotationAppearance: (appearance: AppearanceSettings) =>

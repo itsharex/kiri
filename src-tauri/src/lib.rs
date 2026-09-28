@@ -5,6 +5,7 @@
 
 mod capture;
 mod commands;
+mod batch_export;
 mod core;
 mod diagnostics;
 mod gif;
@@ -216,8 +217,10 @@ pub fn run() {
             commands::batch_restore,
             commands::batch_permanently_delete,
             commands::batch_set_favorite,
+            batch_export::export_selected_assets,
             commands::copy_asset,
             commands::open_asset,
+            commands::pin_asset,
             commands::open_editor,
             commands::reveal_asset,
             commands::convert_to_gif,
@@ -226,6 +229,7 @@ pub fn run() {
             video_project_commands::load_video_project,
             video_project_commands::save_video_project,
             commands::import_media,
+            commands::paste_clipboard_image,
             commands::start_capture,
             commands::authorize_screenshot,
             commands::cancel_capture,
@@ -238,6 +242,7 @@ pub fn run() {
             commands::rename_asset,
             commands::set_tags,
             ocr_commands::list_ocr_records,
+            ocr_commands::update_ocr_history_text,
             ocr_commands::recognize_asset_local,
             ocr_commands::copy_history_text,
             ocr_commands::get_ocr_provider_settings,

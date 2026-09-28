@@ -22,6 +22,10 @@ pub enum AssetLibraryError {
     AssetNotFound,
     #[error("OCR text is empty or exceeds the size limit")]
     InvalidOcrText,
+    #[error("this asset is not an active OCR history record")]
+    UnsupportedOcrRecord,
+    #[error("the OCR text changed since it was opened")]
+    OcrTextChanged,
     #[error("invalid filename")]
     InvalidFilename,
     #[error("library index contains duplicate asset ids or filenames")]
@@ -409,6 +413,37 @@ impl AssetLibrary {
             None,
             Some(text),
         )
+    }
+
+    /// A correction changes only the searchable text; the source PNG is untouched.
+    /// The original recognition is retained on the first edit and cleared on reset.
+    pub fn update_ocr_text(
+        &mut self,
+        id: &uuid::Uuid,
+        expected_text: &str,
+        replacement: Option<String>,
+    ) -> Result<CaptureAsset> {
+        let current = self.asset_by_id(id).ok_or(AssetLibraryError::AssetNotFound)?;
+        if current.kind != CaptureKind::Image || current.trashed_at.is_some() || current.ocr_text.is_none() {
+            return Err(AssetLibraryError::UnsupportedOcrRecord);
+        }
+        if current.ocr_text.as_deref() != Some(expected_text) {
+            return Err(AssetLibraryError::OcrTextChanged);
+        }
+        let (next_text, original) = match replacement {
+            Some(text) => {
+                if text.trim().is_empty() || text.len() > 1024 * 1024 {
+                    return Err(AssetLibraryError::InvalidOcrText);
+                }
+                (text, current.ocr_original_text.clone().or_else(|| current.ocr_text.clone()))
+            }
+            None => (current.ocr_original_text.clone().ok_or(AssetLibraryError::UnsupportedOcrRecord)?, None),
+        };
+        self.update(id, |asset| {
+            asset.ocr_text = Some(next_text);
+            asset.ocr_original_text = original;
+        })?;
+        Ok(self.asset_by_id(id).expect("updated OCR asset remains present").clone())
     }
 
     /// Imports a flattened image together with its immutable clean source and
@@ -1310,6 +1345,7 @@ impl AssetLibrary {
             filename,
             title: None,
             ocr_text: None,
+            ocr_original_text: None,
             tags: Vec::new(),
             pixel_width,
             pixel_height,
@@ -1338,6 +1374,7 @@ impl AssetLibrary {
             filename: format!("{}.{file_extension}", id.simple()),
             title: None,
             ocr_text: None,
+            ocr_original_text: None,
             tags: Vec::new(),
             pixel_width,
             pixel_height,
@@ -1829,6 +1866,38 @@ mod tests {
         }
         assert!(library.index.is_empty());
         assert_eq!(std::fs::read_dir(root.join("Assets")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn ocr_corrections_keep_the_source_and_original_until_reset() {
+        let (_dir, root) = temp_root();
+        let mut library = AssetLibrary::open(root.clone()).unwrap();
+        let record = library.import_ocr(b"snapshot", 120, 80, "tezt".into(), None).unwrap();
+        let corrected = library.update_ocr_text(&record.id, "tezt", Some("text".into())).unwrap();
+        assert_eq!(corrected.ocr_original_text.as_deref(), Some("tezt"));
+        assert_eq!(library.search("text", false)[0].id, record.id);
+        assert!(library.search("tezt", false).is_empty());
+        assert!(matches!(library.update_ocr_text(&record.id, "tezt", Some("stale".into())), Err(AssetLibraryError::OcrTextChanged)));
+        assert!(matches!(library.update_ocr_text(&record.id, "text", Some("  ".into())), Err(AssetLibraryError::InvalidOcrText)));
+        let corrected = library.update_ocr_text(&record.id, "text", Some("text!".into())).unwrap();
+        assert_eq!(corrected.ocr_original_text.as_deref(), Some("tezt"));
+        let mut reopened = AssetLibrary::open_existing(root).unwrap();
+        assert_eq!(reopened.asset_by_id(&record.id).unwrap().ocr_original_text.as_deref(), Some("tezt"));
+        let restored = reopened.update_ocr_text(&record.id, "text!", None).unwrap();
+        assert_eq!(restored.ocr_text.as_deref(), Some("tezt"));
+        assert!(restored.ocr_original_text.is_none());
+        assert_eq!(std::fs::read(reopened.asset_url(&record)).unwrap(), b"snapshot");
+    }
+
+    #[test]
+    fn failed_ocr_correction_keeps_the_persisted_text() {
+        let (_dir, root) = temp_root();
+        let mut library = AssetLibrary::open(root.clone()).unwrap();
+        let record = library.import_ocr(b"snapshot", 120, 80, "tezt".into(), None).unwrap();
+        library.persist_fail.set(true);
+        assert!(library.update_ocr_text(&record.id, "tezt", Some("text".into())).is_err());
+        assert_eq!(library.asset_by_id(&record.id).unwrap().ocr_text.as_deref(), Some("tezt"));
+        assert_eq!(AssetLibrary::open_existing(root).unwrap().asset_by_id(&record.id).unwrap().ocr_text.as_deref(), Some("tezt"));
     }
 
     #[test]
