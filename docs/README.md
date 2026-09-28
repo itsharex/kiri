@@ -116,3 +116,4 @@ development.
 - [ADR 0051: Ubuntu Linux capture boundaries](adr/0051-ubuntu-linux-capture-boundaries.md) — current platform, shortcut, recording, and packaging contract.
 - [ADR 0052: GNOME screenshot consent recovery](adr/0052-gnome-screenshot-consent-recovery.md) — ambiguous first-use denial and safe retry guidance.
 - [ADR 0053: Direct adjustment of selected lines](adr/0053-direct-line-adjustment.md)
+- [ADR 0054: High-contrast recorded click highlight](adr/0054-red-click-highlight.md)

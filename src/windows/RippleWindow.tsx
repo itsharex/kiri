@@ -1,4 +1,4 @@
-// Monochrome click ripple drawn over the recording region. This window is not
+// High-contrast red click ripple drawn over the recording region. This window is not
 // excluded from capture, so enabled ripples appear in the exported video.
 
 import { useEffect, useState } from "react";
@@ -16,7 +16,7 @@ interface Ripple {
   startedAt: number;
 }
 
-const WHITE = "rgba(255, 255, 255, 1)";
+const RED = "rgb(216, 35, 50)";
 
 let nextId = 1;
 
@@ -58,7 +58,7 @@ export function RippleWindow() {
         };
         return (
           <div key={ripple.id} style={{ position: "absolute", left: 0, top: 0 }}>
-            {/* Halo: 42pt stroke, accent α0.30, width 6; 0.45→1.12, peak α0.72, 0.46s */}
+            {/* Wide translucent red halo keeps the click visible on light and dark video. */}
             <Ellipse
               x={ripple.x}
               y={ripple.y}
@@ -66,30 +66,30 @@ export function RippleWindow() {
               scale={scaleAt(0.45, 1.12, t / 460)}
               opacity={opacityAt(0.72, t / 460)}
               fill="none"
-              stroke={WHITE.replace("1)", "0.30)")}
+              stroke="rgba(216, 35, 50, 0.62)"
               strokeWidth={6}
             />
-            {/* Ring: 30pt fill accent α0.12 + stroke α0.95 w2.5; 0.58→1.0, 0.34s */}
+            {/* Solid red ring and translucent fill remain legible over light footage. */}
             <Ellipse
               x={ripple.x}
               y={ripple.y}
               width={30}
               scale={scaleAt(0.58, 1.0, t / 340)}
               opacity={opacityAt(1, t / 340)}
-              fill={WHITE.replace("1)", "0.12)")}
-              stroke={WHITE.replace("1)", "0.95)")}
-              strokeWidth={2.5}
+              fill="rgba(216, 35, 50, 0.20)"
+              stroke={RED}
+              strokeWidth={4}
             />
-            {/* Center: 7pt fill white α0.95 + accent stroke w1.5; 0.72→1.0, 0.24s */}
+            {/* Center remains visible after the expanding ring fades. */}
             <Ellipse
               x={ripple.x}
               y={ripple.y}
               width={7}
               scale={scaleAt(0.72, 1.0, t / 240)}
               opacity={opacityAt(1, t / 240)}
-              fill="rgba(5,5,5,0.95)"
-              stroke={WHITE}
-              strokeWidth={1.5}
+              fill={RED}
+              stroke="rgba(255, 255, 255, 0.96)"
+              strokeWidth={2}
             />
           </div>
         );
