@@ -1254,6 +1254,12 @@ button:active:not(:disabled) {
   transform: scale(0.95);
 }
 
+.kiri-batch-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
 .kiri-tag-remove-button {
   width: 16px;
   height: 16px;

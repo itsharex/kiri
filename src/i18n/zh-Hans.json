@@ -591,5 +591,8 @@
   "Edit Text": "编辑文字",
   "Restore Original Text": "恢复原始识别结果",
   "Edit recognized text": "编辑识别文字",
-  "Couldn't save the text. Reload Text History and try again.": "保存文字失败。请重新打开文字历史后再试。"
+  "Couldn't save the text. Reload Text History and try again.": "保存文字失败。请重新打开文字历史后再试。",
+"Export Selected": "导出所选文件",
+  "Exported {n} files": "已导出 {n} 个文件",
+  "Some selected files could not be exported.": "部分所选文件导出失败。"
 }

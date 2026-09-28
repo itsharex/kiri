@@ -591,5 +591,8 @@
   "Edit Text": "Edit Text",
   "Restore Original Text": "Restore Original Text",
   "Edit recognized text": "Edit recognized text",
-  "Couldn't save the text. Reload Text History and try again.": "Couldn't save the text. Reload Text History and try again."
+  "Couldn't save the text. Reload Text History and try again.": "Couldn't save the text. Reload Text History and try again.",
+"Export Selected": "Export Selected",
+  "Exported {n} files": "Exported {n} files",
+  "Some selected files could not be exported.": "Some selected files could not be exported."
 }

@@ -591,5 +591,8 @@
   "Edit Text": "テキストを編集",
   "Restore Original Text": "元の認識結果に戻す",
   "Edit recognized text": "認識したテキストを編集",
-  "Couldn't save the text. Reload Text History and try again.": "テキストを保存できませんでした。テキスト履歴を開き直して、もう一度お試しください。"
+  "Couldn't save the text. Reload Text History and try again.": "テキストを保存できませんでした。テキスト履歴を開き直して、もう一度お試しください。",
+"Export Selected": "選択したファイルを書き出す",
+  "Exported {n} files": "{n} 件のファイルを書き出しました",
+  "Some selected files could not be exported.": "選択した一部のファイルを書き出せませんでした。"
 }

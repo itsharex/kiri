@@ -107,6 +107,9 @@ export function LibraryWindow() {
   // Batch selection starts only from a rubber-band drag. Ordinary card clicks
   // open the asset and never introduce selection chrome.
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportFailures, setExportFailures] = useState<string[]>([]);
+  const [exportError, setExportError] = useState(false);
   // Drag-to-select (rubber band): pointer origin + current corner in the
   // scroll container's coordinates; null when not band-selecting.
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -912,12 +915,31 @@ export function LibraryWindow() {
           </button>
         </div>
       )}
+      {(exportFailures.length > 0 || exportError) && <div className="library-recovery-banner" role="alert">
+        <div>
+          <strong>{t("Some selected files could not be exported.")}</strong>
+          {exportFailures.length > 0 && <ul>{exportFailures.map((name) => <li key={name}>{name}</li>)}</ul>}
+        </div>
+        <button type="button" className="kiri-button kiri-button--secondary" onClick={() => { setExportFailures([]); setExportError(false); }}>{t("Close")}</button>
+      </div>}
       {/* Grid */}
       {selectionIds.length > 0 && (
         <BatchActionBar
           count={selectionIds.length}
           showingTrash={showingTrash}
           allFavorites={selectionIds.length > 0 && selectionIds.every((id) => assets.find((a) => a.id === id)?.isFavorite)}
+          busy={exportBusy}
+          onExport={() => {
+            if (exportBusy) return;
+            setExportBusy(true); setExportFailures([]); setExportError(false);
+            void api.exportSelectedAssets(selectionIds).then((result) => {
+              if (!result) return;
+              if (result.exported > 0) showLocalNotice(t("Exported {n} files").replace("{n}", String(result.exported)));
+              setExportFailures(result.failed);
+              const failed = new Set(result.failed);
+              setSelection(new Set(assets.filter((asset) => failed.has(asset.filename)).map((asset) => asset.id)));
+            }).catch(() => setExportError(true)).finally(() => setExportBusy(false));
+          }}
           onRestore={() => {
             void api
               .batchRestore(selectionIds)
@@ -2081,13 +2103,15 @@ function BatchActionBar(props: {
   count: number;
   showingTrash: boolean;
   allFavorites: boolean;
+  busy: boolean;
+  onExport(): void;
   onRestore(): void;
   onDelete(): void;
   onMoveToTrash(): void;
   onToggleFavorite(): void;
   onClear(): void;
 }) {
-  const { count, showingTrash, allFavorites, onRestore, onDelete, onMoveToTrash, onToggleFavorite, onClear } = props;
+  const { count, showingTrash, allFavorites, busy, onExport, onRestore, onDelete, onMoveToTrash, onToggleFavorite, onClear } = props;
   const countLabel = t("Selected {n}").replace("{n}", String(count));
   return (
     <div
@@ -2128,6 +2152,7 @@ function BatchActionBar(props: {
         </>
       ) : (
         <>
+          <BatchBarButton icon="folder" label={t("Export Selected")} onClick={onExport} disabled={busy} />
           <BatchBarButton icon="trash" label={t("Delete (N)").replace("{n}", String(count))} destructive onClick={onMoveToTrash} />
           <BatchBarButton
             icon={allFavorites ? "star.fill" : "star"}
@@ -2149,13 +2174,15 @@ function BatchBarButton(props: {
   onClick(): void;
   destructive?: boolean;
   accent?: boolean;
+  disabled?: boolean;
 }) {
-  const { icon, label, onClick, destructive, accent } = props;
+  const { icon, label, onClick, destructive, accent, disabled } = props;
   return (
     <button
       type="button"
       className="kiri-batch-button"
       data-variant={destructive ? "destructive" : accent ? "accent" : undefined}
+      disabled={disabled}
       onClick={onClick}
     >
       <KiriIcon name={icon} size={13} />

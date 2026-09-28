@@ -118,3 +118,5 @@ development.
 - [ADR 0053: Direct adjustment of selected lines](adr/0053-direct-line-adjustment.md)
 - [ADR 0054: High-contrast recorded click highlight](adr/0054-red-click-highlight.md)
 - [ADR 0055: Editable OCR history with original text](adr/0055-editable-ocr-history.md)
+- [ADR 0056: Copy selected library items to a folder](adr/0056-batch-library-export.md)
+
