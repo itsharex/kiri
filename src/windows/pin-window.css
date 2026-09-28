@@ -1,0 +1,10 @@
+.pin-window { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--kiri-card); color: var(--kiri-label); }
+.pin-window__header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--kiri-surface-border); }
+.pin-window__header strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-window__actions { display: flex; gap: 6px; flex-shrink: 0; }
+.kiri-pin-action { border: 1px solid var(--kiri-surface-border); border-radius: 6px; background: var(--kiri-card); color: var(--kiri-label); padding: 5px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+.kiri-pin-action:hover:not(:disabled) { background: var(--kiri-group-fill); }
+.kiri-pin-action:disabled { opacity: .5; cursor: default; }
+.pin-window__image { display: flex; align-items: center; justify-content: center; min-height: 0; flex: 1; padding: 8px; }
+.pin-window__image img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.pin-window__image p, .pin-window__error { color: var(--kiri-secondary-label); font-size: 12px; text-align: center; }

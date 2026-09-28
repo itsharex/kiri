@@ -120,3 +120,4 @@ development.
 - [ADR 0055: Editable OCR history with original text](adr/0055-editable-ocr-history.md)
 - [ADR 0056: Copy selected library items to a folder](adr/0056-batch-library-export.md)
 - [ADR 0057: Explicit clipboard image import](adr/0057-clipboard-image-import.md)
+- [ADR 0058: Pinned screenshot reference windows](adr/0058-pinned-screenshot-reference.md)

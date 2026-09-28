@@ -220,6 +220,7 @@ pub fn run() {
             batch_export::export_selected_assets,
             commands::copy_asset,
             commands::open_asset,
+            commands::pin_asset,
             commands::open_editor,
             commands::reveal_asset,
             commands::convert_to_gif,

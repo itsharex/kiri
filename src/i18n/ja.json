@@ -598,5 +598,12 @@
   "Paste Image": "画像を貼り付け",
   "Paste Image (Cmd/Ctrl+V)": "画像を貼り付け（⌘V / Ctrl+V）",
   "Clipboard image added to Library.": "クリップボードの画像をライブラリに追加しました。",
-  "Could not paste an image from the clipboard.": "クリップボードから画像を貼り付けられませんでした。"
+  "Could not paste an image from the clipboard.": "クリップボードから画像を貼り付けられませんでした。",
+  "Pin Screenshot on Top": "スクリーンショットを最前面に固定",
+  "Screenshot Reference": "参照用スクリーンショット",
+  "Unpin": "固定を解除",
+  "Pin on Top": "最前面に固定",
+  "Could not change window pinning on this desktop.": "このデスクトップではウィンドウの固定を切り替えられませんでした。",
+  "Pinned screenshot": "固定したスクリーンショット",
+  "Could not pin this screenshot.": "このスクリーンショットを固定できませんでした。"
 }

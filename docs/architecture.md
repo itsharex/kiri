@@ -41,12 +41,17 @@ modules.
 | `ripple` | Optional recorded click highlight |
 | `editor-*` | Full screenshot editor |
 | `viewer-*` | Image, video, or GIF viewer |
+| `pin-*` | Resizable flattened screenshot reference; optionally topmost |
 | `toast` | Passive status feedback or an interactive completion preview |
 | `confirm` | Destructive-action confirmation |
 
 The backend owns window creation and validates commands against the expected
 window and active session. Frontend code never receives credentials or an
 unrestricted filesystem path.
+
+Each active screenshot has at most one pin window. It reads the saved flattened
+image through the existing local media route. Unpinning or closing that window
+does not change the library asset.
 
 Linux does not show the floating `control-panel` or `ripple` during recording.
 The tray and explicit recording commands provide controls without relying on

@@ -469,6 +469,50 @@ pub fn open_asset(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn pin_asset(window: WebviewWindow, app: AppHandle, id: String) -> Result<(), String> {
+    if window.label() != "library" { return Err("Only the library can pin a screenshot.".into()); }
+    let parsed = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid screenshot.".to_string())?;
+    let asset = {
+        let state = app.state::<AppState>();
+        let mut context = state.library.lock().unwrap();
+        let library = context.library().map_err(|error| error.to_string())?;
+        let asset = library.asset_by_id(&parsed).cloned()
+            .ok_or_else(|| "Screenshot not found.".to_string())?;
+        if asset.kind != CaptureKind::Image || asset.ocr_text.is_some() || asset.trashed_at.is_some() {
+            return Err("Only active screenshots can be pinned.".into());
+        }
+        library.readable_asset_url(&asset).map_err(|error| error.to_string())?;
+        asset
+    };
+    let label = format!("pin-{}", asset.id.to_string().to_lowercase());
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show(); let _ = window.set_focus();
+        return Ok(());
+    }
+    let aspect = if asset.pixel_width > 0 && asset.pixel_height > 0 {
+        (asset.pixel_width as f64 / asset.pixel_height as f64).clamp(0.5, 3.0)
+    } else { 1.0 };
+    let width = (340.0 * aspect).clamp(240.0, 680.0);
+    let asset_id = asset.id;
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.show(); let _ = window.set_focus(); return Ok(());
+        }
+        WebviewWindowBuilder::new(&app, label,
+            WebviewUrl::App(format!("index.html?window=pin&id={asset_id}").into()))
+            .title("Pinned Screenshot — Kiri")
+            .inner_size(width, 380.0)
+            .min_inner_size(220.0, 180.0)
+            .resizable(true)
+            .decorations(true)
+            .always_on_top(true)
+            .build().map_err(|error| format!("Pinned screenshot could not be opened: {error}"))?;
+        log::info!("[pin] screenshot opened asset_id={asset_id}");
+        Ok(())
+    }).await.map_err(|error| format!("Pinned screenshot window stopped: {error}"))?
+}
+
+#[tauri::command]
 pub fn open_editor(app: AppHandle, id: String) -> Result<(), String> {
     let parsed =
         uuid::Uuid::parse_str(&id).map_err(|_| "The capture id is invalid.".to_string())?;

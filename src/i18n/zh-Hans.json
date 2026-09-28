@@ -598,5 +598,12 @@
   "Paste Image": "粘贴图片",
   "Paste Image (Cmd/Ctrl+V)": "粘贴图片（⌘V / Ctrl+V）",
   "Clipboard image added to Library.": "剪贴板图片已加入素材库。",
-  "Could not paste an image from the clipboard.": "无法从剪贴板粘贴图片。"
+  "Could not paste an image from the clipboard.": "无法从剪贴板粘贴图片。",
+  "Pin Screenshot on Top": "置顶截图",
+  "Screenshot Reference": "截图参考",
+  "Unpin": "取消置顶",
+  "Pin on Top": "重新置顶",
+  "Could not change window pinning on this desktop.": "当前桌面无法切换窗口置顶状态。",
+  "Pinned screenshot": "置顶截图",
+  "Could not pin this screenshot.": "无法置顶这张截图。"
 }
