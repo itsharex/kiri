@@ -60,7 +60,7 @@ fn find_main_window(pid: u32) -> Option<HWND> {
         }
         let mut window_pid = 0u32;
         unsafe {
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
         }
         if window_pid == search.pid && unsafe { IsWindowVisible(hwnd).as_bool() } {
             search.found = Some(hwnd);
