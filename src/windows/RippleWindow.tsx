@@ -1,4 +1,4 @@
-// High-contrast red click ripple drawn over the recording region. This window is not
+// Lightweight red click ripple drawn over the recording region. This window is not
 // excluded from capture, so enabled ripples appear in the exported video.
 
 import { useEffect, useState } from "react";
@@ -45,51 +45,37 @@ export function RippleWindow() {
     <div style={{ position: "fixed", inset: 0, background: "transparent", overflow: "hidden" }}>
       {visible.map((ripple) => {
         const t = now - ripple.startedAt;
-        // Spec §6.3 keyframes: scale keyTimes [0, 0.68, 1]; opacity
-        // keyTimes [0, 0.12, 0.68, 1] with values [0, peak, peak*0.82, 0].
+        // Scale eases outward while the ring fades in and then out.
         const scaleAt = (from: number, to: number, time: number) => {
           const v = Math.min(time / 0.68, 1);
           return from + (to - from) * (1 - Math.pow(1 - v, 3));
         };
         const opacityAt = (peak: number, time: number) => {
+          if (time >= 1) return 0;
           if (time < 0.12) return peak * (time / 0.12);
           if (time < 0.68) return peak;
           return peak * 0.82 * (1 - (time - 0.68) / 0.32);
         };
         return (
           <div key={ripple.id} style={{ position: "absolute", left: 0, top: 0 }}>
-            {/* Wide translucent red halo keeps the click visible on light and dark video. */}
+            {/* One thin ring marks the click without obscuring the recording. */}
             <Ellipse
               x={ripple.x}
               y={ripple.y}
-              width={42}
-              scale={scaleAt(0.45, 1.12, t / 460)}
-              opacity={opacityAt(0.72, t / 460)}
-              fill="none"
-              stroke="rgba(216, 35, 50, 0.62)"
-              strokeWidth={6}
-            />
-            {/* Solid red ring and translucent fill remain legible over light footage. */}
-            <Ellipse
-              x={ripple.x}
-              y={ripple.y}
-              width={30}
-              scale={scaleAt(0.58, 1.0, t / 340)}
-              opacity={opacityAt(1, t / 340)}
-              fill="rgba(216, 35, 50, 0.20)"
+              width={32}
+              scale={scaleAt(0.55, 1.0, t / 460)}
+              opacity={opacityAt(0.78, t / 460)}
               stroke={RED}
-              strokeWidth={4}
+              strokeWidth={2.5}
             />
-            {/* Center remains visible after the expanding ring fades. */}
+            {/* A small center pinpoints the click as the ring expands. */}
             <Ellipse
               x={ripple.x}
               y={ripple.y}
-              width={7}
-              scale={scaleAt(0.72, 1.0, t / 240)}
-              opacity={opacityAt(1, t / 240)}
+              width={4}
+              scale={scaleAt(0.8, 1.0, t / 240)}
+              opacity={opacityAt(0.78, t / 240)}
               fill={RED}
-              stroke="rgba(255, 255, 255, 0.96)"
-              strokeWidth={2}
             />
           </div>
         );

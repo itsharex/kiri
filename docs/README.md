@@ -22,6 +22,8 @@ application or a durable product decision.
   network, credential, and local-data boundaries.
 - [`windows-capture-incident.md`](windows-capture-incident.md) — current
   Windows screenshot lifecycle failure, diagnostics, and native retest gate.
+- [`releases/v1.6.6.md`](releases/v1.6.6.md) — lighter recorded click highlight
+  and Windows text scaling correction.
 - [`releases/v1.4.12.md`](releases/v1.4.12.md) — preview recovery and consistent
   history updates after removing missing files.
 - [`releases/v1.4.11.md`](releases/v1.4.11.md) — capture reliability, preview
@@ -81,6 +83,8 @@ application or a durable product decision.
 - [`adr/0025-signed-user-initiated-updates.md`](adr/0025-signed-user-initiated-updates.md)
   — separately confirmed signed checks, downloads, installation, and
   platform-accurate restart behavior.
+- [`adr/0059-lightweight-recorded-click-highlight.md`](adr/0059-lightweight-recorded-click-highlight.md)
+  — reduce the recorded click ring's visual weight while retaining its red cue.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags
