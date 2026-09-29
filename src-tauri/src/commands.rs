@@ -2130,6 +2130,13 @@ fn create_overlay_window(
         return Err(error.into());
     }
     log::info!("create_overlay_window: window placed label={label}");
+    #[cfg(windows)]
+    {
+        // Display points must map to screen pixels 1:1; the Windows text size
+        // setting would otherwise scale the frozen capture by up to 2.25x.
+        let display_scale = window.scale_factor().unwrap_or(backing_scale);
+        crate::platform::windows::pin_webview_to_display_scale(&window, display_scale);
+    }
     log::info!("create_overlay_window: configuring window label={label}");
     platform::configure_transient_window(&window, platform::TransientWindowRole::CaptureOverlay);
     log::info!("create_overlay_window: window configured label={label}");
