@@ -60,7 +60,7 @@ fn find_main_window(pid: u32) -> Option<HWND> {
         }
         let mut window_pid = 0u32;
         unsafe {
-            GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
         }
         if window_pid == search.pid && unsafe { IsWindowVisible(hwnd).as_bool() } {
             search.found = Some(hwnd);
@@ -153,7 +153,7 @@ pub fn pin_webview_to_display_scale(window: &tauri::WebviewWindow, display_scale
     } else {
         1.0
     };
-    let _ = window.with_webview(move |platform| {
+    if let Err(error) = window.with_webview(move |platform| {
         let controller = platform.controller();
         let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() else {
             // Older WebView2 runtimes have no rasterization scale control; the
@@ -164,12 +164,20 @@ pub fn pin_webview_to_display_scale(window: &tauri::WebviewWindow, display_scale
             // WebView2 re-derives the rasterization scale from the monitor DPI
             // multiplied by the system text scale, so stop the detection before
             // pinning the value.
-            let _ = controller3.SetShouldDetectMonitorScaleChanges(false);
+            if let Err(error) = controller3.SetShouldDetectMonitorScaleChanges(false) {
+                log::warn!(
+                    "overlay webview automatic scale detection could not be disabled: {error}"
+                );
+                // Do not set a scale that WebView2 could immediately overwrite.
+                return;
+            }
             if let Err(error) = controller3.SetRasterizationScale(scale) {
                 log::warn!("overlay webview scale could not be pinned: {error}");
             }
         }
-    });
+    }) {
+        log::warn!("overlay webview scale pinning could not be dispatched: {error}");
+    }
 }
 
 pub fn set_window_capture_excluded(app: &tauri::AppHandle, label: &str, excluded: bool) {
