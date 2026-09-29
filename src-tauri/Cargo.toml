@@ -140,6 +140,10 @@ keyring = { version = "3.6.3", default-features = false, features = ["apple-nati
 
 [target.'cfg(windows)'.dependencies]
 xcap = { version = "0.9", default-features = false, features = ["image"] }
+# WebView2 RasterizationScale control for the capture overlay. The runtime
+# interface trait must come from the windows-core version webview2-com links.
+webview2-com = "0.38"
+windows-core = "0.61"
 cpal = "0.18"
 windows-future = "0.3.2"
 windows = { version = "0.62", features = [

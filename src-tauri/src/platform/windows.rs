@@ -139,6 +139,39 @@ pub fn set_window_click_through(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+/// Windows' "text size" accessibility setting (Accessibility > Text size) is
+/// folded into the WebView2 rasterization scale, so a page's CSS pixel no
+/// longer maps to one display point. The capture overlay draws the frozen
+/// screenshot in display points and must stay pixel-exact, so pin the webview
+/// to the display's scale factor instead of the OS text scale.
+pub fn pin_webview_to_display_scale(window: &tauri::WebviewWindow, display_scale: f64) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller3;
+    use windows_core::Interface;
+
+    let scale = if display_scale.is_finite() && display_scale > 0.0 {
+        display_scale
+    } else {
+        1.0
+    };
+    let _ = window.with_webview(move |platform| {
+        let controller = platform.controller();
+        let Ok(controller3) = controller.cast::<ICoreWebView2Controller3>() else {
+            // Older WebView2 runtimes have no rasterization scale control; the
+            // overlay keeps the legacy behavior there.
+            return;
+        };
+        unsafe {
+            // WebView2 re-derives the rasterization scale from the monitor DPI
+            // multiplied by the system text scale, so stop the detection before
+            // pinning the value.
+            let _ = controller3.SetShouldDetectMonitorScaleChanges(false);
+            if let Err(error) = controller3.SetRasterizationScale(scale) {
+                log::warn!("overlay webview scale could not be pinned: {error}");
+            }
+        }
+    });
+}
+
 pub fn set_window_capture_excluded(app: &tauri::AppHandle, label: &str, excluded: bool) {
     let Some(window) = app.get_webview_window(label) else {
         return;
