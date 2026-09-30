@@ -147,6 +147,9 @@ async def main():
                                 await undo.click()
                                 await redo.click()
                                 if language == 'en' and width == 800 and scale == 1:
+                                    # Use the real toolbar scroll so both the retained crop and
+                                    # selected annotation tool are visible in the unedited image.
+                                    await f.get_by_title(strings['Crop (C)'], exact=True).evaluate('el => {el.parentElement.scrollLeft = 0;}')
                                     await page.screenshot(path=str(OUT / 'crop-annotate-after.png'))
                                 await f.get_by_title(strings['Crop (C)'], exact=True).click()
                                 await undo.click()
