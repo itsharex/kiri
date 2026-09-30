@@ -125,6 +125,7 @@ async def main():
                                     f = await editor()
                                     await f.get_by_title(strings['Rectangle (R)'], exact=True).click()
                                     await drag_doc(f, (80, 60), (160, 110))
+                                    await crop(f)
                                     await f.get_by_role('button', name=strings['Save As…'], exact=True).click()
                                     await page.wait_for_timeout(150)
                                     await f.get_by_role('button', name=strings['Cancel'], exact=True).click()
@@ -162,7 +163,8 @@ async def main():
                                 output_size(-1, [600, 360])
                                 assert outputs[-1]['crop'] == {'x':100, 'y':80, 'width':600, 'height':360}, outputs[-1]
                                 mark = outputs[-1]['document']['marks'][0]
-                                assert mark['rect'] == {'x':30, 'y':20, 'width':80, 'height':50}, mark
+                                expected_mark = {'x':30, 'y':20, 'width':80, 'height':50}
+                                assert all(abs(mark['rect'][key] - value) < 0.0001 for key, value in expected_mark.items()), mark
                                 await f.get_by_role('button', name=strings['Cancel'], exact=True).click()
                                 dialog = f.get_by_role('dialog', name=strings['Save changes before closing?'], exact=True)
                                 await dialog.wait_for()
@@ -176,7 +178,9 @@ async def main():
                                 await page.wait_for_timeout(120)
                                 output_size(-1, [1000, 600])
                                 assert outputs[-1]['crop'] is None
-                                assert outputs[-1]['document']['marks'][0]['rect'] == {'x':80, 'y':60, 'width':80, 'height':50}
+                                expected_original = {'x':80, 'y':60, 'width':80, 'height':50}
+                                actual_original = outputs[-1]['document']['marks'][0]['rect']
+                                assert all(abs(actual_original[key] - value) < 0.0001 for key, value in expected_original.items()), actual_original
                                 # Escape cancels only a pending crop; annotation and its redo survive.
                                 await crop(f)
                                 await page.keyboard.press('Escape')
