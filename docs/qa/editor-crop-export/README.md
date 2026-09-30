@@ -26,6 +26,7 @@
 `test_image_crop.py` 使用真实生产组件，隔离 native IPC。24 组：三语 ×
 800×600/1280×720 × 1/1.25/1.5/2 backing scales；检查裁剪与标注各自 Undo/Redo、
 工具切换、取消导出、Cancel crop/Escape 保留标注、源像素映射、最终 Save PNG 600×360。
+后续键盘补验让聚焦工具、Save As、Cancel crop 的 Enter 执行控件自身动作，不触发全局 Save。
 导出整数尺寸和 cropPixels 精确断言；浮点标注坐标容差 0.0001 文档单位。
 
 更新后的文字／导出 fixture 20 条通过，包括导出后继续编辑、再次导出仍有关闭保护、

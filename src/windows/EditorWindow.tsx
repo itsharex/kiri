@@ -215,6 +215,9 @@ export function EditorWindow(props: { id: string }) {
         return;
       }
       if (e.key === "Enter" && !e.isComposing) {
+        // Focused controls own Enter (notably export and crop cancellation).
+        // Saving here before their native click could persist unintended edits.
+        if (e.target instanceof Element && e.target.closest("button,input,select,textarea,[contenteditable]")) return;
         void complete("save");
         return;
       }

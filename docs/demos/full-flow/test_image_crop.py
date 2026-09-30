@@ -153,7 +153,8 @@ async def main():
                                 await page.wait_for_timeout(120)
                                 await output_size(-1, [900, 520])
                                 await redo.click()
-                                await rectangle.click()
+                                await rectangle.focus()
+                                await rectangle.press('Enter')
                                 await drag_doc(f, (80, 60), (160, 110))
                                 await undo.click()
                                 await redo.click()
@@ -172,9 +173,10 @@ async def main():
                                 await page.wait_for_timeout(100)
                                 assert len(outputs) == count
                                 await page.evaluate('state.cancelSaveAs = false')
-                                await f.get_by_role('button', name=strings['Save As…'], exact=True).click()
+                                await f.get_by_role('button', name=strings['Save As…'], exact=True).press('Enter')
                                 await page.wait_for_timeout(120)
                                 await output_size(-1, [600, 360])
+                                assert outputs[-1]['action'] == 'save-as', outputs[-1]
                                 assert outputs[-1]['crop'] == {'x':100, 'y':80, 'width':600, 'height':360}, outputs[-1]
                                 mark = outputs[-1]['document']['marks'][0]
                                 expected_mark = {'x':30, 'y':20, 'width':80, 'height':50}
@@ -186,7 +188,7 @@ async def main():
                                     await page.screenshot(path=str(OUT / 'save-as-close-after.png'))
                                 await dialog.get_by_role('button', name=strings['Keep editing'], exact=True).click()
                                 await rectangle.click()
-                                await f.get_by_role('button', name=strings['Cancel crop'], exact=True).click()
+                                await f.get_by_role('button', name=strings['Cancel crop'], exact=True).press('Enter')
                                 await f.locator(f'[aria-label="{strings["Crop area"]}"]').wait_for(state='detached')
                                 await f.get_by_role('button', name=strings['Save As…'], exact=True).click()
                                 await page.wait_for_timeout(120)
@@ -206,7 +208,7 @@ async def main():
                                 await output_size(-1, [600, 360])
                                 assert outputs[-1]['action'] == 'save'
                                 assert not errors, errors
-                                results.append({'language':language, 'viewport':[width,height], 'backingScale':scale, 'savedPixels':[600,360], 'passed':['crop tool switching', 'crop undo/redo across tool switch', 'independent annotation undo/redo', 'export-only close guard', 'cancelled export keeps crop', 'cancel crop retains original-coordinate marks', 'Escape cancels crop only', 'source-pixel mapping and translated marks', 'final Save PNG dimensions']})
+                                results.append({'language':language, 'viewport':[width,height], 'backingScale':scale, 'savedPixels':[600,360], 'passed':['crop tool switching with focused-button Enter', 'crop undo/redo across tool switch', 'independent annotation undo/redo', 'export-only close guard', 'keyboard Save As exports without library Save', 'cancelled export keeps crop', 'keyboard cancel crop retains original-coordinate marks', 'Escape cancels crop only', 'source-pixel mapping and translated marks', 'final Save PNG dimensions']})
                             finally:
                                 await context.close()
             finally:

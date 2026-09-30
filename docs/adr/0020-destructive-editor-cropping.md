@@ -36,5 +36,8 @@ its editable project.
 - Canceling Crop or canceling Save As leaves the library unchanged.
 - Crop undo/redo is active in Crop; annotation undo/redo stays independent in
   other tools. Switching tools never writes or destructively crops the source.
+- Enter on a focused toolbar/button/input follows that control's action.
+  The editor's canvas Enter-to-Save shortcut must not replace keyboard export
+  or Cancel crop with a library save.
 - The backend derives the source crop from the opened revision instead of
   trusting source bytes supplied by the WebView.
