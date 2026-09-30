@@ -165,6 +165,10 @@ rejects the stale save.
 Native Save As destinations are represented in the WebView by a single-use
 token rather than a filesystem path. Save As writes the prepared output only;
 it never mutates the library asset or editable project.
+The pending crop keeps its original document coordinates while switching to
+annotation tools. Crop undo/redo remains available when returning to Crop;
+Cancel crop removes only that frame. Save As preserves the unsaved library
+baseline and its close warning even after exporting successfully.
 
 The capture overlay and editor load one validated native preference for the
 last-used annotation color, visual widths, text background and size, and

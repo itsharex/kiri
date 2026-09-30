@@ -56,3 +56,5 @@ if __name__=='__main__':
  asyncio.run(toolbar_main())
  import test_image_editing
  asyncio.run(test_image_editing.main())
+ import test_image_crop
+ asyncio.run(test_image_crop.main())

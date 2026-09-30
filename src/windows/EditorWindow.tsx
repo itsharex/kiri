@@ -208,10 +208,7 @@ export function EditorWindow(props: { id: string }) {
       }
       if (e.key === "Escape") {
         if (tool === "crop") {
-          setCropSelection(null);
-          setCropUndo([]);
-          setCropRedo([]);
-          setTool("select");
+          cancelCrop();
           return;
         }
         void closeWindow();
@@ -255,11 +252,17 @@ export function EditorWindow(props: { id: string }) {
   }, [completionLock, cropRedo, cropSelection, cropUndo, document, tool]);
 
   function selectTool(next: EditorTool) {
-    if (tool === "crop" && next !== "crop") return;
     setTool(next);
     if (next === "crop" && document) {
       setCropSelection((current) => current ?? fullCropRect(document));
     }
+  }
+
+  function cancelCrop() {
+    setCropSelection(null);
+    setCropUndo([]);
+    setCropRedo([]);
+    if (tool === "crop") setTool("select");
   }
 
   function commitCrop(previous: Rect, next: Rect) {
@@ -399,10 +402,16 @@ export function EditorWindow(props: { id: string }) {
             icon={icon}
             title={t(title)}
             active={tool === t2}
-            disabled={tool === "crop" && t2 !== "crop"}
             onClick={() => selectTool(t2)}
           />
         ))}
+        {cropSelection && (
+          <button type="button" className="kiri-button kiri-button--secondary"
+            style={{ flexShrink: 0, height: 28, padding: "0 8px" }}
+            onClick={cancelCrop}>
+            {t("Cancel crop")}
+          </button>
+        )}
         {tool !== "crop" && tool !== "select" && <>
           <div style={{ width: 1, height: 26, background: "#383838", margin: "0 4px" }} />
           {tool === "text" ? (
