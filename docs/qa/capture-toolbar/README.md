@@ -2,7 +2,7 @@
 
 ## Actual native before
 
-![Official v1.6.6 toolbar clipped on the secondary display](before-linux-x11-800x600.png)
+![Official v1.6.6 toolbar clipped on the secondary display](before-linux-x11-800x600.jpg)
 
 This unedited 800×600 screenshot was collected from the official v1.6.6 amd64
 Debian package on a cloud Debian 13 / Xfce / X11 desktop with an empty QA profile.
@@ -46,11 +46,21 @@ height to keep both groups within the active display with an 8-point margin.
 
 The initial wrapping fix at PR head `18259a1` passed actual same-condition Linux
 mouse-Done acceptance; [archived evidence](https://github.com/yuxino/kiri/tree/dcfd591bdf002b48f901a5d49593aa1155825738/docs/qa/capture-toolbar).
-The compact shared layout now requires a fresh exact-candidate cloud replay. Use the same two outputs,
-English UI, scale 1 and (650, 420) to (790, 580) selection. Record the candidate's
-source commit, package SHA256 and provenance, save an unedited screenshot, then
-click Done and verify the resulting 140×160 PNG. Restore the original virtual
-layout afterward. Do not label renderer fixtures as native after evidence.
+The compact layout at PR head `d6cf7e46` also passed actual same-condition
+Linux acceptance: the default bar is approximately 464 points wide, More / Text /
+Mosaic controls remain above the selected region, focused More Enter/Space only
+changes its panel, and mouse Done exports a 140×160 PNG.
+
+- CI merge source: `8b4106d61eb13839bf9a0833d71d08a484dfe3cd`.
+- Debian package SHA256: `62e19e40a4176348a18cd69489c72b1b1e97badd594f71663cef160f999f02ae`.
+- [Unedited native images and report](https://github.com/yuxino/kiri/tree/3fd39c4f3d7ed2ea72130494823a692a6683b50c/docs/qa/capture-toolbar/compact-native).
+
+These images belong to the independent PR66 package, not a later integrated
+candidate. Each integrated candidate still requires the same exact-package
+replay. Use the same two outputs, English UI, scale 1 and (650, 420) to (790, 580)
+selection. Record source commit, package SHA256 and provenance, save an unedited
+screenshot, then click Done and verify the 140×160 PNG. Restore the original
+virtual layout afterward. Do not label renderer fixtures as native evidence.
 
 Physical mixed-DPI, macOS/Windows native toolbar acceptance and supported Ubuntu
 native confirmation remain separate coverage limits. This PR does not change
