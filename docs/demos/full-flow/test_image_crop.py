@@ -54,6 +54,8 @@ async def main():
                                 page = await context.new_page()
                                 page.set_default_timeout(8000)
                                 errors, outputs = [], []
+                                pending_outputs = asyncio.Queue()
+                                print(f'Crop/export: {language} {width}x{height} backing={scale}', flush=True)
                                 page.on('pageerror', lambda e: errors.append(str(e)))
 
                                 async def backend(source, command, args):
@@ -62,6 +64,7 @@ async def main():
                                     with Image.open(io.BytesIO(data)) as png:
                                         args['pngSize'] = list(png.size)
                                     outputs.append(args)
+                                    pending_outputs.put_nowait(args)
                                     return {'revisionSha256': 'a' * 64 if args['action'] == 'save-as' else 'b' * 64, 'actionSucceeded': True}
 
                                 await context.expose_binding('__backend', backend)
@@ -111,7 +114,15 @@ async def main():
                                     await drag_doc(f, (0, 0), (50, 40))
                                     await drag_doc(f, (499, 299), (350, 220))
 
-                                def output_size(index, expected):
+                                async def output_size(index, expected):
+                                    # PNG export is asynchronous and can exceed a fixed 120ms
+                                    # on a loaded CI renderer. Await the actual IPC output.
+                                    try:
+                                        await asyncio.wait_for(pending_outputs.get(), timeout=8)
+                                    except TimeoutError:
+                                        await page.screenshot(path=str(OUT / 'crop-export-failed.png'))
+                                        (OUT / 'crop-export-failure.json').write_text(json.dumps({'language':language, 'viewport':[width,height], 'backingScale':scale, 'errors':errors, 'editorText':await f.locator('body').inner_text()}, ensure_ascii=False, indent=2))
+                                        raise
                                     assert outputs[index]['pngSize'] == expected, outputs[index]
                                     assert list(outputs[index]['document']['sourcePixels'].values()) == expected
 
@@ -140,7 +151,7 @@ async def main():
                                 await undo.click()
                                 await f.get_by_role('button', name=strings['Save As…'], exact=True).click()
                                 await page.wait_for_timeout(120)
-                                output_size(-1, [900, 520])
+                                await output_size(-1, [900, 520])
                                 await redo.click()
                                 await rectangle.click()
                                 await drag_doc(f, (80, 60), (160, 110))
@@ -163,7 +174,7 @@ async def main():
                                 await page.evaluate('state.cancelSaveAs = false')
                                 await f.get_by_role('button', name=strings['Save As…'], exact=True).click()
                                 await page.wait_for_timeout(120)
-                                output_size(-1, [600, 360])
+                                await output_size(-1, [600, 360])
                                 assert outputs[-1]['crop'] == {'x':100, 'y':80, 'width':600, 'height':360}, outputs[-1]
                                 mark = outputs[-1]['document']['marks'][0]
                                 expected_mark = {'x':30, 'y':20, 'width':80, 'height':50}
@@ -179,7 +190,7 @@ async def main():
                                 await f.locator(f'[aria-label="{strings["Crop area"]}"]').wait_for(state='detached')
                                 await f.get_by_role('button', name=strings['Save As…'], exact=True).click()
                                 await page.wait_for_timeout(120)
-                                output_size(-1, [1000, 600])
+                                await output_size(-1, [1000, 600])
                                 assert outputs[-1]['crop'] is None
                                 expected_original = {'x':80, 'y':60, 'width':80, 'height':50}
                                 actual_original = outputs[-1]['document']['marks'][0]['rect']
@@ -192,7 +203,7 @@ async def main():
                                 await rectangle.click()
                                 await f.get_by_role('button', name=strings['Save'], exact=True).click()
                                 await page.locator('#editor').wait_for(state='detached')
-                                output_size(-1, [600, 360])
+                                await output_size(-1, [600, 360])
                                 assert outputs[-1]['action'] == 'save'
                                 assert not errors, errors
                                 results.append({'language':language, 'viewport':[width,height], 'backingScale':scale, 'savedPixels':[600,360], 'passed':['crop tool switching', 'crop undo/redo across tool switch', 'independent annotation undo/redo', 'export-only close guard', 'cancelled export keeps crop', 'cancel crop retains original-coordinate marks', 'Escape cancels crop only', 'source-pixel mapping and translated marks', 'final Save PNG dimensions']})
