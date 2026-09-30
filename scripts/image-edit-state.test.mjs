@@ -23,7 +23,7 @@ test("opening or cancelling text editing is clean; content and appearance change
   }
   assert.equal(hasUnsavedImageChanges(saved, saved.marks, null, { ...draft, editing: false, mark: null }), false);
 });
-test("crop changes and a successful Save As snapshot participate in the same baseline", () => {
+test("crop changes stay dirty until the library baseline is updated by Save", () => {
   const crop = { x: 0, y: 0, width: 80, height: 60 };
   assert.equal(hasUnsavedImageChanges(saved, saved.marks, crop, null), true);
   const nextSaved = { marks: saved.marks, crop };

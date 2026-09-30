@@ -13,8 +13,9 @@ Closing the saved-image editor via Cancel, Escape, Cmd/Ctrl+W or the native
 window close warns only when marks, a crop or pending text differ from the
 saved baseline. Offer Save & close, Discard, and Keep editing. Failed saves
 retain the window and show the error. Undoing to the baseline removes the
-warning; existing saved marks and empty new text are not dirty. A successful
-Save As updates the baseline too. Export keeps its immutable interaction lock.
+warning; existing saved marks and empty new text are not dirty. Save As exports
+a copy without changing the library baseline, so edits still require a close
+decision after export. Only Save updates that baseline. Export keeps its immutable interaction lock.
 Video already owns autosave and close protection; preserve that contract.
 
 文字输入框获得焦点时，撤销与重做使用原生文字历史；退出输入后再操作画布历史。
@@ -23,4 +24,5 @@ Enter/Esc。Shift+Enter 换行，Enter 提交，截图仍按现有约定完成�
 
 已保存图片的编辑器关闭时，仅在标注、裁剪或尚未提交文字相对保存基线有变化时询问。
 提供保存并关闭、放弃及继续编辑；保存失败保持窗口并显示错误。撤销回基线无需提示，
-原有标注与新空输入框不算修改；成功另存也更新基线。视频现有自动保存与关闭保护保持不变。
+原有标注与新空输入框不算修改；另存仅导出副本，素材库的修改仍需关闭确认，仅保存更新基线。
+视频现有自动保存与关闭保护保持不变。

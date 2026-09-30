@@ -330,10 +330,12 @@ export function EditorWindow(props: { id: string }) {
         setActionError(failureMessage);
         return;
       }
-      // Save As also persists the library asset. Keep the baseline in this
-      // editor's coordinate space, before the output-only crop transform.
-      setSavedSnapshot({ marks: result.document.marks, crop: effectiveCrop });
-      if (action === "save") await closeGuardRef.current?.closeSaved();
+      // Save As exports a copy without updating the editable library asset.
+      // Only Save advances the library baseline; exported edits remain dirty.
+      if (action === "save") {
+        setSavedSnapshot({ marks: result.document.marks, crop: effectiveCrop });
+        await closeGuardRef.current?.closeSaved();
+      }
     } catch (error) {
       if (isEditorRevisionMismatch(error)) {
         revisionRef.current = null;

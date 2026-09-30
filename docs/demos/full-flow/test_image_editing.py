@@ -129,13 +129,23 @@ async def main():
     await f.get_by_role('button',name='Cancel',exact=True).click();dialog=f.get_by_role('dialog',name='Save changes before closing?',exact=True)
     await dialog.get_by_role('button',name='Discard unsaved changes & close',exact=True).click()
     await page.locator('#editor').wait_for(state='detached')
-    # Successful Save As updates the close-warning baseline.
+    # Save As exports only: the editable library asset still has unsaved marks.
     f=await editor();await f.get_by_title('Rectangle (R)',exact=True).click();await drag((300,220),(650,370))
     await page.evaluate('state.cancelSaveAs=false');await f.get_by_role('button',name='Save As…',exact=True).click()
     await page.wait_for_function('state.updates===3');await page.wait_for_timeout(100)
+    await f.get_by_role('button',name='Cancel',exact=True).click()
+    dialog=f.get_by_role('dialog',name='Save changes before closing?',exact=True);await dialog.wait_for()
+    await page.screenshot(path=str(OUT/'save-as-close-after.png'))
+    await dialog.get_by_role('button',name='Keep editing',exact=True).click()
+    await drag((700,400),(900,500))
+    await f.get_by_role('button',name='Save As…',exact=True).click();await page.wait_for_function('state.updates===4')
+    assert len((await page.evaluate('state.prepared'))['marks'])==2,'export lost continuing edits'
+    await f.get_by_role('button',name='Cancel',exact=True).click();await dialog.wait_for()
+    await dialog.get_by_role('button',name='Keep editing',exact=True).click()
+    await f.get_by_title('Undo (⌘Z)',exact=True).click();await f.get_by_title('Undo (⌘Z)',exact=True).click()
     await f.get_by_role('button',name='Cancel',exact=True).click();await page.locator('#editor').wait_for(state='detached')
     assert not errors,errors
-    (OUT/'image-editing-check.json').write_text(json.dumps({'native':False,'passed':['native textarea undo/redo routing','Shift+Enter multiline','localized hint','composition event routing only','first Escape retains capture and marks','second Escape cancels','Enter commits text and completes capture','clean editor close','Cmd/Ctrl+W from focused text','dirty text keep editing','cancel text restores clean baseline','native close event guard','undo to baseline','Save As cancel is no-op','failed save retains dialog and marks','save then close','discard then close','Save As baseline']},indent=2)+'\n')
+    (OUT/'image-editing-check.json').write_text(json.dumps({'native':False,'closeBoundary':'IPC fixture only; native destroy ACL remains unresolved','withdrawn':['old Save As baseline assertion contradicted export-only backend'],'passed':['native textarea undo/redo routing','Shift+Enter multiline','localized hint','composition event routing only','first Escape retains capture and marks','second Escape cancels','Enter commits text and completes capture','clean editor close','Cmd/Ctrl+W from focused text','dirty text keep editing','cancel text restores clean baseline','native close event guard','undo to baseline','Save As cancel is no-op','failed save retains dialog and marks','save then close','discard then close','Save As preserves library close protection','continue editing and re-export','undo exported edits to original baseline']},indent=2)+'\n')
     await context.close()
    finally:await browser.close()
  finally:server.shutdown();server.server_close()
