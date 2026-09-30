@@ -1,0 +1,569 @@
+{
+  "native": false,
+  "sourceCommit": "bd25381ad2ab9a563f5c4a4f624175782c5ca481",
+  "closeBoundary": "isolated IPC only; native destroy ACL unresolved",
+  "coordinateSpaces": {
+    "document": [
+      500,
+      300
+    ],
+    "sourcePixels": [
+      1000,
+      600
+    ]
+  },
+  "cases": [
+    {
+      "language": "en",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1.25,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1.5,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 2,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1.25,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1.5,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "en",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 2,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1.25,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1.5,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 2,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1.25,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1.5,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "zh-Hans",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 2,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1.25,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1.5,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 2,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1.25,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 1.5,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    },
+    {
+      "language": "ja",
+      "viewport": [
+        1280,
+        720
+      ],
+      "backingScale": 2,
+      "savedPixels": [
+        600,
+        360
+      ],
+      "passed": [
+        "crop tool switching",
+        "crop undo/redo across tool switch",
+        "independent annotation undo/redo",
+        "export-only close guard",
+        "cancelled export keeps crop",
+        "cancel crop retains original-coordinate marks",
+        "Escape cancels crop only",
+        "source-pixel mapping and translated marks",
+        "final Save PNG dimensions"
+      ]
+    }
+  ]
+}
