@@ -51,6 +51,8 @@ async def main():
   server.shutdown();server.server_close()
 if __name__=='__main__':
  asyncio.run(main())
- # Existing renderer CI entry point also checks the screenshot toolbar.
+ # Run shared renderer regressions sequentially; each closes its own browser.
  from test_toolbar import main as toolbar_main
  asyncio.run(toolbar_main())
+ import test_image_editing
+ asyncio.run(test_image_editing.main())
