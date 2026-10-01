@@ -71,7 +71,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.renderer == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 6
+    # Includes sequential toolbar, image editing, and 24 crop/scale regressions
+    # through test-ocr.py. The 6m limit expired after all assertions passed.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
