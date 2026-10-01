@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 - **Read QR codes** with the screenshot toolbar's Recognize QR Codes tool. Open an older screenshot in the editor to use the same tool later. Choose a code in its original image, review its content, then copy, open a web link, or save it in QR Favorites.
 - **Record** a region as MP4 or GIF. GIF export preserves playback timing and reports the encoded duration. On macOS and Windows, include system audio, microphone, and a visible red click highlight.
 - **Edit videos** on macOS and Windows: trim, reorder, change speed, and add annotations or privacy masks.
-- **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash. Paste an image from the clipboard to annotate or recognize it, or export selected captures to a folder without moving the originals.
+- **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash. Paste an image from the clipboard to annotate or recognize it, or export selected captures to a folder without moving the originals. Narrow windows wrap whole controls without splitting their labels.
 
 ## Download
 
