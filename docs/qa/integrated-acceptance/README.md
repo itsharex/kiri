@@ -60,14 +60,16 @@ Linux video editing remains unavailable by contract. A Debian WebKit preview
 failure has not been established as a product defect. QR and Portal setup remain
 unimplemented. Keep all acceptance gaps visible in the unified PR body.
 
-## Known close blocker, separate from ordinary editor fixes
+## Native close permission repair, awaiting exact-package replay
 
 Native cloud QA observed `plugin:window|destroy not allowed by ACL`: image bytes
 were saved but the editor stayed open. Tauri's `onCloseRequested` calls destroy
 when its event is not prevented; the editor currently has close permission only.
-The crop and export-only corrections do not modify capabilities, the close guard
-or any alternative closing route. Specific permission confirmation remains
-pending. Browser close completion is mocked IPC and is not native ACL proof.
+The user explicitly authorized the image-editor permission repair on 2026-10-01.
+A dedicated image-close capability grants destroy only to editor-* callers;
+default and other window capabilities are unchanged. The same close guard remains.
+SDK/IPC tests now model close-request to destroy and prevention while dirty,
+but the final exact package still needs native clean/Keep/Discard/Save replay.
 
 The former 18-path fixture incorrectly asserted that successful Save As updates
 the library baseline. Backend Save As has always exported only. That assertion

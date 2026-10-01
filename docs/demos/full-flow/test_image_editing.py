@@ -93,6 +93,7 @@ async def main():
     async def editor():
      await page.evaluate("frame('editor',{id:'image-edit-fixture'})")
      f=page.frame_locator('#editor');await f.locator('canvas').wait_for();await page.wait_for_timeout(120);return f
+    await page.evaluate('state.editorCloseEvents=true;state.editorDestroyCalls=0')
     f=await editor();await f.get_by_role('button',name='Cancel',exact=True).click()
     await page.locator('#editor').wait_for(state='detached')
     f=await editor();await f.get_by_title('Text (T)',exact=True).click();await page.mouse.click(600,320)
@@ -100,6 +101,7 @@ async def main():
     await textarea.press_sequentially('unsaved text',delay=20)
     await f.get_by_role('button',name='Cancel',exact=True).click()
     dialog=f.get_by_role('dialog',name='Save changes before closing?',exact=True);await dialog.wait_for()
+    assert await page.evaluate('state.editorDestroyCalls')==1,'dirty close bypassed confirmation'
     await page.screenshot(path=str(OUT/'image-close-after.png'))
     await dialog.get_by_role('button',name='Keep editing',exact=True).click();await dialog.wait_for(state='hidden')
     assert await textarea.input_value()=='unsaved text'
@@ -144,8 +146,9 @@ async def main():
     await dialog.get_by_role('button',name='Keep editing',exact=True).click()
     await f.get_by_title('Undo (⌘Z)',exact=True).click();await f.get_by_title('Undo (⌘Z)',exact=True).click()
     await f.get_by_role('button',name='Cancel',exact=True).click();await page.locator('#editor').wait_for(state='detached')
+    assert await page.evaluate('state.editorDestroyCalls')==6,'close never reached SDK destroy'
     assert not errors,errors
-    (OUT/'image-editing-check.json').write_text(json.dumps({'native':False,'closeBoundary':'IPC fixture only; native destroy ACL remains unresolved','withdrawn':['old Save As baseline assertion contradicted export-only backend'],'passed':['native textarea undo/redo routing','Shift+Enter multiline','localized hint','composition event routing only','first Escape retains capture and marks','second Escape cancels','Enter commits text and completes capture','clean editor close','Cmd/Ctrl+W from focused text','dirty text keep editing','cancel text restores clean baseline','native close event guard','undo to baseline','Save As cancel is no-op','failed save retains dialog and marks','save then close','discard then close','Save As preserves library close protection','continue editing and re-export','undo exported edits to original baseline']},indent=2)+'\n')
+    (OUT/'image-editing-check.json').write_text(json.dumps({'native':False,'closeBoundary':'SDK close-request to destroy modeled in IPC; editor-only capability checked separately; native exact-package replay pending','withdrawn':['old Save As baseline assertion contradicted export-only backend'],'passed':['native textarea undo/redo routing','Shift+Enter multiline','localized hint','composition event routing only','first Escape retains capture and marks','second Escape cancels','Enter commits text and completes capture','clean editor close','Cmd/Ctrl+W from focused text','dirty text keep editing','cancel text restores clean baseline','native close event guard','undo to baseline','Save As cancel is no-op','failed save retains dialog and marks','save then close','discard then close','Save As preserves library close protection','continue editing and re-export','undo exported edits to original baseline','SDK close-request completes via destroy','dirty close prevents destroy before confirmation']},indent=2)+'\n')
     await context.close()
    finally:await browser.close()
  finally:server.shutdown();server.server_close()

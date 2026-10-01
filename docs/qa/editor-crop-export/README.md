@@ -33,6 +33,8 @@
 撤销回原始素材库基线。**撤回旧“Save As 更新保存基线”的断言**：后端始终只导出副本。
 组合 OCR 6 条和工具栏 63＋36 条也通过；对应 JSON 随图归档。
 
-原生 `plugin:window|destroy not allowed by ACL` 仍是独立阻塞：图片可保存，窗口未关闭。
-本次不改变 capability、关闭 guard 或替代关闭路径。浏览器 close 是 IPC fixture，
-不能作为该原生问题已修的证据。真实文本 Undo 疑点、实际 IME 与新 exact 包回归待验。
+原生 QA 此前确认 `plugin:window|destroy not allowed by ACL`：图片可保存但窗口未关闭。
+用户于 2026-10-01 明确确认权限修复；新增独立 image-close 能力，只授予 editor-*
+调用窗口 destroy，不改变默认或其他窗口能力。SDK／IPC 回归覆盖 close-request
+到 destroy 的实际调用顺序与确认阻止；不能作为原生 ACL 已通过的证据。
+最终 exact 包的关闭、真实文本 Undo、实际 IME 待复验。旧 JSON 保留原版本边界。

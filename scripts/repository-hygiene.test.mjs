@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
+import { Window } from "@tauri-apps/api/window";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,6 +49,46 @@ test("pinned screenshot windows get only their dedicated topmost permission", ()
   assert.equal(capability.permissions.includes("core:window:allow-set-always-on-top"), false);
   assert.deepEqual(pin.windows, ["pin-*"]);
   assert.deepEqual(pin.permissions, ["core:window:allow-set-always-on-top"]);
+});
+
+test("image close completion adds destroy only to image-editor callers", () => {
+  const directory = join(repositoryRoot, "src-tauri", "capabilities");
+  const image = JSON.parse(readFileSync(join(directory, "image-close.json"), "utf8"));
+  assert.deepEqual(image.windows, ["editor-*"]);
+  assert.deepEqual(image.permissions, ["core:window:allow-destroy"]);
+  const destroyCallers = readdirSync(directory).filter(name => name.endsWith(".json"))
+    .flatMap(name => {
+      const capability = JSON.parse(readFileSync(join(directory, name), "utf8"));
+      return capability.permissions.includes("core:window:allow-destroy") ? capability.windows : [];
+    });
+  assert.deepEqual(destroyCallers.sort(), ["editor-*", "viewer-*"]);
+});
+
+test("installed Tauri close listener requires destroy only after the guard allows closure", async () => {
+  const previousWindow = globalThis.window;
+  const calls = [];
+  let callback;
+  globalThis.window = {
+    __TAURI_INTERNALS__: {
+      transformCallback: handler => { callback = handler; return 1; },
+      invoke: async (command, args) => { calls.push({ command, args }); return 1; },
+    },
+    __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+  };
+  try {
+    const editor = new Window("editor-public-fixture", { skip: true });
+    let allowed = false;
+    const stop = await editor.onCloseRequested(event => { if (!allowed) event.preventDefault(); });
+    const event = { event: "tauri://close-requested", id: 1, payload: null };
+    await callback(event);
+    assert.equal(calls.some(call => call.command === "plugin:window|destroy"), false);
+    allowed = true;
+    await callback(event);
+    assert.deepEqual(calls.filter(call => call.command === "plugin:window|destroy"), [
+      { command: "plugin:window|destroy", args: { label: "editor-public-fixture" } },
+    ]);
+    await stop();
+  } finally { globalThis.window = previousWindow; }
 });
 
 test("permission-sensitive macOS entry points never allow ad-hoc signing", () => {
