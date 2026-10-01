@@ -284,7 +284,10 @@ def inline_text_editor():
                 continue
             if not node.get_state_set().contains(Atspi.StateType.FOCUSED):
                 continue
-            return node, node.get_text_iface().get_text(0, -1)
+            # GI returns the same Accessible object for get_text_iface(); its
+            # get_text() accessor shadows Text.get_text(start, end). Select
+            # the interface method explicitly rather than calling the accessor.
+            return node, Atspi.Text.get_text(node, 0, -1)
         except (GLib.Error, AttributeError):
             continue
     return None
