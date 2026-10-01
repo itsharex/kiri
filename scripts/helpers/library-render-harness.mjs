@@ -102,6 +102,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
     "react-dom": { createPortal: (child) => child },
     "../lib/ipc": {
       api: {
+        qrAction: async () => null,
         getAssetAvailability: async () => ({ status: "ready" }),
         getLibraryStatus: async () => ({ availability: "ready" }),
         listAssets: async () => [testAsset],

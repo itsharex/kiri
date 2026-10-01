@@ -87,6 +87,8 @@ application or a durable product decision.
   — reduce the recorded click ring's visual weight while retaining its red cue.
 - [`adr/0063-qr-center-markers-and-supported-geometry.md`](adr/0063-qr-center-markers-and-supported-geometry.md)
   — explicit center-marker selection and validation of QR finder geometry.
+- [`adr/0064-direct-qr-selection-and-opening.md`](adr/0064-direct-qr-selection-and-opening.md)
+  — original-region QR markers, automatic saving of selected codes and direct opening.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags
