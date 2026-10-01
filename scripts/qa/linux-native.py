@@ -13,9 +13,9 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-import tkinter as tk
 
 from PIL import Image, ImageChops, ImageGrab, ImageStat
+from linux_desktop_fixture import DesktopFixture, RECORDING_REGION
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -57,7 +57,7 @@ process = None
 manager = None
 fixture = None
 logs = []
-recording_region = (300, 10, 980, 390)
+recording_region = RECORDING_REGION
 recording_size = (680, 380)
 temporary = Path(os.environ["TMPDIR"])
 
@@ -67,10 +67,8 @@ def command(*arguments, check=True, binary=False):
 
 
 def pump_events():
-    if fixture is not None:
-        fixture.update()
     # Accessibility state changes arrive on GLib's main context, even though
-    # Tk owns the public fixture window and this script has no GTK main loop.
+    # this script has no GTK main loop. The source's Tk loop runs independently.
     context = GLib.MainContext.default()
     for _ in range(50):
         if not context.pending():
@@ -133,8 +131,7 @@ def start():
     global process
     # The external fixture must not cover the library acceptance screenshot.
     # Keep it withdrawn until the actual app controls have painted.
-    fixture.withdraw()
-    fixture.update()
+    fixture.request("hide")
     log = (output / f"app-{len(logs) + 1}.log").open("wb")
     logs.append(log)
     process = subprocess.Popen([str(args.executable.resolve())], stdout=log, stderr=subprocess.STDOUT)
@@ -157,10 +154,7 @@ def show_fixture():
     # Minimize only Kiri's isolated QA windows before taking reference pixels.
     for window in windows():
         command("xdotool", "windowminimize", window)
-    fixture.deiconify()
-    fixture.lift()
-    fixture.focus_force()
-    fixture.update()
+    fixture.request("show")
     wait_for("public fixture is in front", lambda: (
         (image := ImageGrab.grab().convert("RGB")).getpixel((300, 450))[0] < 40
         and 90 < image.getpixel((500, 450))[0] < 150
@@ -317,19 +311,7 @@ def wait_for_feedback_to_close():
 
 
 def draw_recording_pattern(stage):
-    canvas.delete("all")
-    canvas.configure(background="#eeeeee")
-    left, top, right, bottom = recording_region
-    canvas.create_rectangle(left, top, right, bottom, fill="#ffffff", outline="")
-    canvas.create_text(left + 25, top + 40, text="KIRI NATIVE RECORDING 123",
-                       anchor="w", fill="#111111", font=("Sans", 24))
-    shade = {"initial": "#222222", "paused": "#888888", "resumed": "#dddddd"}[stage]
-    canvas.create_rectangle(left + 35, top + 100, left + 275, top + 285, fill=shade, outline="")
-    canvas.create_text(left + 325, top + 150, text=stage.upper(), anchor="w",
-                       fill="#111111", font=("Sans", 28))
-    canvas.create_text(left + 325, top + 225, text="PUBLIC TEST PATTERN", anchor="w",
-                       fill="#555555", font=("Sans", 15))
-    fixture.update()
+    fixture.request("draw", stage=stage)
     pause(0.15)
 
 
@@ -440,7 +422,13 @@ def inspect_recording(path, references, expected_active_seconds, wall_seconds, p
             # budget admit text-edge ringing but reject control/toast overlays.
             if closest == "paused" or mean > 3.5 or changed > 0.008 or edge_error > 8:
                 frame.save(output / "unexpected-recording-frame.png")
+                references[closest].save(output / "unexpected-recording-reference.png")
                 ImageChops.difference(frame, references[closest]).save(output / "recording-frame-difference.png")
+                (output / "unexpected-recording-frame.json").write_text(json.dumps({
+                    "frame_index": sum(counts.values()), "pts_ns": buffer.pts,
+                    "nearest_reference": closest, "mean_error": mean,
+                    "changed_fraction": changed, "edge_error": edge_error,
+                }, indent=2) + "\n", encoding="utf-8")
                 raise RuntimeError(f"Unexpected MP4 frame: nearest={closest}, "
                                    f"mean error={mean:.3f}, changed pixels={changed:.4%}, edge error={edge_error:.3f}")
             if sum(counts.values()) == 0:
@@ -482,22 +470,8 @@ try:
 
     # A separate ordinary X11 program owns this public test window. Kiri must
     # capture the screen through its shipping backend, not an injected image.
-    fixture = tk.Tk()
-    fixture.withdraw()
-    fixture.title("Kiri Linux QA public pattern")
-    # An override-redirect window bypasses Openbox stacking and can cover a
-    # focused Kiri window while intercepting its mouse input. Use an ordinary
-    # managed fullscreen source, as a real user's application would.
-    fixture.geometry("1280x800+0+0")
-    fixture.attributes("-fullscreen", True)
-    canvas = tk.Canvas(fixture, width=1280, height=800, highlightthickness=0, background="#eeeeee")
-    canvas.pack(fill="both", expand=True)
-    canvas.create_text(80, 80, text="KIRI LINUX DESKTOP QA", anchor="w", fill="#222222", font=("Sans", 30))
-    canvas.create_rectangle(200, 180, 1000, 700, fill="#ffffff", outline="")
-    canvas.create_text(270, 290, text="SCREEN CAPTURE 123", anchor="w", fill="#111111", font=("Sans", 32))
-    for x, shade in ((270, "#111111"), (450, "#777777"), (630, "#dddddd")):
-        canvas.create_rectangle(x, 400, x + 120, 540, fill=shade, outline="")
-    fixture.update()
+    fixture = DesktopFixture(output)
+    report["source_event_loop"] = "independent Tk process; continuously handles X11 Expose while driver blocks"
 
     start()
     screenshot("library-launch.png")
@@ -506,6 +480,14 @@ try:
     report["checks"].append("installed app paints an accessible Settings control in the visible library of an empty isolated profile")
 
     show_fixture()
+    source_before_probe = screenshot("source-independent-before.png")
+    fixture.request("probe_expose")
+    # Deliberately do not pump controller events: the ordinary source app must
+    # process its own Expose while xdotool/accessibility/CLI calls block us.
+    time.sleep(0.35)
+    compare(screenshot("source-independent-after.png"), source_before_probe,
+            "Source must repaint independently of the driver")
+    report["checks"].append("public source repaints an X11 Expose while its driver is blocked")
     open_capture()
     screenshot("capture-overlay.png")
     command("xdotool", "key", "--clearmodifiers", "Escape")
@@ -667,7 +649,7 @@ except Exception as error:
 finally:
     stop(process)
     if fixture is not None:
-        fixture.destroy()
+        fixture.close()
     stop(manager)
     for log in logs:
         log.close()
