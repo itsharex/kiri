@@ -5,6 +5,7 @@ use serde::Serialize;
 
 pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
 const MAX_PIXELS: u64 = 32_000_000;
+const MAX_CODES: usize = 64;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,23 +84,20 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
     let mut decoder = quircs::Quirc::default();
     let mut codes = identify(&mut decoder, width, height, &gray);
     // A whole-image Otsu threshold can erase a locally low-contrast code when
-    // unrelated bright/dark content dominates the image. Retry only an empty
-    // result, at most three times, without resizing or changing coordinates.
-    if codes.is_empty() {
-        let mut binary = vec![0; gray.len()];
-        for threshold in [64, 128, 192] {
-            for (pixel, value) in binary.iter_mut().zip(gray.iter()) {
-                *pixel = if *value < threshold { 0 } else { 255 };
-            }
-            let retry = identify(&mut decoder, width, height, &binary);
-            if retry.iter().any(|code| code.text.is_some()) {
-                codes = retry;
-                break;
-            }
-            if codes.is_empty() {
-                codes = retry;
-            }
+    // unrelated bright/dark content dominates the image. Merge all three
+    // bounded contrast passes, even after a partial result; different physical
+    // codes may require different thresholds. Coordinates stay unchanged.
+    let mut binary = vec![0; gray.len()];
+    for threshold in [64, 128, 192] {
+        for (pixel, value) in binary.iter_mut().zip(gray.iter()) {
+            *pixel = if *value < threshold { 0 } else { 255 };
         }
+        merge_codes(
+            &mut codes,
+            identify(&mut decoder, width, height, &binary),
+            width,
+            height,
+        );
     }
     codes.sort_by(|a, b| {
         a.corners[0][1]
@@ -116,7 +114,7 @@ fn identify(decoder: &mut quircs::Quirc, width: u32, height: u32, gray: &[u8]) -
     let mut codes = Vec::new();
     for code in decoder
         .identify(width as usize, height as usize, gray)
-        .take(64)
+        .take(MAX_CODES)
         .flatten()
     {
         let corners = code.corners.map(|p| {
@@ -133,6 +131,53 @@ fn identify(decoder: &mut quircs::Quirc, width: u32, height: u32, gray: &[u8]) -
         codes.push(describe(codes.len(), corners, text));
     }
     codes
+}
+
+fn same_code_position(a: &QrCode, b: &QrCode, width: u32, height: u32) -> bool {
+    let geometry = |code: &QrCode| {
+        let points = code
+            .corners
+            .map(|p| [p[0] * width as f64, p[1] * height as f64]);
+        let center = [
+            points.iter().map(|p| p[0]).sum::<f64>() / 4.0,
+            points.iter().map(|p| p[1]).sum::<f64>() / 4.0,
+        ];
+        let edges = std::array::from_fn::<_, 4, _>(|i| {
+            let next = points[(i + 1) % 4];
+            (points[i][0] - next[0]).hypot(points[i][1] - next[1])
+        });
+        let span = edges.iter().sum::<f64>() / 4.0;
+        let shortest = edges.into_iter().fold(f64::INFINITY, f64::min);
+        (center, span, shortest)
+    };
+    let (a_center, a_span, a_shortest) = geometry(a);
+    let (b_center, b_span, b_shortest) = geometry(b);
+    let smaller = a_span.min(b_span);
+    // Use the short edge for positional tolerance so adjacent stretched codes
+    // do not merge merely because their long edges are close together.
+    let tolerance = a_shortest.min(b_shortest) * 0.15;
+    smaller > 0.0
+        && smaller >= a_span.max(b_span) * 0.75
+        && (a_center[0] - b_center[0]).hypot(a_center[1] - b_center[1]) <= tolerance
+}
+
+fn merge_codes(codes: &mut Vec<QrCode>, candidates: Vec<QrCode>, width: u32, height: u32) {
+    for candidate in candidates {
+        if let Some(existing) = codes
+            .iter_mut()
+            .find(|code| same_code_position(code, &candidate, width, height))
+        {
+            // A later pass can decode a previously located code. Keep the first
+            // readable result if another pass fails or disagrees.
+            if existing.text.is_none() && candidate.text.is_some() {
+                *existing = candidate;
+            }
+        } else if codes.len() < MAX_CODES {
+            // Deduplicate physical positions, never payloads: repeated content
+            // at different positions still needs separate clickable targets.
+            codes.push(candidate);
+        }
+    }
 }
 
 pub fn crop_code(png: &[u8], code: &QrCode) -> Result<(Vec<u8>, u32, u32), String> {
@@ -282,5 +327,167 @@ mod tests {
             blank.write_to(&mut png, image::ImageFormat::Png).unwrap();
             assert!(decode(png.get_ref()).unwrap().2.is_empty());
         }
+    }
+
+    #[test]
+    fn partial_scans_merge_codes_from_different_contrast_ranges() {
+        let url = image::load_from_memory(include_bytes!("../tests/fixtures/qr/url.png"))
+            .unwrap()
+            .into_luma8();
+        let text = image::load_from_memory(include_bytes!("../tests/fixtures/qr/text.png"))
+            .unwrap()
+            .into_luma8();
+        let mut canvas = image::GrayImage::from_pixel(960, 480, image::Luma([255]));
+        for (source, dark, light, x, y) in [
+            (&url, 0, 255, 32, 32),
+            (&text, 0, 100, 352, 140),
+            (&url, 150, 255, 672, 32),
+        ] {
+            let mut code = source.clone();
+            for value in code.iter_mut() {
+                *value = if *value < 128 { dark } else { light };
+            }
+            image::imageops::replace(&mut canvas, &code, x, y);
+        }
+        let initial = identify(&mut quircs::Quirc::default(), 960, 480, &canvas);
+        assert_eq!(initial.len(), 2);
+        assert!(initial
+            .iter()
+            .all(|code| code.text.as_deref() == Some("https://example.org/kiri-safe")));
+        let mut png = std::io::Cursor::new(Vec::new());
+        canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let (_, _, codes) = decode(png.get_ref()).unwrap();
+        assert_eq!(codes.len(), 3);
+        assert_eq!(
+            codes
+                .iter()
+                .filter(|code| code.text.as_deref() == Some("https://example.org/kiri-safe"))
+                .count(),
+            2
+        );
+        assert_eq!(codes[2].text.as_deref(), Some("Kiri QR 测试"));
+        for (index, code) in codes.iter().enumerate() {
+            assert_eq!(code.index, index);
+        }
+        assert!((codes[0].corners[0][0] * 960.0 - 64.0).abs() <= 1.0);
+        assert!((codes[1].corners[0][0] * 960.0 - 704.0).abs() <= 1.0);
+        assert!((codes[2].corners[0][0] * 960.0 - 384.0).abs() <= 1.0);
+    }
+
+    #[test]
+    fn initially_empty_scans_keep_results_from_later_thresholds() {
+        let mut canvas = image::GrayImage::from_pixel(1280, 720, image::Luma([255]));
+        for (png, dark, light, x, y) in [
+            (
+                include_bytes!("../tests/fixtures/qr/text.png").as_slice(),
+                0,
+                100,
+                128,
+                128,
+            ),
+            (
+                include_bytes!("../tests/fixtures/qr/url.png").as_slice(),
+                100,
+                160,
+                672,
+                224,
+            ),
+        ] {
+            let mut code = image::load_from_memory(png).unwrap().into_luma8();
+            for value in code.iter_mut() {
+                *value = if *value < 128 { dark } else { light };
+            }
+            image::imageops::replace(&mut canvas, &code, x, y);
+        }
+        assert!(identify(&mut quircs::Quirc::default(), 1280, 720, &canvas).is_empty());
+        let mut png = std::io::Cursor::new(Vec::new());
+        canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let (_, _, codes) = decode(png.get_ref()).unwrap();
+        assert_eq!(codes.len(), 2);
+        assert_eq!(codes[0].text.as_deref(), Some("Kiri QR 测试"));
+        assert_eq!(
+            codes[1].text.as_deref(),
+            Some("https://example.org/kiri-safe")
+        );
+    }
+
+    #[test]
+    fn merging_upgrades_unreadable_codes_without_duplicating_or_downgrading_them() {
+        let corners = [[0.1, 0.1], [0.2, 0.1], [0.2, 0.3], [0.1, 0.3]];
+        let mut codes = vec![describe(0, corners, None)];
+        let mut shifted = corners.map(|p| [p[0] + 0.002, p[1] + 0.004]);
+        shifted.rotate_left(1);
+        let readable = describe(0, shifted, Some("https://example.org/decoded".into()));
+        merge_codes(&mut codes, vec![readable.clone()], 1000, 500);
+        assert_eq!(codes.len(), 1);
+        assert_eq!(codes[0].text, readable.text);
+        assert_eq!(codes[0].url, readable.url);
+        merge_codes(
+            &mut codes,
+            vec![
+                describe(0, corners, None),
+                describe(0, corners, Some("conflicting".into())),
+            ],
+            1000,
+            500,
+        );
+        assert_eq!(codes.len(), 1);
+        assert_eq!(codes[0].text, readable.text);
+        let neighbor = describe(
+            0,
+            corners.map(|p| [p[0] + 0.11, p[1]]),
+            readable.text.clone(),
+        );
+        merge_codes(&mut codes, vec![neighbor], 1000, 500);
+        assert_eq!(codes.len(), 2);
+    }
+
+    #[test]
+    fn merging_caps_physical_codes_but_still_upgrades_existing_results() {
+        let corners = [[0.001, 0.1], [0.005, 0.1], [0.005, 0.2], [0.001, 0.2]];
+        let candidates = (0..80)
+            .map(|index| {
+                describe(
+                    index,
+                    corners.map(|p| [p[0] + index as f64 * 0.01, p[1]]),
+                    None,
+                )
+            })
+            .collect();
+        let mut codes = Vec::new();
+        merge_codes(&mut codes, candidates, 1000, 500);
+        assert_eq!(codes.len(), MAX_CODES);
+        merge_codes(
+            &mut codes,
+            vec![describe(0, corners, Some("decoded at capacity".into()))],
+            1000,
+            500,
+        );
+        assert_eq!(codes.len(), MAX_CODES);
+        assert_eq!(codes[0].text.as_deref(), Some("decoded at capacity"));
+    }
+
+    #[test]
+    fn adjacent_stretched_codes_keep_separate_positions() {
+        let source = image::load_from_memory(include_bytes!("../tests/fixtures/qr/url.png"))
+            .unwrap()
+            .into_luma8();
+        let stretched =
+            image::imageops::resize(&source, 740, 37, image::imageops::FilterType::Nearest);
+        let mut dark = stretched.clone();
+        for value in dark.iter_mut() {
+            *value = if *value < 128 { 0 } else { 100 };
+        }
+        let mut canvas = image::GrayImage::from_pixel(800, 120, image::Luma([255]));
+        image::imageops::replace(&mut canvas, &stretched, 32, 32);
+        image::imageops::replace(&mut canvas, &dark, 32, 69);
+        let mut png = std::io::Cursor::new(Vec::new());
+        canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let (_, _, codes) = decode(png.get_ref()).unwrap();
+        assert_eq!(codes.len(), 2);
+        assert!(codes
+            .iter()
+            .all(|code| code.text.as_deref() == Some("https://example.org/kiri-safe")));
+        assert!(codes[1].corners[0][1] > codes[0].corners[0][1]);
     }
 }

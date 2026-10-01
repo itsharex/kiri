@@ -330,6 +330,10 @@ fn show_library_window(app: &tauri::AppHandle, reason: &str) -> Result<(), Strin
             .map_err(|error| format!("library window could not be recreated: {error}"))?
         }
     };
+    #[cfg(debug_assertions)]
+    window
+        .set_title("Kiri (dev)")
+        .map_err(|error| format!("library window title could not be set: {error}"))?;
     window
         .show()
         .map_err(|error| format!("library window could not be shown: {error}"))?;

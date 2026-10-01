@@ -208,7 +208,10 @@ file is still missing.
 The screenshot toolbar, saved-image editor and library menu run the local
 portable decoder on one background worker. Capture uses the shared, pixel-aligned
 frozen crop helper. Results retain normalized corner polygons for each physical
-code and never navigate automatically. Request UUIDs and window/capture owners
+code and never navigate automatically. The original grayscale pass and three
+fixed contrast passes are merged by physical position, preserving repeated
+payloads and capping the combined result at 64 codes (ADR 0062).
+Request UUIDs and window/capture owners
 prevent canceled or superseded publication; saving also checks the library
 identity/generation. Saved-image scans are scoped to the library window or the
 editor whose label matches that asset UUID. Closing the capture's QR results
