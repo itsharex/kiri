@@ -43,6 +43,7 @@ pub struct AppState {
     pub click_monitor:
         std::sync::Mutex<Option<Box<dyn crate::platform::ClickMonitorHandle + Send>>>,
     pub ocr_providers: Arc<crate::ocr_controller::OcrProviderManager>,
+    pub qr_requests: Arc<crate::qr_controller::QrRequests>,
     pub ocr_requests: Arc<crate::ocr_controller::OcrRequestController>,
     /// One bounded annotation snapshot per live editor window. A save consumes
     /// the snapshot; destroying the window discards it.
@@ -458,6 +459,7 @@ impl AppState {
             gif_conversion_ids: Default::default(),
             click_monitor: std::sync::Mutex::new(None),
             ocr_providers,
+            qr_requests: Default::default(),
             ocr_requests: Arc::new(crate::ocr_controller::OcrRequestController::default()),
             editor_annotations: Default::default(),
             editor_save_destinations: Default::default(),

@@ -17,6 +17,9 @@ mod microphone;
 mod macos_media;
 #[cfg(target_os = "linux")]
 mod linux_media;
+mod qr;
+mod qr_commands;
+mod qr_controller;
 mod ocr;
 mod ocr_commands;
 mod ocr_controller;
@@ -147,6 +150,7 @@ pub fn run() {
                     log::info!("[window] destroyed label={}", window.label());
                     if let Some(state) = window.app_handle().try_state::<AppState>() {
                         let label = window.label();
+                        state.qr_requests.clear(label);
                         state.editor_annotations.lock().unwrap().remove(label);
                         state.editor_save_destinations.lock().unwrap().remove(label);
                         let destroyed_overlay = {
@@ -241,6 +245,11 @@ pub fn run() {
             commands::update_asset,
             commands::rename_asset,
             commands::set_tags,
+            qr_commands::scan_qr,
+            qr_commands::cancel_qr,
+            qr_commands::qr_action,
+            qr_commands::list_qr_favorites,
+            qr_commands::qr_favorite_action,
             ocr_commands::list_ocr_records,
             ocr_commands::update_ocr_history_text,
             ocr_commands::recognize_asset_local,

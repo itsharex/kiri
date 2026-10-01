@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import * as qrSelection from "../../src/qr/selection.js";
 import * as cardInteraction from "../../src/windows/library-card-interaction.js";
 
 // Exercise the real component handlers without a WebView, native IPC, or a
@@ -91,8 +92,12 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
   const modules = {
     react: React,
     "@tauri-apps/api/webview": {getCurrentWebview:()=>({onDragDropEvent:subscribe("mediaDrop")})},
-    "lucide-react": {ImagePlus:"icon"},
+    "lucide-react": {ImagePlus:"icon", QrCode:"icon", Copy:"icon", ExternalLink:"icon", Star:"icon", X:"icon", Trash2:"icon"},
     "./text-history.css": {},
+    "../ocr/text-history.css": {},
+    "./qr.css": {},
+    "./selection.js": qrSelection,
+    "../qr/QrResults": { QrFavorites: "qr-favorites", QrAssetDialog: "qr-dialog" },
     "../ocr/TextHistory": { TextHistory: "text-history", OcrDialog: "ocr-dialog" },
     "react-dom": { createPortal: (child) => child },
     "../lib/ipc": {

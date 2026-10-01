@@ -203,6 +203,24 @@ missing asset uses a native file picker and atomically copies a validated file
 back to its managed filename; removing the record is allowed only while the
 file is still missing.
 
+## QR flow
+
+The screenshot toolbar, saved-image editor and library menu run the local
+portable decoder on one background worker. Capture uses the shared, pixel-aligned
+frozen crop helper. Results retain normalized corner polygons for each physical
+code and never navigate automatically. Request UUIDs and window/capture owners
+prevent canceled or superseded publication; saving also checks the library
+identity/generation. Saved-image scans are scoped to the library window or the
+editor whose label matches that asset UUID. Closing the capture's QR results
+returns to the selected region and preserves its annotations. Opening delegates a validated HTTP/HTTPS URL to the OS only
+after content and destination review. No image or payload is uploaded.
+
+QR Favorites stores an optional searchable `qrText` field and a selected-code PNG
+crop through one atomic library import. Duplicate active payloads reuse a record;
+removal uses recoverable Trash. The normal capture grid excludes QR records while
+the QR Favorites destination provides search and content/image reuse.
+See [ADR 0061](adr/0061-local-qr-recognition-and-favorites.md).
+
 ## OCR flow
 
 Local OCR is the default and runs through macOS Vision, Windows.Media.Ocr, or

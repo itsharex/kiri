@@ -26,7 +26,10 @@ Linux. Preserve these decisions:
   with a modified letter or digit and restore this default (ADR 0046).
   On Wayland, the user configures `kiri --capture` in desktop settings. Never
   install compositor bindings or FIFOs automatically (ADR 0051).
-- The initial overlay offers Screenshot, Record, and OCR.
+- The initial overlay offers Screenshot, Record, and OCR. The screenshot toolbar
+  and saved-image editor offer Recognize QR Codes. QR recognition
+  stays local; multiple codes keep their clickable image positions. Copy, open,
+  and save are explicit actions after viewing content (ADR 0061).
 - Window hover shows exactly one restrained monochrome outline without handles,
   dimensions, stacked borders, or a following tooltip. A click selects that
   window; a drag creates a custom region. Both selections remain movable and
@@ -153,7 +156,8 @@ the separate checklist in `docs/linux.md` and report those limits explicitly.
 
 ## UI acceptance checklist
 
-- Verify Screenshot, Record, and OCR from the initial overlay.
+- Verify Screenshot, Record, and OCR from the initial overlay, and QR recognition
+  from the screenshot toolbar and saved-image editor.
 - Verify the single-outline window hover and click selection, plus manual
   region drag, move, and all eight resize handles.
 - Verify Escape and Return behavior and original-app focus restoration.

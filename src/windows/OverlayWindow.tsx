@@ -11,6 +11,7 @@ import {
   type CaptureContextDto,
   type PlatformCapabilitiesDto,
   type PreparedOcrRequestDto,
+  type QrScanDto,
   type RecordingOptions,
 } from "../lib/ipc";
 import { t } from "../i18n";
@@ -47,6 +48,7 @@ import { useAnnotationAppearance } from "../annotation/useAnnotationAppearance";
 import AnnotationCanvas, { type AnnotationCanvasHandle } from "../annotation/AnnotationCanvas";
 import { AnnotationInteractionLock } from "../annotation/interaction-lock.js";
 import { KiriIcon, type IconName } from "../components/KiriIcons";
+import { QrModal } from "../qr/QrResults";
 import { RemoteOcrConsent } from "../ocr/RemoteOcrConsent";
 import { kiriResourceUrl } from "../lib/kiri-resource-url.js";
 import { captureToolbarPosition } from "./toolbar-layout.js";
@@ -59,6 +61,7 @@ type Phase =
   | "ocr-consent"
   | "ocr-recognizing"
   | "ocr-result"
+  | "qr-result"
   | "record-options";
 
 type Mode = "screenshot" | "record" | "ocr";
@@ -126,6 +129,10 @@ export function OverlayWindow() {
   const [appearance, setAppearance] = useAnnotationAppearance();
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [qrScan, setQrScan] = useState<QrScanDto | null>(null);
+  const [qrFailed, setQrFailed] = useState(false);
+  const qrRequestRef = useRef<string | null>(null);
+  const qrReturnPhaseRef = useRef<"selecting" | "annotating">("selecting");
   const [ocrText, setOcrText] = useState("");
   const [ocrSaved, setOcrSaved] = useState(false);
   const [ocrFailed, setOcrFailed] = useState(false);
@@ -317,10 +324,37 @@ export function OverlayWindow() {
     if (pending) void api.cancelPreparedOcr(pending.requestId).catch(() => {});
   }, []);
 
+  const discardQr = useCallback(() => {
+    const id = qrRequestRef.current;
+    qrRequestRef.current = null;
+    setQrScan(null); setQrFailed(false);
+    if (id) void api.cancelQr(id).catch(() => {});
+  }, []);
+  const runQr = useCallback(async (selection: Rect) => {
+    discardQr();
+    canvasRef.current?.commitTextEditing();
+    qrReturnPhaseRef.current = phaseRef.current === "annotating" ? "annotating" : "selecting";
+    const id = crypto.randomUUID();
+    qrRequestRef.current = id;
+    setPhase("qr-result");
+    try {
+      const result = await api.scanQr(id, selection, null);
+      if (qrRequestRef.current === id) setQrScan(result);
+    } catch {
+      if (qrRequestRef.current === id) setQrFailed(true);
+    }
+  }, [discardQr]);
+  const closeQr = useCallback(() => {
+    discardQr();
+    setPhase(qrReturnPhaseRef.current);
+  }, [discardQr]);
+  useEffect(() => () => { const id = qrRequestRef.current; qrRequestRef.current = null; if (id) void api.cancelQr(id).catch(() => {}); }, []);
+
   const cancel = useCallback(() => {
     discardPreparedOcr();
+    discardQr();
     void api.cancelCapture().catch(() => {});
-  }, [discardPreparedOcr]);
+  }, [discardPreparedOcr, discardQr]);
 
   const complete = useCallback(
     async () => {
@@ -497,12 +531,13 @@ export function OverlayWindow() {
       e.preventDefault();
       e.stopImmediatePropagation();
       if (completionLock.locked) return;
+      if (phaseRef.current === "qr-result") { closeQr(); return; }
       if (phaseRef.current === "annotating" && canvasRef.current?.cancelTextEditing()) return;
       cancel();
     };
     window.addEventListener("keydown", onEscape, true);
     return () => window.removeEventListener("keydown", onEscape, true);
-  }, [cancel, completionLock]);
+  }, [cancel, closeQr, completionLock]);
 
   // --- keyboard ---
   useEffect(() => {
@@ -747,6 +782,7 @@ export function OverlayWindow() {
       if (completionLock.locked) return;
       if (next === modeRef.current) return;
       discardPreparedOcr();
+      discardQr();
       modeRef.current = next;
       setMode(next);
       setPhase("selecting");
@@ -778,7 +814,7 @@ export function OverlayWindow() {
       // With a valid region: screenshot re-shows the toolbar (selecting
       // phase with a selection); record shows the options popover.
     },
-    [completionLock, discardPreparedOcr, runOcr],
+    [completionLock, discardPreparedOcr, discardQr, runOcr],
   );
 
   // --- render ---
@@ -955,7 +991,7 @@ export function OverlayWindow() {
           so Done/Return export works without picking a tool. */}
       {selection &&
         isValidSelection(selection, 3) &&
-        (annotating || phase === "selecting") && (
+        (annotating || phase === "selecting" || phase === "qr-result") && (
         <div
           style={{
             position: "absolute",
@@ -993,7 +1029,7 @@ export function OverlayWindow() {
       {/* Mode selector — ALWAYS visible (spec §1.2: never hidden), so the
           mode can be switched at any point: before/during selection and
           after a region is chosen (spec §2.4 changeCaptureMode). */}
-      {phase !== "ocr-result" && (
+      {phase !== "ocr-result" && phase !== "qr-result" && (
         <>
           <div
             ref={modeSelectorRef}
@@ -1053,6 +1089,8 @@ export function OverlayWindow() {
           )}
         </>
       )}
+
+      {phase === "qr-result" && <QrModal scan={qrScan} failed={qrFailed} onClose={closeQr}/>}
 
       {/* OCR states */}
       {phase === "ocr-preparing" && <HintLabel text={t("Preparing Text…")} top={DEFAULT_HINT_TOP} />}
@@ -1133,7 +1171,7 @@ export function OverlayWindow() {
 
       {/* Toolbar — appears as soon as a region is chosen (spec §7.1); the
           region stays adjustable until a tool is picked, which locks it. */}
-      {selection && (annotating || phase === "selecting") && (
+      {mode === "screenshot" && selection && (annotating || phase === "selecting") && (
         <Toolbar
           selection={selection}
           bounds={bounds}
@@ -1157,6 +1195,7 @@ export function OverlayWindow() {
           onUndo={() => canvasRef.current?.undo()}
           onRedo={() => canvasRef.current?.redo()}
           onDone={() => void complete()}
+          onQr={() => { if (selectionRef.current && !completionLock.locked) void runQr(selectionRef.current); }}
           onCancel={cancel}
           onTextFontBegin={() => canvasRef.current?.beginTextFontSizeAdjustment()}
           onTextFontLive={(value) => canvasRef.current?.setTextFontSizeLive(value)}
@@ -1788,6 +1827,7 @@ interface ToolbarProps {
   onUndo(): void;
   onRedo(): void;
   onDone(): void;
+  onQr(): void;
   onCancel(): void;
   onTextFontBegin?(): void;
   onTextFontLive?(value: number): void;
@@ -1833,6 +1873,7 @@ function Toolbar(props: ToolbarProps) {
     onUndo,
     onRedo,
     onDone,
+    onQr,
     onCancel,
     onTextFontBegin,
     onTextFontLive,
@@ -1931,6 +1972,7 @@ function Toolbar(props: ToolbarProps) {
           {sep}
           <ToolButton icon="arrow.uturn.backward" title={t("Undo (⌘Z)")} disabled={!canUndo} onClick={onUndo} />
           <ToolButton icon="arrow.uturn.forward" title={t("Redo (⇧⌘Z)")} disabled={!canRedo} onClick={onRedo} />
+          <ToolButton icon="qrcode" title={t("Recognize QR Codes")} disabled={disabled} onClick={onQr} />
           <ToolButton icon="slider.horizontal.3" title={t("More Actions")} active={detailsOpen} expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} />
           {sep}
           <ToolButton icon="checkmark" title={t("Done — Copy to clipboard · Return")} primary onClick={onDone} />

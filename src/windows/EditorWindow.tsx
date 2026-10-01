@@ -2,6 +2,7 @@
 // Dark screenshot editor with one compact toolbar and an aspect-fit canvas.
 
 import { OcrDialog } from "../ocr/TextHistory";
+import { QrAssetDialog } from "../qr/QrResults";
 import type { AssetDto } from "../lib/ipc";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, isEditorRevisionMismatch } from "../lib/ipc";
@@ -63,6 +64,7 @@ export function EditorWindow(props: { id: string }) {
   const [canRedo, setCanRedo] = useState(false);
   const [hasMarks, setHasMarks] = useState(false);
   const [ocrAsset, setOcrAsset] = useState<AssetDto | null>(null);
+  const [qrAsset, setQrAsset] = useState<AssetDto | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [currentMarks, setCurrentMarks] = useState<AnnotationMark[]>([]);
@@ -513,6 +515,8 @@ export function EditorWindow(props: { id: string }) {
         />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+        <EditorToolButton icon="qrcode" title={t("Recognize QR Codes")} disabled={!image || completing || tool === "crop"}
+          onClick={() => { void api.getAsset(props.id).then(setQrAsset).catch(() => setActionError(t("Can't read this file."))); }} />
         <EditorToolButton icon="text.viewfinder" title={t("Recognize Saved Image Locally")} disabled={!image || completing}
           onClick={() => { void api.getAsset(props.id).then(setOcrAsset).catch(() => setActionError(t("Can't read this file."))); }} />
         <button
@@ -550,6 +554,7 @@ export function EditorWindow(props: { id: string }) {
       </div>
 
       {ocrAsset && <OcrDialog asset={ocrAsset} onClose={() => setOcrAsset(null)} />}
+      {qrAsset && <QrAssetDialog key={qrAsset.id} asset={qrAsset} onClose={() => setQrAsset(null)} />}
 
       {actionError && (
         <div

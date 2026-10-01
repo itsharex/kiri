@@ -79,6 +79,9 @@ pub struct CaptureAsset {
     /// Original recognition retained after a user correction; absent until edited.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ocr_original_text: Option<String>,
+    /// Saved QR payload; absent in older libraries.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub qr_text: Option<String>,
     /// User-assigned labels (metadata only, like the Swift roadmap's Tags).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub tags: Vec<String>,
@@ -127,6 +130,9 @@ impl CaptureAsset {
         if let Some(text) = &self.ocr_text {
             parts.push(text.clone());
         }
+        if let Some(text) = &self.qr_text {
+            parts.push(text.clone());
+        }
         parts.extend(self.tags.iter().cloned());
         parts.push(self.kind.as_str().to_string());
         parts.join(" ").to_lowercase()
@@ -147,6 +153,7 @@ mod tests {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: vec![],
             pixel_width: 100,
             pixel_height: 200,
@@ -171,6 +178,7 @@ mod tests {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: vec![],
             pixel_width: 1920,
             pixel_height: 1080,
@@ -203,6 +211,7 @@ mod tests {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: vec![],
             pixel_width: 10,
             pixel_height: 10,

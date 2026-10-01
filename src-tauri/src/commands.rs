@@ -84,6 +84,7 @@ pub struct AssetDto {
     pub title: Option<String>,
     pub ocr_text: Option<String>,
     pub ocr_original_text: Option<String>,
+    pub qr_text: Option<String>,
     pub tags: Vec<String>,
     pub pixel_width: i64,
     pub pixel_height: i64,
@@ -134,6 +135,7 @@ pub(crate) fn asset_dto(asset: &CaptureAsset) -> AssetDto {
         title: asset.title.clone(),
         ocr_text: asset.ocr_text.clone(),
         ocr_original_text: asset.ocr_original_text.clone(),
+        qr_text: asset.qr_text.clone(),
         tags: asset.tags.clone(),
         pixel_width: asset.pixel_width,
         pixel_height: asset.pixel_height,
@@ -180,7 +182,7 @@ pub fn list_assets(
     let assets = library.search(&query, showing_trash);
     Ok(assets
         .iter()
-        .filter(|asset| showing_trash || asset.ocr_text.is_none())
+        .filter(|asset| showing_trash || (asset.ocr_text.is_none() && asset.qr_text.is_none()))
         .map(asset_dto)
         .collect())
 }
@@ -5487,6 +5489,7 @@ mod command_security_tests {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: Vec::new(),
             pixel_width: 10,
             pixel_height: 20,
