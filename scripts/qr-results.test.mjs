@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createLibraryHarness, nodes, settleRequests, deferred, testAsset } from "./helpers/library-render-harness.mjs";
 import { captureToolbarPosition } from "../src/windows/toolbar-layout.js";
-import { initialQrSelection, qrPolygon } from "../src/qr/selection.js";
+import { initialQrSelection, qrCodeCenter } from "../src/qr/selection.js";
 
 const source = 'import React from "react";\n' + readFileSync(new URL("../src/qr/QrResults.tsx", import.meta.url), "utf8");
 const code = (index, text = "https://example.org/kiri-safe") => ({ index, text, url: text.startsWith("https:") ? text : null, host: "example.org", suspicious: false, corners: [[.1,.1],[.4,.1],[.4,.4],[.1,.4]] });
@@ -54,11 +54,37 @@ test("saved-image dialog reuses the asset id and cancels only its own request on
   component.unmount();
 });
 
-test("single code is displayed directly; multiple and empty scans await selection", () => {
-  assert.equal(initialQrSelection([code(0)]), 0);
+test("single, multiple and empty scans await explicit selection", () => {
+  assert.equal(initialQrSelection([code(0)]), null);
   assert.equal(initialQrSelection([code(0), code(1)]), null);
   assert.equal(initialQrSelection([]), null);
-  assert.equal(qrPolygon(code(0).corners, 1000, 500), "100,50 400,50 400,200 100,200");
+  assert.deepEqual(qrCodeCenter(code(0).corners), [.25, .25]);
+});
+
+test("single-code center button reveals content without invoking an action", () => {
+  const calls = [];
+  const harness = createLibraryHarness({ qrAction: (...args) => calls.push(args) }, source);
+  const component = harness.mount("QrResults", { scan: scan([code(0)]) });
+  let tree = component.render();
+  assert.equal(nodes(tree).find(n => n?.props?.code), undefined);
+  assert.equal(nodes(tree).some(n => n?.type === "polygon"), false);
+  const marker = nodes(tree).find(n => n?.props?.className === "kiri-qr-marker");
+  assert.equal(marker.type, "button");
+  assert.deepEqual(marker.props.style, { left: "25%", top: "25%" });
+  assert.equal(marker.props["aria-pressed"], false);
+  marker.props.onClick();
+  tree = component.render();
+  assert.equal(nodes(tree).find(n => n?.props?.code).props.code.index, 0);
+  assert.equal(nodes(tree).find(n => n?.props?.className === "kiri-qr-marker").props["aria-pressed"], true);
+  assert.deepEqual(calls, []);
+  component.unmount();
+});
+
+test("perspective markers use the diagonal intersection rather than corner average", () => {
+  const center = qrCodeCenter([[0, 0], [1, 0], [.6, 1], [.4, 1]]);
+  assert.ok(Math.abs(center[0] - .5) < 1e-9);
+  assert.ok(Math.abs(center[1] - 5 / 6) < 1e-9);
+  assert.deepEqual(qrCodeCenter([[.2, .3], [.2, .3], [.2, .3], [.2, .3]]), [.2, .3]);
 });
 
 test("duplicate payloads retain independent clickable positions without auto actions", () => {
@@ -67,7 +93,7 @@ test("duplicate payloads retain independent clickable positions without auto act
   const component = harness.mount("QrResults", { scan: scan([code(0), {...code(1), corners:[[.6,.6],[.9,.6],[.9,.9],[.6,.9]]}]) });
   let tree = component.render();
   assert.ok(has(tree, "Choose a QR code in the image"));
-  const targets = nodes(tree).filter(n => n?.type === "g");
+  const targets = nodes(tree).filter(n => n?.type === "button" && n.props.className === "kiri-qr-marker");
   assert.equal(targets.length, 2);
   targets[1].props.onClick();
   tree = component.render();
@@ -100,9 +126,9 @@ test("saving a repeated payload retains its favorite state when selecting anothe
   const calls = [];
   const harness = createLibraryHarness({ qrAction: async (...args) => { calls.push(args); } }, source);
   const component = harness.mount("QrResults", { scan: scan([code(0), code(1)]) });
-  nodes(component.render()).filter(n => n?.type === "g")[0].props.onClick();
+  nodes(component.render()).filter(n => n?.type === "button" && n.props.className === "kiri-qr-marker")[0].props.onClick();
   await nodes(component.render()).find(n => n?.props?.code).props.action("favorite");
-  nodes(component.render()).filter(n => n?.type === "g")[1].props.onClick();
+  nodes(component.render()).filter(n => n?.type === "button" && n.props.className === "kiri-qr-marker")[1].props.onClick();
   const detail = nodes(component.render()).find(n => n?.props?.code);
   assert.equal(detail.props.code.index, 1);
   assert.equal(detail.props.saved, true);
