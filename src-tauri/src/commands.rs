@@ -2121,8 +2121,13 @@ fn create_overlay_window(
     .skip_taskbar(true)
     .resizable(false)
     .shadow(false);
-    // Build visible: creating a hidden webview and showing it immediately can
-    // race WKWebView initialization and leave the page blank on macOS.
+    // Tao maps visible GTK windows before applying decorations. Keep the Linux
+    // overlay hidden until its borderless geometry and compositor policy are
+    // configured, so the first map cannot inherit a window-manager frame offset.
+    #[cfg(target_os = "linux")]
+    let builder = builder.visible(false);
+    // Build visible on macOS: showing a newly created hidden WKWebView can race
+    // initialization and leave the page blank.
     log::info!("create_overlay_window: building webview label={label}");
     let window = builder.build()?;
     log::info!("create_overlay_window: webview built label={label}");
@@ -2142,6 +2147,11 @@ fn create_overlay_window(
     log::info!("create_overlay_window: configuring window label={label}");
     platform::configure_transient_window(&window, platform::TransientWindowRole::CaptureOverlay);
     log::info!("create_overlay_window: window configured label={label}");
+    #[cfg(target_os = "linux")]
+    if let Err(error) = platform::linux::show_capture_overlay(&window, screen_frame) {
+        let _ = window.close();
+        return Err(error.into());
+    }
     #[cfg(any(windows, target_os = "linux"))]
     {
         log::info!("create_overlay_window: focusing window label={label}");
