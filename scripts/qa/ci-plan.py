@@ -7,7 +7,7 @@ import re
 import subprocess
 
 
-PROFILES = {"quick", "linux", "windows", "macos", "full", "recheck-linux"}
+PROFILES = {"quick", "linux", "windows", "macos", "full", "recheck-linux", "recheck-linux-x11"}
 TARGET_PREFIXES = {
     "linux": ("src-tauri/src/capture/linux", "src-tauri/src/platform/linux", "src-tauri/src/linux_media"),
     "windows": ("src-tauri/src/capture/windows", "src-tauri/src/platform/windows"),
@@ -18,7 +18,7 @@ TARGET_PREFIXES = {
 def plan(event, ref, inputs, paths):
     selected = {key: False for key in (
         "renderer", "native_linux", "native_windows", "native_macos",
-        "package_linux", "package_windows", "package_macos", "wayland")}
+        "package_linux", "package_windows", "package_macos", "wayland", "x11_recheck")}
     profile = "quick"
     if event == "workflow_dispatch":
         profile = inputs.get("profile") or "quick"
@@ -28,15 +28,18 @@ def plan(event, ref, inputs, paths):
         if candidate:
             if not re.fullmatch(r"[1-9][0-9]*", candidate):
                 raise ValueError("Candidate run ID must be a positive integer")
-            if profile not in {"quick", "recheck-linux"}:
+            if profile not in {"quick", "recheck-linux", "recheck-linux-x11"}:
                 raise ValueError("Choose recheck-linux when reusing a candidate")
-            profile = "recheck-linux"  # Preserve the old run-ID-only dispatch.
-        if profile == "recheck-linux" and not candidate:
+            if profile != "recheck-linux-x11":
+                profile = "recheck-linux"  # Preserve the old run-ID-only dispatch.
+        if profile in {"recheck-linux", "recheck-linux-x11"} and not candidate:
             raise ValueError("recheck-linux needs a completed candidate run ID")
     elif event == "push" and ref.startswith("refs/tags/v"):
         profile = "full"
 
-    if profile == "recheck-linux":
+    if profile == "recheck-linux-x11":
+        selected["x11_recheck"] = True
+    elif profile == "recheck-linux":
         selected["wayland"] = True
     elif profile in {"full", "linux", "windows", "macos"}:
         selected["renderer"] = True
@@ -86,14 +89,15 @@ def check_results(needs):
     flags = planner.get("outputs", {})
     if any(flags.get(key) not in {"true", "false"} for key in (
             "renderer", "native_linux", "native_windows", "native_macos",
-            "package_linux", "package_windows", "package_macos", "wayland")):
+            "package_linux", "package_windows", "package_macos", "wayland", "x11_recheck")):
         failures.append("plan outputs")
     expected = {"fast-checks": True, "countdown-ui": flags.get("renderer") == "true",
                 "test-rust": flags.get("native_macos") == "true",
                 "build-linux": flags.get("native_linux") == "true",
                 "build-windows": flags.get("native_windows") == "true",
                 "build-macos": flags.get("native_macos") == "true",
-                "test-linux-wayland": flags.get("wayland") == "true"}
+                "test-linux-wayland": flags.get("wayland") == "true",
+                "recheck-linux-x11": flags.get("x11_recheck") == "true"}
     for job, enabled in expected.items():
         if needs.get(job, {}).get("result") != ("success" if enabled else "skipped"):
             failures.append(job)

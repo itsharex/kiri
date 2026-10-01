@@ -12,7 +12,7 @@ on:
         type: choice
         required: true
         default: quick
-        options: [quick, linux, windows, macos, full, recheck-linux]
+        options: [quick, linux, windows, macos, full, recheck-linux, recheck-linux-x11]
       linux_candidate_run_id:
         description: 'Completed build run containing the Linux candidate to recheck'
         required: false
@@ -39,6 +39,7 @@ jobs:
       package_windows: ${{ steps.plan.outputs.package_windows }}
       package_macos: ${{ steps.plan.outputs.package_macos }}
       wayland: ${{ steps.plan.outputs.wayland }}
+      x11_recheck: ${{ steps.plan.outputs.x11_recheck }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -296,6 +297,60 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
+  recheck-linux-x11:
+    name: Recheck installed X11 app without rebuilding
+    needs: plan
+    if: needs.plan.outputs.x11_recheck == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: kiri-linux-deb
+          path: ${{ runner.temp }}/kiri-linux-deb
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.linux_candidate_run_id }}
+          digest-mismatch: error
+      - name: Verify original package, build and unchanged application sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KIRI_CANDIDATE_RUN_ID: ${{ inputs.linux_candidate_run_id }}
+          KIRI_LINUX_DEB_DIR: ${{ runner.temp }}/kiri-linux-deb
+          KIRI_LINUX_QA_DIR: ${{ github.workspace }}/linux-native-review
+        run: |
+          python3 scripts/qa/linux-package-provenance.py verify \
+            --package-dir "$KIRI_LINUX_DEB_DIR" --run-id "$KIRI_CANDIDATE_RUN_ID" \
+            --output "$KIRI_LINUX_QA_DIR/package-provenance.json" --recheck-failed-x11
+      - name: Install unchanged candidate and X11 desktop-test dependencies
+        run: |
+          packages=("${{ runner.temp }}/kiri-linux-deb/"*.deb)
+          test "${#packages[@]}" -eq 1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${packages[0]}" \
+            xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil \
+            python3-gi python3-pyatspi at-spi2-core \
+            gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav \
+            tesseract-ocr-eng tesseract-ocr-chi-sim tesseract-ocr-jpn
+          test -x /usr/bin/kiri
+          ldd /usr/bin/kiri > linux-native-review/linked-libraries.txt
+          if grep -q 'not found' linux-native-review/linked-libraries.txt; then exit 1; fi
+      - name: Replay all original installed X11 assertions
+        timeout-minutes: 4
+        run: bash scripts/qa/linux-native.sh /usr/bin/kiri
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-native-recheck-review
+          path: linux-native-review/
+          retention-days: 5
+          if-no-files-found: error
+
   build-macos:
     name: Compile macOS app (${{ matrix.arch }})
     needs: plan
@@ -452,7 +507,7 @@ jobs:
 
   quality:
     name: CI quality gate
-    needs: [plan, fast-checks, countdown-ui, test-rust, build-linux, build-windows, build-macos, test-linux-wayland]
+    needs: [plan, fast-checks, countdown-ui, test-rust, build-linux, build-windows, build-macos, test-linux-wayland, recheck-linux-x11]
     if: always()
     runs-on: ubuntu-24.04
     steps:

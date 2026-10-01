@@ -129,6 +129,8 @@ def verify(args, evidence):
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "Invalid repository")
     reused = (os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
               and args.run_id != os.environ["GITHUB_RUN_ID"])
+    recheck_failed_x11 = getattr(args, "recheck_failed_x11", False)
+    require(not recheck_failed_x11 or reused, "Failed X11 recheck must explicitly reuse a completed candidate")
     require(reused or args.run_id == os.environ["GITHUB_RUN_ID"], "Automatic checks must use their own package")
     root = f"repos/{repository}/actions"
     run = api(f"{root}/runs/{args.run_id}")
@@ -143,7 +145,19 @@ def verify(args, evidence):
     job = builds[0]
     require(job["status"] == "completed", "Linux build job has not completed")
     if reused:
-        require(job["conclusion"] == "success", "Reused candidate's Linux build job must have succeeded")
+        if recheck_failed_x11:
+            require(job["conclusion"] == "failure", "Failed X11 recheck requires the original failed job")
+            failed_steps = [step["name"] for step in job["steps"] if step["conclusion"] == "failure"]
+            require(failed_steps == ["Exercise the installed app on an isolated X11 desktop"],
+                    "Only the original X11 acceptance step may have failed")
+            for name in ("Run cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets",
+                         "Run cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets",
+                         "Build Debian package without updater signing", "Install and inspect the Debian package"):
+                require(any(step["name"] == name and step["conclusion"] == "success" for step in job["steps"]),
+                        "Failed X11 recheck requires successful build/install step: " + name)
+            evidence["original_x11_conclusion"] = "failure"
+        else:
+            require(job["conclusion"] == "success", "Reused candidate's Linux build job must have succeeded")
     # Automatic runs retain their previous behavior: a built package can still
     # receive Wayland checks when the separate X11 acceptance step fails.
     require(any(step["name"] == "Build Debian package without updater signing"
@@ -173,6 +187,7 @@ def verify(args, evidence):
         },
     })
     manifest_path = args.package_dir / "provenance.json"
+    require(not recheck_failed_x11 or manifest_path.is_file(), "Failed X11 recheck requires package provenance")
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         require(manifest["schema_version"] == 1 and manifest["repository"] == repository
@@ -229,6 +244,8 @@ def main():
     check.add_argument("--package-dir", type=Path, required=True)
     check.add_argument("--run-id", required=True)
     check.add_argument("--output", type=Path, required=True)
+    check.add_argument("--recheck-failed-x11", action="store_true",
+                       help="Replay unchanged package after only its original X11 acceptance step failed")
     args = parser.parse_args()
     evidence = {"schema_version": 1, "verified": False}
     try:

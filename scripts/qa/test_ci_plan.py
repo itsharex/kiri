@@ -55,7 +55,8 @@ class PlanTests(unittest.TestCase):
             self.assertFalse(any(result[f"package_{target}"] == "true" for target in policy.TARGET_PREFIXES))
         result = policy.plan("push", "refs/tags/v1.6.7", {}, [])
         self.assertEqual(result["profile"], "full")
-        self.assertTrue(all(value == "true" for key, value in result.items() if key != "profile"))
+        self.assertTrue(all(value == "true" for key, value in result.items() if key not in {"profile", "x11_recheck"}))
+        self.assertEqual(result["x11_recheck"], "false")
 
     def test_unknown_diff_and_quick_do_not_disable_native_checks(self):
         for event, paths in (("pull_request", None), ("workflow_dispatch", [])):
@@ -74,11 +75,20 @@ class PlanTests(unittest.TestCase):
             with self.subTest(inputs=inputs), self.assertRaises(ValueError):
                 policy.plan("workflow_dispatch", "refs/heads/qa", inputs, [])
 
+    def test_failed_x11_recheck_does_not_rebuild_or_repeat_other_platforms(self):
+        result = policy.plan("workflow_dispatch", "refs/heads/qa", {
+            "profile": "recheck-linux-x11", "linux_candidate_run_id": "36853144607"}, [])
+        self.assertEqual(result["x11_recheck"], "true")
+        self.assertTrue(all(value == "false" for key, value in result.items()
+                            if key not in {"profile", "x11_recheck"}))
+        with self.assertRaises(ValueError):
+            policy.plan("workflow_dispatch", "refs/heads/qa", {"profile": "recheck-linux-x11"}, [])
+
     def test_quality_gate_rejects_failure_cancellation_and_unexpected_skips(self):
         flags = self.auto("src/windows/EditorWindow.tsx")
         needs = {"plan": {"result": "success", "outputs": flags}, "fast-checks": {"result": "success"},
                  "countdown-ui": {"result": "success"}, **{name: {"result": "skipped"} for name in
-                 ("test-rust", "build-linux", "build-windows", "build-macos", "test-linux-wayland")}}
+                 ("test-rust", "build-linux", "build-windows", "build-macos", "test-linux-wayland", "recheck-linux-x11")}}
         self.assertEqual(policy.check_results(needs), [])
         for result in ("failure", "cancelled", "skipped"):
             altered = {**needs, "countdown-ui": {"result": result}}
@@ -111,7 +121,7 @@ class ProvenanceTests(unittest.TestCase):
     def write_manifest(self):
         (self.folder / "provenance.json").write_text(json.dumps(self.manifest))
 
-    def verify(self, event="workflow_dispatch", own_run="101"):
+    def verify(self, event="workflow_dispatch", own_run="101", recheck_failed_x11=False):
         def command(*args):
             if args[:3] == ("git", "rev-parse", "HEAD"):
                 return "a" * 40 if own_run == "101" else "b" * 40
@@ -133,7 +143,8 @@ class ProvenanceTests(unittest.TestCase):
                 patch.object(self.module, "api_items", side_effect=items), \
                 patch.object(self.module, "command", side_effect=command), \
                 patch.object(self.module, "check_sources", return_value={"allowed_changes": []}):
-            self.module.verify(SimpleNamespace(run_id="101", package_dir=self.folder, output=self.folder / "evidence.json"), evidence)
+            self.module.verify(SimpleNamespace(run_id="101", package_dir=self.folder,
+                               output=self.folder / "evidence.json", recheck_failed_x11=recheck_failed_x11), evidence)
         return evidence
 
     def test_new_manual_and_automatic_builds_use_their_own_manifest(self):
@@ -145,6 +156,39 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_manual_recheck_reuses_original_package(self):
         self.assertTrue(self.verify(own_run="102")["reused_package"])
+
+    def failed_x11_job(self):
+        self.job["conclusion"] = "failure"
+        self.job["steps"] = [{"name": name, "conclusion": "success"} for name in (
+            "Run cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets",
+            "Run cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets",
+            "Build Debian package without updater signing", "Install and inspect the Debian package")]
+        self.job["steps"].append({"name": "Exercise the installed app on an isolated X11 desktop", "conclusion": "failure"})
+
+    def test_explicit_failed_x11_replay_retains_original_failure(self):
+        self.failed_x11_job()
+        evidence = self.verify(own_run="102", recheck_failed_x11=True)
+        self.assertTrue(evidence["verified"])
+        self.assertEqual(evidence["original_x11_conclusion"], "failure")
+
+    def test_failed_x11_mode_rejects_build_failure_cancellation_or_missing_manifest(self):
+        self.failed_x11_job()
+        for index, status in ((0, "failure"), (3, "skipped"), (4, "cancelled")):
+            with self.subTest(index=index, status=status):
+                original = self.job["steps"][index]["conclusion"]
+                self.job["steps"][index]["conclusion"] = status
+                with self.assertRaises(RuntimeError):
+                    self.verify(own_run="102", recheck_failed_x11=True)
+                self.job["steps"][index]["conclusion"] = original
+        (self.folder / "provenance.json").unlink()
+        with self.assertRaisesRegex(RuntimeError, "requires package provenance"):
+            self.verify(own_run="102", recheck_failed_x11=True)
+
+    def test_failed_x11_mode_cannot_label_own_or_successful_run_as_reused(self):
+        with self.assertRaisesRegex(RuntimeError, "explicitly reuse"):
+            self.verify(recheck_failed_x11=True)
+        with self.assertRaisesRegex(RuntimeError, "original failed job"):
+            self.verify(own_run="102", recheck_failed_x11=True)
 
     def test_automatic_run_cannot_use_another_run(self):
         with self.assertRaisesRegex(RuntimeError, "own package"):
