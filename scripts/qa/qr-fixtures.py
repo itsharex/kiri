@@ -30,3 +30,40 @@ Image.new("RGB", (640, 360), "white").save(directory / "empty.png")
 contrast = Image.new("L", (960, 480), 255)
 contrast.paste(images["url"].convert("L").point(lambda value: value * 100 // 255), (32, 32))
 contrast.save(directory / "contrast.png")
+
+# Public synthetic WeChat-shaped payloads; these are not live account tokens.
+wechat_payloads = [
+    "https://weixin.qq.com/r/KIRI_PUBLIC_FIXTURE",
+    "https://login.weixin.qq.com/l/KIRI_PUBLIC_FIXTURE==",
+    "https://mp.weixin.qq.com/s/KIRI_PUBLIC_FIXTURE",
+    "weixin://wxpay/bizpayurl?pr=KIRI_PUBLIC_FIXTURE",
+]
+wechat = Image.new("RGB", (1280, 360), "white")
+for index, payload in enumerate(wechat_payloads):
+    code = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=6, border=4)
+    code.add_data(payload)
+    code.make(fit=True)
+    image = code.make_image(fill_color="black", back_color="white").convert("RGB")
+    # A small center mark simulates ordinary branded QR codes without using
+    # private WeChat images or mistaking circular Mini Program codes for QR.
+    side = image.width // 10
+    offset = (image.width - side) // 2
+    image.paste("white", (offset, offset, offset + side, offset + side))
+    wechat.paste(image, (index * 320 + 8, 8))
+wechat.save(directory / "wechat.png")
+
+# Finder patterns from neighboring thumbnails can be grouped into a false grid.
+# Keep one genuine, readable code beside each malformed perspective candidate.
+for name, placements in {
+    "cross-finders": [(542, 261, 191, False), (1149, 184, 150, True), (32, 500, 190, False)],
+    "projective-pole": [(428, 225, 198, False), (650, 341, 156, False), (1094, 150, 88, True)],
+}.items():
+    montage = Image.new("L", (1300, 750), 255)
+    for x, y, size, damaged_corner in placements:
+        code = images["url"].convert("L").resize((size, size), Image.Resampling.NEAREST)
+        if damaged_corner:
+            start = size * 5 // 8
+            extent = size * 3 // 8
+            code.paste(255, (start, 0, start + extent, extent))
+        montage.paste(code, (x, y))
+    montage.save(directory / f"{name}.png")

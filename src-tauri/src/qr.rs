@@ -112,11 +112,16 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
 
 fn identify(decoder: &mut quircs::Quirc, width: u32, height: u32, gray: &[u8]) -> Vec<QrCode> {
     let mut codes = Vec::new();
-    for code in decoder
+    let candidates: Vec<_> = decoder
         .identify(width as usize, height as usize, gray)
         .take(MAX_CODES)
-        .flatten()
-    {
+        .enumerate()
+        .filter_map(|(index, code)| code.ok().map(|code| (index, code)))
+        .collect();
+    for (index, code) in candidates {
+        if !supported_grid(decoder, &decoder.grids[index]) {
+            continue;
+        }
         let corners = code.corners.map(|p| {
             [
                 (p.x as f64 / width as f64).clamp(0.0, 1.0),
@@ -131,6 +136,50 @@ fn identify(decoder: &mut quircs::Quirc, width: u32, height: u32, gray: &[u8]) -
         codes.push(describe(codes.len(), corners, text));
     }
     codes
+}
+
+fn project(c: &[f64; 8], u: f64, v: f64) -> [f64; 2] {
+    let denominator = c[6] * u + c[7] * v + 1.0;
+    [
+        (c[0] * u + c[1] * v + c[2]) / denominator,
+        (c[3] * u + c[4] * v + c[5]) / denominator,
+    ]
+}
+
+fn supported_grid(decoder: &quircs::Quirc, grid: &quircs::Grid) -> bool {
+    let size = grid.grid_size as f64;
+    let corners = [[0.0, 0.0], [size, 0.0], [size, size], [0.0, size]];
+    // A projective pole inside the code can send its corners across the image.
+    if !grid.c.iter().all(|value| value.is_finite())
+        || corners
+            .iter()
+            .any(|[u, v]| grid.c[6] * u + grid.c[7] * v + 1.0 <= 0.0)
+    {
+        return false;
+    }
+    let finder_corners = [[0.0, 0.0], [7.0, 0.0], [7.0, 7.0], [0.0, 7.0]];
+    let origins = [[0.0, size - 7.0], [0.0, 0.0], [size - 7.0, 0.0]];
+    // Quirc may group finder patterns belonging to neighboring codes. Its
+    // fitted grid must still agree with all three observed 7x7 finder shapes.
+    // Allow three modules plus pixel rounding to retain damaged, locatable
+    // codes without accepting an unrelated finder elsewhere in a montage.
+    grid.caps.iter().zip(origins).all(|(&index, origin)| {
+        let capstone = &decoder.capstones[index];
+        let module = (0..4)
+            .map(|i| {
+                let a = capstone.corners[i];
+                let b = capstone.corners[(i + 1) % 4];
+                (a.x as f64 - b.x as f64).hypot(a.y as f64 - b.y as f64)
+            })
+            .sum::<f64>()
+            / 28.0;
+        finder_corners.iter().enumerate().all(|(i, [u, v])| {
+            let predicted = project(&grid.c, origin[0] + u, origin[1] + v);
+            let observed = capstone.corners[i];
+            (predicted[0] - observed.x as f64).hypot(predicted[1] - observed.y as f64)
+                <= module * 3.0 + 1.0
+        })
+    })
 }
 
 fn same_code_position(a: &QrCode, b: &QrCode, width: u32, height: u32) -> bool {
@@ -489,5 +538,95 @@ mod tests {
             .iter()
             .all(|code| code.text.as_deref() == Some("https://example.org/kiri-safe")));
         assert!(codes[1].corners[0][1] > codes[0].corners[0][1]);
+    }
+
+    #[test]
+    fn neighboring_finders_do_not_create_cross_image_targets() {
+        for (png, expected) in [
+            (
+                include_bytes!("../tests/fixtures/qr/cross-finders.png").as_slice(),
+                [53.0, 521.0, 202.0, 670.0],
+            ),
+            (
+                include_bytes!("../tests/fixtures/qr/projective-pole.png").as_slice(),
+                [667.0, 358.0, 788.0, 479.0],
+            ),
+        ] {
+            let (_, _, codes) = decode(png).unwrap();
+            assert_eq!(codes.len(), 1, "only the genuine QR target should remain");
+            assert_eq!(
+                codes[0].text.as_deref(),
+                Some("https://example.org/kiri-safe")
+            );
+            for corner in codes[0].corners {
+                let (x, y) = (corner[0] * 1300.0, corner[1] * 750.0);
+                assert!((expected[0] - 2.0..=expected[2] + 2.0).contains(&x));
+                assert!((expected[1] - 2.0..=expected[3] + 2.0).contains(&y));
+            }
+        }
+    }
+
+    #[test]
+    fn standard_wechat_codes_decode_locally_and_custom_schemes_stay_content() {
+        let (_, _, codes) = decode(include_bytes!("../tests/fixtures/qr/wechat.png")).unwrap();
+        let expected = [
+            "https://weixin.qq.com/r/KIRI_PUBLIC_FIXTURE",
+            "https://login.weixin.qq.com/l/KIRI_PUBLIC_FIXTURE==",
+            "https://mp.weixin.qq.com/s/KIRI_PUBLIC_FIXTURE",
+            "weixin://wxpay/bizpayurl?pr=KIRI_PUBLIC_FIXTURE",
+        ];
+        assert_eq!(codes.len(), expected.len());
+        for payload in expected {
+            let code = codes
+                .iter()
+                .find(|code| code.text.as_deref() == Some(payload))
+                .unwrap();
+            assert_eq!(code.url.is_some(), payload.starts_with("https://"));
+        }
+    }
+
+    #[test]
+    fn rotated_and_perspective_codes_retain_supported_finder_geometry() {
+        let source = image::load_from_memory(include_bytes!("../tests/fixtures/qr/url.png"))
+            .unwrap()
+            .into_luma8();
+        let diagonal = 300.0 / 2.0_f64.sqrt();
+        for c in [
+            [
+                diagonal,
+                -diagonal,
+                250.0,
+                diagonal,
+                diagonal,
+                250.0 - diagonal,
+                0.0,
+                0.0,
+            ],
+            [340.0, 50.0, 50.0, 30.0, 350.0, 50.0, 0.2, 0.8],
+        ] {
+            let mut image = image::GrayImage::from_pixel(500, 500, image::Luma([255]));
+            for (x, y, pixel) in image.enumerate_pixels_mut() {
+                let (x, y) = (x as f64, y as f64);
+                let (a, b) = (c[0] - x * c[6], c[1] - x * c[7]);
+                let (d, e) = (c[3] - y * c[6], c[4] - y * c[7]);
+                let (r, s) = (x - c[2], y - c[5]);
+                let determinant = a * e - b * d;
+                let (u, v) = ((r * e - b * s) / determinant, (a * s - r * d) / determinant);
+                if (0.0..1.0).contains(&u) && (0.0..1.0).contains(&v) {
+                    *pixel = *source.get_pixel(
+                        (u * source.width() as f64) as u32,
+                        (v * source.height() as f64) as u32,
+                    );
+                }
+            }
+            let mut png = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            let (_, _, codes) = decode(png.get_ref()).unwrap();
+            assert_eq!(codes.len(), 1);
+            assert_eq!(
+                codes[0].text.as_deref(),
+                Some("https://example.org/kiri-safe")
+            );
+        }
     }
 }

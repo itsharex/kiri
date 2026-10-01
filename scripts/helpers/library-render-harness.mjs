@@ -92,7 +92,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
   const modules = {
     react: React,
     "@tauri-apps/api/webview": {getCurrentWebview:()=>({onDragDropEvent:subscribe("mediaDrop")})},
-    "lucide-react": {ImagePlus:"icon", QrCode:"icon", Copy:"icon", ExternalLink:"icon", Star:"icon", X:"icon", Trash2:"icon"},
+    "lucide-react": {ImagePlus:"icon", QrCode:"icon", Copy:"icon", ExternalLink:"icon", Star:"icon", X:"icon", Trash2:"icon", ChevronRight:"icon"},
     "./text-history.css": {},
     "../ocr/text-history.css": {},
     "./qr.css": {},

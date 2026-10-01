@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { QrCode, Copy, ExternalLink, Star, X, Trash2 } from "lucide-react";
+import { QrCode, Copy, ExternalLink, Star, X, Trash2, ChevronRight } from "lucide-react";
 import { api, mediaUrl, onLibraryChanged, type AssetDto, type QrCodeDto, type QrScanDto } from "../lib/ipc";
 import { t, fmt } from "../i18n";
-import { initialQrSelection, qrPolygon } from "./selection.js";
+import { initialQrSelection, qrCodeCenter } from "./selection.js";
 import "../ocr/text-history.css";
 import "./qr.css";
 
@@ -61,14 +61,14 @@ export function QrResults({ scan }: { scan: QrScanDto }) {
   return <div className="qr-results">
     <div className="qr-image-scroll"><div className="qr-image-stage">
       <img src={scan.imageUrl} alt={t("QR Source Image")} draggable={false}/>
-      <svg viewBox={`0 0 ${scan.width} ${scan.height}`} className="qr-targets" aria-label={t("Choose a QR code in the image")}>
-        {scan.codes.map(code => <g key={code.index} role="button" tabIndex={0} aria-pressed={selected === code.index} aria-label={fmt("QR code %d", code.index + 1)} onClick={() => setSelected(code.index)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(code.index); } }}>
-          <title>{fmt("QR code %d", code.index + 1)}</title>
-          <polygon points={qrPolygon(code.corners, scan.width, scan.height)} className="qr-target-keyline"/>
-          <polygon points={qrPolygon(code.corners, scan.width, scan.height)} className="qr-target"/>
-          <text x={code.corners[0][0] * scan.width} y={code.corners[0][1] * scan.height} dy="-6" className="qr-target-label">{code.index + 1}</text>
-        </g>)}
-      </svg>
+      <div className="qr-targets" role="group" aria-label={t("Choose a QR code in the image")}>
+        {scan.codes.map(code => {
+          const center = qrCodeCenter(code.corners);
+          return <button type="button" key={code.index} className="kiri-qr-marker" style={{ left: `${center[0] * 100}%`, top: `${center[1] * 100}%` }} aria-pressed={selected === code.index} aria-label={fmt("QR code %d", code.index + 1)} onClick={() => setSelected(code.index)}>
+            <ChevronRight size={18} strokeWidth={2.5} aria-hidden="true"/>
+          </button>;
+        })}
+      </div>
     </div></div>
     {code ? <QrDetails key={code.index} code={code} saved={!!code.text && favorites.has(code.text)} action={async action => {
       const result = await api.qrAction(scan.requestId, code.index, action);

@@ -85,6 +85,8 @@ application or a durable product decision.
   platform-accurate restart behavior.
 - [`adr/0059-lightweight-recorded-click-highlight.md`](adr/0059-lightweight-recorded-click-highlight.md)
   — reduce the recorded click ring's visual weight while retaining its red cue.
+- [`adr/0063-qr-center-markers-and-supported-geometry.md`](adr/0063-qr-center-markers-and-supported-geometry.md)
+  — explicit center-marker selection and validation of QR finder geometry.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags

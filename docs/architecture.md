@@ -207,8 +207,11 @@ file is still missing.
 
 The screenshot toolbar, saved-image editor and library menu run the local
 portable decoder on one background worker. Capture uses the shared, pixel-aligned
-frozen crop helper. Results retain normalized corner polygons for each physical
-code and never navigate automatically. The original grayscale pass and three
+frozen crop helper. Results retain normalized corners for each physical
+code, validated against its observed finder shapes and projective geometry.
+The UI shows a circular marker at each code's projected center and waits for
+selection before showing content, even for a single code (ADR 0063).
+The original grayscale pass and three
 fixed contrast passes are merged by physical position, preserving repeated
 payloads and capping the combined result at 64 codes (ADR 0062).
 Request UUIDs and window/capture owners
@@ -222,7 +225,9 @@ QR Favorites stores an optional searchable `qrText` field and a selected-code PN
 crop through one atomic library import. Duplicate active payloads reuse a record;
 removal uses recoverable Trash. The normal capture grid excludes QR records while
 the QR Favorites destination provides search and content/image reuse.
-See [ADR 0061](adr/0061-local-qr-recognition-and-favorites.md).
+Standard square WeChat QR codes use this local path; circular Mini Program
+codes are unsupported. See [ADR 0061](adr/0061-local-qr-recognition-and-favorites.md)
+and [ADR 0063](adr/0063-qr-center-markers-and-supported-geometry.md).
 
 ## OCR flow
 
