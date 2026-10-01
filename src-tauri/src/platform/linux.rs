@@ -32,6 +32,37 @@ pub fn is_wayland_session() -> bool {
             .is_ok_and(|session| session.eq_ignore_ascii_case("wayland"))
 }
 
+/// Present the capture overlay only after its borderless native window has
+/// been configured. Capture creation runs on GTK's main thread.
+pub fn show_capture_overlay(
+    window: &tauri::WebviewWindow,
+    frame: crate::core::geometry::Rect,
+) -> Result<()> {
+    if !gtk::is_initialized_main_thread() {
+        return Err(anyhow!(
+            "Capture windows must be shown on the GTK main thread."
+        ));
+    }
+    let native = window
+        .gtk_window()
+        .context("Could not access the capture window.")?;
+    let wayland = is_wayland_session();
+    if wayland {
+        // Wayland controls top-level placement. The supported capture path
+        // has one display, so request its full-screen canvas before mapping.
+        native.fullscreen();
+    }
+    // Tauri/Tao queues visibility requests. Show synchronously so the following
+    // set_focus call sees a visible GTK widget and does not silently skip focus.
+    native.show_all();
+    if !wayland {
+        // Window managers may ignore initial placement. Reapply the selected
+        // display's logical origin after showing the already borderless window.
+        native.move_(frame.x.round() as i32, frame.y.round() as i32);
+    }
+    Ok(())
+}
+
 /// Recording must not race queued Tauri/Tao close/visibility requests. Called
 /// on GTK's main thread: unmap the native widget now, then wait for the display
 /// server to process our requests before a recorder can capture its first frame.
