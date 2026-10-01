@@ -45,7 +45,20 @@ async def main():
     await f.get_by_title('Rectangle (R)',exact=True).click();await drag((230,180),(500,250))
     await f.get_by_title('Text (T)',exact=True).click();await page.mouse.click(620,310)
     textarea=f.get_by_role('textbox',name='Text content',exact=True)
+    await textarea.evaluate("""el=>{
+     window.textChildMutations=0;
+     window.textMutationObserver=new MutationObserver(records=>window.textChildMutations+=records.length);
+     window.textMutationObserver.observe(el,{childList:true,characterData:true,subtree:true});
+    }""")
     await textarea.press_sequentially('test123',delay=40)
+    if os.environ.get('KIRI_TEXT_DOM_MUTATION_PROBE')=='1':
+     await page.screenshot(path=str(OUT/'text-before-undo.png'))
+     count=await textarea.evaluate('el=>window.textChildMutations');print('TEXT_CHILD_MUTATIONS',count)
+     (OUT/'text-dom-mutation-probe.json').write_text(json.dumps({'native':False,'childMutations':count}))
+     await context.close();return
+    if os.environ.get('KIRI_IMAGE_EDIT_BEFORE')!='1':
+     assert await textarea.evaluate('el=>window.textChildMutations')==0,'typing rewrote textarea default-value DOM and endangered native Undo'
+     (OUT/'text-dom-mutation-after.json').write_text(json.dumps({'native':False,'childMutations':await textarea.evaluate('el=>window.textChildMutations'),'typed':'test123'}))
     await textarea.press(mod+'+z')
     before=os.environ.get('KIRI_IMAGE_EDIT_BEFORE')=='1'
     if before:

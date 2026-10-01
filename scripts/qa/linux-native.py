@@ -277,6 +277,19 @@ def click_control(label):
     pause(0.2)
 
 
+def inline_text_editor():
+    for node in accessible_nodes():
+        try:
+            if node.get_name() != "Text content":
+                continue
+            if not node.get_state_set().contains(Atspi.StateType.FOCUSED):
+                continue
+            return node, node.get_text_iface().get_text(0, -1)
+        except (GLib.Error, AttributeError):
+            continue
+    return None
+
+
 def drag_region(bounds):
     left, top, right, bottom = bounds
     command("xdotool", "mousemove", str(left), str(top), "mousedown", "1")
@@ -495,6 +508,45 @@ try:
     if assets():
         raise RuntimeError("Cancelled capture unexpectedly saved an asset")
     report["checks"].append("native global shortcut opens capture; Escape cancels without saving")
+
+    # Real WebKitGTK key input: verifies browser history and GTK key routing,
+    # rather than treating an unprevented DOM key as proof of native Undo.
+    show_fixture()
+    open_capture()
+    drag_region((200, 180, 1000, 700))
+    click_control("Rectangle (R)")
+    drag_region((420, 460, 620, 560))
+    click_control("Text (T)")
+    command("xdotool", "mousemove", "--sync", "650", "350", "click", "1")
+    wait_for("focused native annotation textarea", inline_text_editor)
+    command("xdotool", "type", "--clearmodifiers", "--delay", "40", "alpha beta")
+    wait_for("native text has typed prefix", lambda: (
+        (editor := inline_text_editor()) and editor[1] == "alpha beta"))
+    command("xdotool", "key", "--clearmodifiers", "End")
+    command("xdotool", "type", "--clearmodifiers", "x")
+    wait_for("native text has appended character", lambda: (
+        (editor := inline_text_editor()) and editor[1] == "alpha betax"))
+    screenshot("text-before-undo.png")
+    command("xdotool", "key", "--clearmodifiers", "ctrl+z")
+    undone = wait_for("native text undo changes input without leaving edit", lambda: (
+        (editor := inline_text_editor()) and editor[1] != "alpha betax" and editor))
+    screenshot("text-after-undo.png")
+    command("xdotool", "key", "--clearmodifiers", "ctrl+shift+z")
+    wait_for("native text redo restores appended character", lambda: (
+        (editor := inline_text_editor()) and editor[1] == "alpha betax"))
+    screenshot("text-after-redo.png")
+    command("xdotool", "key", "--clearmodifiers", "Escape")
+    wait_for("Escape exits only text editing", lambda: inline_text_editor() is None and overlay() is not None)
+    undo_control = wait_for_control("Undo (⌘Z)")[0]
+    if not undo_control.get_state_set().contains(Atspi.StateType.ENABLED):
+        raise RuntimeError("Cancelling text editing lost the earlier rectangle history")
+    command("xdotool", "key", "--clearmodifiers", "Escape")
+    wait_for("second Escape cancels capture", lambda: overlay() is None)
+    if assets():
+        raise RuntimeError("Text undo/cancel acceptance unexpectedly saved an image")
+    report["text_undo"] = {"before": "alpha betax", "after": undone[1],
+                           "redo": "alpha betax", "native_webkitgtk": True}
+    report["checks"].append("real focused WebKitGTK textarea Undo/Redo owns text; two-stage Escape preserves prior canvas history")
 
     show_fixture()
     desktop = screenshot("source-desktop.png")

@@ -16,4 +16,5 @@ export function setTextComposition(target: EventTarget, active: boolean): void;
 export function isTextComposition(event: CompositionKey): boolean;
 export function handleTextEditorKey(event: TextKey, actions: {
   cancel(): void; commit(): void; undo(): void; redo(): void; finish?(): void;
+  nativeHistory?(command: "undo" | "redo"): boolean;
 }, nativeUndo?: boolean): void;

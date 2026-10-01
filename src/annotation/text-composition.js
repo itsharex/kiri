@@ -14,14 +14,22 @@ export function isTextComposition(event) {
     (target != null && composingTargets.has(target));
 }
 
-/** Used by the real textarea; native text undo deliberately keeps its default. */
+/** Use the focused browser editor's history, independently of GTK key bindings. */
 export function handleTextEditorKey(event, actions, nativeUndo) {
   if (!isTextComposition(event)) {
     if (event.key === "Escape") {
       event.preventDefault();
       actions.cancel();
     } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-      if (!nativeUndo) {
+      if (nativeUndo) {
+        // Standalone WebKitGTK does not bind Ctrl+Z like a full browser does.
+        // A successful native command must suppress the platform default so
+        // WebView2/WebKit on other platforms cannot undo twice. Empty or
+        // unsupported history keeps the platform's default as a fallback.
+        if (actions.nativeHistory?.(event.shiftKey ? "redo" : "undo")) {
+          event.preventDefault();
+        }
+      } else {
         event.preventDefault();
         actions.commit();
         if (event.shiftKey) actions.redo();

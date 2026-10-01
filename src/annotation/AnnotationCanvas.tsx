@@ -1234,6 +1234,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
             }}
           >
             <TextEditor
+              key={editing.id}
               editing={editing}
               bounds={documentSize}
               disabled={interactionDisabled}
@@ -1280,6 +1281,15 @@ function TextEditor(props: {
     nativeUndo,
   } = props;
   const ref = useRef<HTMLTextAreaElement>(null);
+  const initialText = useRef(editing.text);
+  const attachTextarea = useCallback((element: HTMLTextAreaElement | null) => {
+    ref.current = element;
+    // Let the native editor own the live value/undo stack. A controlled React
+    // textarea also rewrites defaultValue (light-DOM children) on each input;
+    // WebKit treats those script mutations as non-user edits. Initialize once
+    // per annotation, then observe input without writing it back into the DOM.
+    if (element) element.value = initialText.current;
+  }, []);
   const hintId = useId();
   const hintHeight = 32 * editing.uiScale;
   const hintTop = editing.rect.y + editing.rect.height + 4 * editing.uiScale;
@@ -1332,11 +1342,10 @@ function TextEditor(props: {
   return (
     <>
     <textarea
-      ref={ref}
+      ref={attachTextarea}
       aria-label={t("Text content")}
       aria-describedby={hintId}
       disabled={disabled}
-      value={editing.text}
       placeholder={t("Type something…")}
       spellCheck={false}
       autoCorrect="off"
@@ -1347,7 +1356,9 @@ function TextEditor(props: {
       onChange={(e) => onTextChange(e.target.value)}
       onKeyDown={(e) => {
         handleTextEditorKey(e, { cancel: onCancel, commit: onCommit,
-          undo: onUndo, redo: onRedo, finish: onFinish }, nativeUndo);
+          undo: onUndo, redo: onRedo, finish: onFinish,
+          nativeHistory: (command) => e.currentTarget.ownerDocument.execCommand(command),
+        }, nativeUndo);
       }}
       style={{
         position: "absolute",

@@ -23,6 +23,7 @@ test("IME Enter/Escape/undo preserve composition and never act on the canvas", (
       const e = key({ ...signal, key: eventKey, ctrlKey: eventKey === "z" });
       if (signal.lifecycle) setTextComposition(e.target, true);
       const a = actions();
+      a.nativeHistory = command => { a.calls.push(command); return true; };
       // Check the same predicate used before the textarea in window capture.
       assert.equal(isTextComposition(e), true);
       handleTextEditorKey(e, a, true);
@@ -43,14 +44,23 @@ test("composition end or blur releases only its own input", () => {
   handleTextEditorKey(e, a, true);
   assert.deepEqual(a.calls, ["commit", "finish"]);
 });
-test("native Ctrl/Cmd undo and redo do not commit or prevent native input history", () => {
+test("native Ctrl/Cmd undo and redo execute focused history once without committing", () => {
   for (const modifier of ["ctrlKey", "metaKey"]) for (const shiftKey of [false, true]) {
     const e = key({ key: "z", [modifier]: true, shiftKey }), a = actions();
+    a.nativeHistory = command => { a.calls.push(command); return true; };
     handleTextEditorKey(e, a, true);
-    assert.deepEqual(a.calls, []);
-    assert.equal(e.defaultPrevented, false);
+    assert.deepEqual(a.calls, [shiftKey ? "redo" : "undo"]);
+    assert.equal(e.defaultPrevented, true);
     assert.equal(e.stopped, true);
   }
+});
+test("empty native history preserves platform fallback and never uses canvas history", () => {
+  const e = key({ key: "z", ctrlKey: true }), a = actions();
+  a.nativeHistory = () => false;
+  handleTextEditorKey(e, a, true);
+  assert.deepEqual(a.calls, []);
+  assert.equal(e.defaultPrevented, false);
+  assert.equal(e.stopped, true);
 });
 test("normal Escape cancels edit; Shift+Enter keeps newline; legacy history stays ordered", () => {
   const esc = key({ key: "Escape" }), a = actions();
@@ -64,6 +74,16 @@ test("normal Escape cancels edit; Shift+Enter keeps newline; legacy history stay
   const redo = key({ key: "z", ctrlKey: true, shiftKey: true }), c = actions();
   handleTextEditorKey(redo, c, false);
   assert.deepEqual(c.calls, ["commit", "redo"]);
+});
+test("Return commits before finishing capture; a saved-image editor only commits", () => {
+  const capture = actions(), enter = key();
+  handleTextEditorKey(enter, capture, true);
+  assert.deepEqual(capture.calls, ["commit", "finish"]);
+  assert.equal(enter.defaultPrevented, true);
+  const image = actions();
+  delete image.finish;
+  handleTextEditorKey(key(), image, true);
+  assert.deepEqual(image.calls, ["commit"]);
 });
 test("capture-phase video save/close does not commit an active IME even with false flags", () => {
   let handler;
