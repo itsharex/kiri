@@ -40,6 +40,7 @@ export interface AssetDto {
   title: string | null;
   ocrText: string | null;
   ocrOriginalText: string | null;
+  qrText: string | null;
   tags: string[];
   pixelWidth: number;
   pixelHeight: number;
@@ -209,7 +210,15 @@ export function isEditorRevisionMismatch(error: unknown): boolean {
 // Commands
 // ---------------------------------------------------------------------------
 
+export interface QrCodeDto { index: number; corners: [number, number][]; text: string | null; url: string | null; host: string | null; suspicious: boolean; }
+export interface QrScanDto { requestId: string; imageUrl: string; width: number; height: number; codes: QrCodeDto[]; }
+
 export const api = {
+  scanQr: (requestId: string, selection: RectDto | null, assetId: string | null) => invoke<QrScanDto>("scan_qr", { requestId, selection, assetId }),
+  cancelQr: (requestId: string) => invoke<void>("cancel_qr", { requestId }),
+  qrAction: (requestId: string, index: number, action: string) => invoke<AssetDto | null>("qr_action", { requestId, index, action }),
+  listQrFavorites: (query: string) => invoke<AssetDto[]>("list_qr_favorites", { query }),
+  qrFavoriteAction: (id: string, action: string) => invoke<void>("qr_favorite_action", { id, action }),
   listOcrRecords: (query: string) => invoke<AssetDto[]>("list_ocr_records", { query }),
   updateOcrHistoryText: (id: string, expectedText: string, replacement: string | null) =>
     invoke<AssetDto>("update_ocr_history_text", { id, expectedText, replacement }),

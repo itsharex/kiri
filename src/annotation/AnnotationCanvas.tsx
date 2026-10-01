@@ -7,11 +7,13 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
 import type { Point, Rect } from "./geom";
+import { handleTextEditorKey, setTextComposition } from "./text-composition.js";
 import type { ColorPreset } from "./model";
 import { clampPoint, hitTestHandle } from "./geom";
 import {
@@ -48,6 +50,7 @@ export interface AnnotationCanvasHandle {
   clearAnnotations(): void;
   deleteSelection(): void;
   commitTextEditing(): void;
+  cancelTextEditing(): boolean;
   editSelectedText(): void;
   clearSelection(): void;
   cancelInteraction(): boolean;
@@ -153,7 +156,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       onTextDraftChange,
       onMarkCreated,
       mosaicShape = "brush",
-      textEscapeCancelsEdit = false,
+      textEscapeCancelsEdit = true,
       commitTextOnToolChange = true,
       onDocumentChange,
       onFrame,
@@ -1157,6 +1160,10 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         commitTextEditing: () => {
           if (!interactionsDisabled()) commitText();
         },
+        cancelTextEditing: () => {
+          if (interactionsDisabled() || !editingRef.current) return false;
+          return cancelInteraction();
+        },
         editSelectedText:()=>{if(!interactionsDisabled()&&selectedIndexRef.current!==null)editText(selectedIndexRef.current);},
         clearSelection:()=>{if(!interactionsDisabled()){finishAppearanceAdjustment();selectMark(null);}},
         cancelInteraction,
@@ -1227,6 +1234,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
             }}
           >
             <TextEditor
+              key={editing.id}
               editing={editing}
               bounds={documentSize}
               disabled={interactionDisabled}
@@ -1273,6 +1281,18 @@ function TextEditor(props: {
     nativeUndo,
   } = props;
   const ref = useRef<HTMLTextAreaElement>(null);
+  const initialText = useRef(editing.text);
+  const attachTextarea = useCallback((element: HTMLTextAreaElement | null) => {
+    ref.current = element;
+    // Let the native editor own the live value/undo stack. A controlled React
+    // textarea also rewrites defaultValue (light-DOM children) on each input;
+    // WebKit treats those script mutations as non-user edits. Initialize once
+    // per annotation, then observe input without writing it back into the DOM.
+    if (element) element.value = initialText.current;
+  }, []);
+  const hintId = useId();
+  const hintHeight = 32 * editing.uiScale;
+  const hintTop = editing.rect.y + editing.rect.height + 4 * editing.uiScale;
 
   // Spec §6.6 resizeTextEditor: min 120×34, grows with text/font, clamped
   // to the right/bottom edges of the region.
@@ -1320,35 +1340,25 @@ function TextEditor(props: {
   ]);
 
   return (
+    <>
     <textarea
-      ref={ref}
+      ref={attachTextarea}
       aria-label={t("Text content")}
+      aria-describedby={hintId}
       disabled={disabled}
-      value={editing.text}
       placeholder={t("Type something…")}
       spellCheck={false}
       autoCorrect="off"
       autoCapitalize="off"
+      onCompositionStart={(e) => setTextComposition(e.currentTarget, true)}
+      onCompositionEnd={(e) => setTextComposition(e.currentTarget, false)}
+      onBlur={(e) => setTextComposition(e.currentTarget, false)}
       onChange={(e) => onTextChange(e.target.value)}
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          onCancel();
-        } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-          if(nativeUndo){e.stopPropagation();return;}
-          // Spec §10.1: undo/redo commit the text edit first, then act on
-          // the canvas history (never the textarea's native undo).
-          e.preventDefault();
-          onCommit();
-          if (e.shiftKey) onRedo();
-          else onUndo();
-        } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-          e.preventDefault();
-          onCommit();
-          // Spec §6.6: Return commits the text and completes the capture.
-          onFinish?.();
-        }
-        e.stopPropagation();
+        handleTextEditorKey(e, { cancel: onCancel, commit: onCommit,
+          undo: onUndo, redo: onRedo, finish: onFinish,
+          nativeHistory: (command) => e.currentTarget.ownerDocument.execCommand(command),
+        }, nativeUndo);
       }}
       style={{
         position: "absolute",
@@ -1371,6 +1381,20 @@ function TextEditor(props: {
         pointerEvents: "auto",
       }}
     />
+    <div id={hintId} style={{
+      position: "absolute",
+      left: Math.min(editing.rect.x, Math.max(0, bounds.width - 280 * editing.uiScale)),
+      top: hintTop + hintHeight <= bounds.height ? hintTop : Math.max(0, editing.rect.y - hintHeight - 4 * editing.uiScale),
+      maxWidth: Math.min(280 * editing.uiScale, bounds.width),
+      boxSizing: "border-box",
+      padding: `${3 * editing.uiScale}px ${6 * editing.uiScale}px`,
+      borderRadius: 5 * editing.uiScale,
+      background: "rgba(0,0,0,.8)",
+      color: "#eee",
+      font: `${10 * editing.uiScale}px/${13 * editing.uiScale}px var(--kiri-font-ui)`,
+      pointerEvents: "none",
+    }}>{t("Shift + Enter: new line · Enter: done · Esc: cancel edit")}</div>
+    </>
   );
 }
 

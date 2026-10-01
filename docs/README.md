@@ -125,3 +125,6 @@ development.
 - [ADR 0056: Copy selected library items to a folder](adr/0056-batch-library-export.md)
 - [ADR 0057: Explicit clipboard image import](adr/0057-clipboard-image-import.md)
 - [ADR 0058: Pinned screenshot reference windows](adr/0058-pinned-screenshot-reference.md)
+- [ADR 0060: Image text editing and unsaved close](adr/0060-image-text-editing-and-close.md)
+- [ADR 0061: Local QR recognition and favorites](adr/0061-local-qr-recognition-and-favorites.md)
+- [ADR 0062: Merge QR results across contrast thresholds](adr/0062-qr-multi-contrast-results.md)

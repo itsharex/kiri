@@ -159,6 +159,7 @@ textarea {
   padding: 10px 20px;
   box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
 }
@@ -214,11 +215,22 @@ textarea {
 
 .library-control-panel__actions {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 420px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* Move whole controls to the next row before labels or icons are squeezed. */
+.library-control-panel__actions > .kiri-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.library-control-panel__actions > .kiri-button svg {
+  flex-shrink: 0;
 }
 
 .library-status-state {
@@ -378,7 +390,10 @@ textarea {
 
 .library-section-picker {
   display: flex;
-  flex: 0 0 auto;
+  flex-wrap: wrap;
+  flex: 0 1 auto;
+  max-width: 100%;
+  box-sizing: border-box;
   gap: 2px;
   padding: 3px;
   border: 1px solid color-mix(in srgb, var(--kiri-surface-border) 74%, transparent);
@@ -464,6 +479,7 @@ textarea {
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }

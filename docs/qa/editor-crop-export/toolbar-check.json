@@ -1,0 +1,761 @@
+{
+  "native": false,
+  "checks": [
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        650,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        10,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        650,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        10,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        650,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        10,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1.25,
+      "language": "en",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1.25,
+      "language": "zh-Hans",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1.25,
+      "language": "ja",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1.5,
+      "language": "en",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1.5,
+      "language": "zh-Hans",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 1.5,
+      "language": "ja",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 2,
+      "language": "en",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 2,
+      "language": "zh-Hans",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        800,
+        600
+      ],
+      "scale": 2,
+      "language": "ja",
+      "selection_origin": [
+        650,
+        420
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        490,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        10,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        490,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        10,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        490,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        10,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1.25,
+      "language": "en",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1.25,
+      "language": "zh-Hans",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1.25,
+      "language": "ja",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1.5,
+      "language": "en",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1.5,
+      "language": "zh-Hans",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 1.5,
+      "language": "ja",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 2,
+      "language": "en",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 2,
+      "language": "zh-Hans",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        640,
+        480
+      ],
+      "scale": 2,
+      "language": "ja",
+      "selection_origin": [
+        490,
+        300
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        1362,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        10,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "en",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        1362,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        10,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "zh-Hans",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        10,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        1362,
+        10
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        10,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1,
+      "language": "ja",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1.25,
+      "language": "en",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1.25,
+      "language": "zh-Hans",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1.25,
+      "language": "ja",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1.5,
+      "language": "en",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1.5,
+      "language": "zh-Hans",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 1.5,
+      "language": "ja",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 2,
+      "language": "en",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 2,
+      "language": "zh-Hans",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    },
+    {
+      "viewport": [
+        1512,
+        982
+      ],
+      "scale": 2,
+      "language": "ja",
+      "selection_origin": [
+        1362,
+        802
+      ]
+    }
+  ]
+}

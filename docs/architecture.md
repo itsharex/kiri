@@ -165,6 +165,10 @@ rejects the stale save.
 Native Save As destinations are represented in the WebView by a single-use
 token rather than a filesystem path. Save As writes the prepared output only;
 it never mutates the library asset or editable project.
+The pending crop keeps its original document coordinates while switching to
+annotation tools. Crop undo/redo remains available when returning to Crop;
+Cancel crop removes only that frame. Save As preserves the unsaved library
+baseline and its close warning even after exporting successfully.
 
 The capture overlay and editor load one validated native preference for the
 last-used annotation color, visual widths, text background and size, and
@@ -198,6 +202,27 @@ distinct loading, missing, unreadable, and playback-failed states. Restoring a
 missing asset uses a native file picker and atomically copies a validated file
 back to its managed filename; removing the record is allowed only while the
 file is still missing.
+
+## QR flow
+
+The screenshot toolbar, saved-image editor and library menu run the local
+portable decoder on one background worker. Capture uses the shared, pixel-aligned
+frozen crop helper. Results retain normalized corner polygons for each physical
+code and never navigate automatically. The original grayscale pass and three
+fixed contrast passes are merged by physical position, preserving repeated
+payloads and capping the combined result at 64 codes (ADR 0062).
+Request UUIDs and window/capture owners
+prevent canceled or superseded publication; saving also checks the library
+identity/generation. Saved-image scans are scoped to the library window or the
+editor whose label matches that asset UUID. Closing the capture's QR results
+returns to the selected region and preserves its annotations. Opening delegates a validated HTTP/HTTPS URL to the OS only
+after content and destination review. No image or payload is uploaded.
+
+QR Favorites stores an optional searchable `qrText` field and a selected-code PNG
+crop through one atomic library import. Duplicate active payloads reuse a record;
+removal uses recoverable Trash. The normal capture grid excludes QR records while
+the QR Favorites destination provides search and content/image reuse.
+See [ADR 0061](adr/0061-local-qr-recognition-and-favorites.md).
 
 ## OCR flow
 

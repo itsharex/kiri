@@ -27,6 +27,7 @@ import {
   PlaySquare,
   Redo2,
   ScanText,
+  QrCode,
   Search,
   Slash,
   SlidersHorizontal,
@@ -68,6 +69,7 @@ export type IconName =
   | "camera.viewfinder" // Screenshot mode
   | "record.circle" // Record mode
   | "text.viewfinder" // OCR mode
+  | "qrcode"
   | "square.dashed" // text background: transparent
   | "moon.fill" // text background: dark
   | "character.textbox" // text context icon
@@ -113,6 +115,7 @@ const ICONS: Record<IconName, React.ComponentType<Record<string, unknown>>> = {
   "camera.viewfinder": Camera,
   "record.circle": Video,
   "text.viewfinder": ScanText,
+  "qrcode": QrCode,
   "square.dashed": SquareDashed,
   "moon.fill": Moon,
   "character.textbox": TextCursorInput,

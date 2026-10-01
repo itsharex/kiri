@@ -2,6 +2,9 @@
 
 Thanks for helping make kiri better.
 
+CI runs required checks on ordinary commits; request platform acceptance packages
+or full verification explicitly. See the [CI profiles and provenance boundaries](docs/qa/ci-tiers.md).
+
 ## Development setup
 
 Use Rust 1.88+, Node.js 20.19+ (or 22.12+), and pnpm. macOS development

@@ -3,12 +3,20 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
     inputs:
+      profile:
+        description: 'Checks only, one acceptance platform, or full verification'
+        type: choice
+        required: true
+        default: quick
+        options: [quick, linux, windows, macos, full, recheck-linux, recheck-linux-x11]
       linux_candidate_run_id:
         description: 'Completed build run containing the Linux candidate to recheck'
-        required: true
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -19,11 +27,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Select checks and requested packages
+    runs-on: ubuntu-24.04
+    outputs:
+      renderer: ${{ steps.plan.outputs.renderer }}
+      native_linux: ${{ steps.plan.outputs.native_linux }}
+      native_windows: ${{ steps.plan.outputs.native_windows }}
+      native_macos: ${{ steps.plan.outputs.native_macos }}
+      package_linux: ${{ steps.plan.outputs.package_linux }}
+      package_windows: ${{ steps.plan.outputs.package_windows }}
+      package_macos: ${{ steps.plan.outputs.package_macos }}
+      wayland: ${{ steps.plan.outputs.wayland }}
+      x11_recheck: ${{ steps.plan.outputs.x11_recheck }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: plan
+        run: python3 scripts/qa/ci-plan.py
+
+  fast-checks:
+    name: Fast required checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:release-tools
+      - run: pnpm build
+      - name: Verify CI scheduling and quality gate
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 scripts/qa/test_ci_plan.py
+      - name: Verify the formal release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/release-version.mjs "$GITHUB_REF_NAME"
+
   countdown-ui:
     name: Countdown renderer checks
-    if: github.event_name != 'workflow_dispatch'
+    needs: plan
+    if: needs.plan.outputs.renderer == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 6
+    # Includes sequential toolbar, image editing, and 24 crop/scale regressions
+    # through test-ocr.py. The 6m limit expired after all assertions passed.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -56,7 +107,8 @@ jobs:
 
   test-rust:
     name: Rust tests (macOS)
-    if: github.event_name != 'workflow_dispatch'
+    needs: plan
+    if: needs.plan.outputs.native_macos == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -69,7 +121,8 @@ jobs:
 
   build-linux:
     name: Build, test and package Linux (Ubuntu 24.04 / X11)
-    if: github.event_name != 'workflow_dispatch'
+    needs: plan
+    if: needs.plan.outputs.native_linux == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
@@ -136,10 +189,13 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
       - name: Build Debian package without updater signing
+        if: needs.plan.outputs.package_linux == 'true'
         run: pnpm tauri build --bundles deb --config src-tauri/tauri.linux.conf.json
       - name: Record the actual source commit and package checksum
+        if: needs.plan.outputs.package_linux == 'true'
         run: python3 scripts/qa/linux-package-provenance.py write --package-dir src-tauri/target/release/bundle/deb
       - name: Install and inspect the Debian package
+        if: needs.plan.outputs.package_linux == 'true'
         run: |
           packages=(src-tauri/target/release/bundle/deb/*.deb)
           test "${#packages[@]}" -eq 1
@@ -153,10 +209,11 @@ jobs:
           ldd /usr/bin/kiri > linux-native-review/linked-libraries.txt
           if grep -q 'not found' linux-native-review/linked-libraries.txt; then exit 1; fi
       - name: Exercise the installed app on an isolated X11 desktop
+        if: needs.plan.outputs.package_linux == 'true'
         timeout-minutes: 4
         run: bash scripts/qa/linux-native.sh /usr/bin/kiri
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: ${{ always() && needs.plan.outputs.package_linux == 'true' }}
         with:
           name: linux-native-review
           path: linux-native-review/
@@ -164,7 +221,7 @@ jobs:
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         id: upload-linux-deb
-        if: ${{ always() && hashFiles('src-tauri/target/release/bundle/deb/*.deb') != '' }}
+        if: ${{ always() && needs.plan.outputs.package_linux == 'true' && hashFiles('src-tauri/target/release/bundle/deb/*.deb') != '' }}
         with:
           name: kiri-linux-deb
           path: |
@@ -175,8 +232,8 @@ jobs:
 
   test-linux-wayland:
     name: GNOME Wayland portal checks (Ubuntu 24.04 / scale ${{ matrix.scale }})
-    needs: build-linux
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.build-linux.outputs.deb-artifact-id != '') }}
+    needs: [plan, build-linux]
+    if: ${{ !cancelled() && needs.plan.outputs.wayland == 'true' && (inputs.linux_candidate_run_id != '' || needs.build-linux.outputs.deb-artifact-id != '') }}
     permissions:
       contents: read
       actions: read
@@ -240,9 +297,64 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
+  recheck-linux-x11:
+    name: Recheck installed X11 app without rebuilding
+    needs: plan
+    if: needs.plan.outputs.x11_recheck == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: kiri-linux-deb
+          path: ${{ runner.temp }}/kiri-linux-deb
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.linux_candidate_run_id }}
+          digest-mismatch: error
+      - name: Verify original package, build and unchanged application sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KIRI_CANDIDATE_RUN_ID: ${{ inputs.linux_candidate_run_id }}
+          KIRI_LINUX_DEB_DIR: ${{ runner.temp }}/kiri-linux-deb
+          KIRI_LINUX_QA_DIR: ${{ github.workspace }}/linux-native-review
+        run: |
+          python3 scripts/qa/linux-package-provenance.py verify \
+            --package-dir "$KIRI_LINUX_DEB_DIR" --run-id "$KIRI_CANDIDATE_RUN_ID" \
+            --output "$KIRI_LINUX_QA_DIR/package-provenance.json" --recheck-failed-x11
+      - name: Install unchanged candidate and X11 desktop-test dependencies
+        run: |
+          packages=("${{ runner.temp }}/kiri-linux-deb/"*.deb)
+          test "${#packages[@]}" -eq 1
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "${packages[0]}" \
+            xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil \
+            python3-gi python3-pyatspi at-spi2-core \
+            gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav \
+            tesseract-ocr-eng tesseract-ocr-chi-sim tesseract-ocr-jpn
+          test -x /usr/bin/kiri
+          ldd /usr/bin/kiri > linux-native-review/linked-libraries.txt
+          if grep -q 'not found' linux-native-review/linked-libraries.txt; then exit 1; fi
+      - name: Replay all original installed X11 assertions
+        timeout-minutes: 4
+        run: bash scripts/qa/linux-native.sh /usr/bin/kiri
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-native-recheck-review
+          path: linux-native-review/
+          retention-days: 5
+          if-no-files-found: error
+
   build-macos:
     name: Compile macOS app (${{ matrix.arch }})
-    if: github.event_name != 'workflow_dispatch'
+    needs: plan
+    if: needs.plan.outputs.native_macos == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -260,17 +372,26 @@ jobs:
           workspaces: src-tauri
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - uses: pnpm/action-setup@v6
+        if: needs.plan.outputs.package_macos == 'true'
       - uses: actions/setup-node@v7
+        if: needs.plan.outputs.package_macos == 'true'
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
+        if: needs.plan.outputs.package_macos == 'true'
       - run: pnpm test:release-tools
+        if: needs.plan.outputs.package_macos == 'true'
+      - name: Check both macOS architectures without packaging
+        if: needs.plan.outputs.package_macos != 'true'
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - name: Compile without a runnable macOS bundle
+        if: needs.plan.outputs.package_macos == 'true'
         run: pnpm tauri build --no-bundle
 
   build-windows:
     name: Build and test Windows app (Server 2025)
-    if: github.event_name != 'workflow_dispatch'
+    needs: plan
+    if: needs.plan.outputs.native_windows == 'true'
     runs-on: windows-2025
     env:
       # Keep optimized runtime behavior, with symbols for native crash reports.
@@ -302,11 +423,11 @@ jobs:
           path: ${{ runner.temp }}/kiri-video-export-review/
           retention-days: 5
           if-no-files-found: warn
-      - name: Build Windows installer for pull requests
-        if: github.event_name == 'pull_request'
+      - name: Build Windows acceptance installer
+        if: needs.plan.outputs.package_windows == 'true' && !startsWith(github.ref, 'refs/tags/v')
         run: pnpm tauri build --bundles nsis --config src-tauri/tauri.pr-windows.conf.json
       - uses: tauri-apps/tauri-action@v0
-        if: github.event_name == 'push'
+        if: needs.plan.outputs.package_windows == 'true' && startsWith(github.ref, 'refs/tags/v')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -314,20 +435,25 @@ jobs:
         with:
           args: --bundles nsis
       - name: Package and verify portable Windows build
+        if: needs.plan.outputs.package_windows == 'true'
         shell: pwsh
         run: ./scripts/package-windows-portable.ps1
       - uses: actions/setup-python@v6
+        if: needs.plan.outputs.package_windows == 'true'
         with:
           python-version: '3.12'
       - name: Verify countdown and recording controls on the actual desktop
+        if: needs.plan.outputs.package_windows == 'true'
         timeout-minutes: 4
         run: |
           python -m pip install pywinauto==0.6.9
           python scripts/qa/countdown-native.py
       - name: Verify configurable shortcuts on the actual desktop
+        if: needs.plan.outputs.package_windows == 'true'
         timeout-minutes: 3
         run: python scripts/qa/shortcut-native.py
       - name: Install and smoke-test both Windows packages
+        if: needs.plan.outputs.package_windows == 'true'
         shell: pwsh
         timeout-minutes: 5
         run: |
@@ -340,28 +466,28 @@ jobs:
           $env:KIRI_QA_INSTALLED_EXE = Join-Path $install 'kiri.exe'
           python scripts/qa/windows-release-native.py
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: ${{ always() && needs.plan.outputs.package_windows == 'true' }}
         with:
           name: windows-release-review
           path: windows-release-review/
           retention-days: 5
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: ${{ always() && needs.plan.outputs.package_windows == 'true' }}
         with:
           name: shortcut-native-review
           path: shortcut-native-review/
           retention-days: 5
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: ${{ always() && needs.plan.outputs.package_windows == 'true' }}
         with:
           name: countdown-native-review
           path: countdown-native-review/
           retention-days: 5
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: ${{ failure() && needs.plan.outputs.package_windows == 'true' }}
         with:
           name: countdown-debug-build
           path: |
@@ -370,7 +496,7 @@ jobs:
           retention-days: 2
           if-no-files-found: warn
       - name: Upload Windows bundle
-        if: github.event_name == 'push'
+        if: needs.plan.outputs.package_windows == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: kiri-windows
@@ -378,3 +504,15 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/nsis/*.sig
           if-no-files-found: error
+
+  quality:
+    name: CI quality gate
+    needs: [plan, fast-checks, countdown-ui, test-rust, build-linux, build-windows, build-macos, test-linux-wayland, recheck-linux-x11]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require every selected check and package to succeed
+        env:
+          KIRI_CI_CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/qa/ci-plan.py

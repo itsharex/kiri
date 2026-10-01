@@ -1,0 +1,29 @@
+{
+  "native": false,
+  "sourceCommit": "6cbb8469e27e316d821f443f11a632934a562371",
+  "closeBoundary": "isolated IPC only; native destroy ACL unresolved",
+  "coordinateSpaces": {
+    "document": [
+      500,
+      300
+    ],
+    "sourcePixels": [
+      1000,
+      600
+    ]
+  },
+  "cases": [
+    {
+      "language": "en",
+      "viewport": [
+        800,
+        600
+      ],
+      "backingScale": 1,
+      "reproduced": [
+        "Crop disables other tools",
+        "export incorrectly clears library dirty state"
+      ]
+    }
+  ]
+}

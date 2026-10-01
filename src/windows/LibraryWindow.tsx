@@ -21,6 +21,7 @@ import {
   type ShortcutStatusDto,
 } from "../lib/ipc";
 import { t, fmt } from "../i18n";
+import { QrFavorites, QrAssetDialog } from "../qr/QrResults";
 import { TextHistory, OcrDialog } from "../ocr/TextHistory";
 import brandIcon from "../../src-tauri/icons/128x128.png";
 import { KiriIcon, type IconName } from "../components/KiriIcons";
@@ -40,7 +41,7 @@ const SettingsView = React.lazy(() =>
 );
 
 type Section = "library" | "trash";
-type Destination = "captures" | "text" | "settings";
+type Destination = "captures" | "text" | "qr" | "settings";
 
 function thumbnailUrl(id: string, revision: number): string {
   return kiriResourceUrl("thumbnail", [id], { v: revision });
@@ -79,6 +80,7 @@ function groupByDay(assets: AssetDto[]): { key: string; label: string; assets: A
 }
 
 export function LibraryWindow() {
+  const [qrAsset, setQrAsset] = useState<AssetDto | null>(null);
   const [ocrAsset, setOcrAsset] = useState<AssetDto | null>(null);
   const [assets, setAssets] = useState<AssetDto[]>([]);
   const [section, setSection] = useState<Section>("library");
@@ -623,6 +625,7 @@ export function LibraryWindow() {
             onClick={run(() => void api.copyAsset(asset.id).catch(() => {}))}
           />
         )}
+        {asset.kind === "image" && !showingTrash && <MenuRow icon="qrcode" label={t("Recognize QR Codes")} disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"} onClick={run(() => setQrAsset(asset))} />}
         {asset.kind === "image" && (!showingTrash || asset.ocrText != null) && <MenuRow
           icon="text.viewfinder"
           label={t(asset.ocrText != null ? "Read Text" : "Recognize Text Locally")}
@@ -820,6 +823,7 @@ export function LibraryWindow() {
               <span className="library-control-panel__title">
                 {destination === "settings"
                   ? t("Settings")
+                  : destination === "qr" ? t("QR Favorites")
                   : destination === "text" ? t("Text History")
                   : showingTrash
                     ? t("Trash")
@@ -828,6 +832,7 @@ export function LibraryWindow() {
               <span className="library-control-panel__subtitle">
                 {destination === "settings"
                   ? t("Language, storage, and text recognition")
+                  : destination === "qr" ? t("Find and reuse saved QR codes")
                   : destination === "text" ? t("Read, copy, and revisit recognized text")
                   : libraryUnavailable
                     ? t("Unavailable")
@@ -881,18 +886,20 @@ export function LibraryWindow() {
               options={[
                 { label: t("Library"), icon: "square.grid.3x3.fill" },
                 { label: t("Text History"), icon: "text.viewfinder" },
+                { label: t("QR Favorites"), icon: "qrcode" },
                 { label: t("Trash"), icon: "trash" },
                 { label: t("Settings"), icon: "slider.horizontal.3" },
               ]}
-              value={destination === "settings" ? 3 : destination === "text" ? 1 : section === "library" ? 0 : 2}
+              value={destination === "settings" ? 4 : destination === "qr" ? 2 : destination === "text" ? 1 : section === "library" ? 0 : 3}
               onChange={(index) => {
                 clearSelection();
                 setMenuFor(null);
-                if (index === 3) {
+                if (index === 4) {
                   setDestination("settings");
                   return;
                 }
                 if (index === 1) { setDestination("text"); return; }
+                if (index === 2) { setDestination("qr"); return; }
                 setDestination("captures");
                 setSection(index === 0 ? "library" : "trash");
                 setKindFilter("all");
@@ -1179,6 +1186,8 @@ export function LibraryWindow() {
         </>
       )}
         </>
+      ) : destination === "qr" ? (
+        <QrFavorites />
       ) : destination === "text" ? (
         <TextHistory />
       ) : (
@@ -1202,6 +1211,7 @@ export function LibraryWindow() {
         </React.Suspense>
       )}
 
+      {qrAsset && <QrAssetDialog key={qrAsset.id} asset={qrAsset} onClose={() => setQrAsset(null)} />}
       {ocrAsset && <OcrDialog key={ocrAsset.id} asset={ocrAsset} onClose={() => setOcrAsset(null)} />}
 
       {/* Window-level progress and local notices stay in one predictable

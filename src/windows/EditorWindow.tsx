@@ -2,17 +2,19 @@
 // Dark screenshot editor with one compact toolbar and an aspect-fit canvas.
 
 import { OcrDialog } from "../ocr/TextHistory";
+import { QrAssetDialog } from "../qr/QrResults";
 import type { AssetDto } from "../lib/ipc";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, isEditorRevisionMismatch } from "../lib/ipc";
 import { t } from "../i18n";
+import { isTextComposition } from "../annotation/text-composition.js";
 import type { Rect } from "../annotation/geom";
 import {
   COLOR_HEX,
   COLOR_LABELS,
   COLOR_PRESETS,
   type AnnotationDocumentV1,
+  type AnnotationMark,
   type MosaicIntensity,
   type MosaicStyle,
   type TextBackgroundStyle,
@@ -32,6 +34,8 @@ import { AnnotationInteractionLock } from "../annotation/interaction-lock.js";
 import { parseAnnotationDocument } from "../annotation/project.js";
 import { KiriIcon, type IconName } from "../components/KiriIcons";
 import { kiriResourceUrl } from "../lib/kiri-resource-url.js";
+import { hasUnsavedImageChanges, type ImageEditSnapshot, type ImageTextDraft } from "../annotation/image-edit-state.js";
+import { ImageCloseGuard, type ImageCloseGuardHandle } from "./ImageCloseGuard";
 
 type EditorTool = Tool | "crop";
 
@@ -60,12 +64,22 @@ export function EditorWindow(props: { id: string }) {
   const [canRedo, setCanRedo] = useState(false);
   const [hasMarks, setHasMarks] = useState(false);
   const [ocrAsset, setOcrAsset] = useState<AssetDto | null>(null);
+  const [qrAsset, setQrAsset] = useState<AssetDto | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
+  const [currentMarks, setCurrentMarks] = useState<AnnotationMark[]>([]);
+  const [textDraft, setTextDraft] = useState<ImageTextDraft | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState<ImageEditSnapshot>({ marks: [], crop: null });
+  const closeGuardRef = useRef<ImageCloseGuardHandle>(null);
   const canvasRef = useRef<AnnotationCanvasHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const revisionRef = useRef<string | null>(null);
   const completionLock = useMemo(() => new AnnotationInteractionLock(), []);
+  const onTextDraftChange = useCallback((mark: AnnotationMark | null, previousId: number | null, editing: boolean) => {
+    setTextDraft({ mark, previousId, editing });
+  }, []);
+  const effectiveCrop = document && cropSelection && !isFullCrop(document, cropSelection) ? cropSelection : null;
+  const dirty = hasUnsavedImageChanges(savedSnapshot, currentMarks, effectiveCrop, textDraft);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -77,6 +91,9 @@ export function EditorWindow(props: { id: string }) {
     setImageSize(null);
     setDocument(null);
     setHasMarks(false);
+    setCurrentMarks([]);
+    setTextDraft(null);
+    setSavedSnapshot({ marks: [], crop: null });
     setCropSelection(null);
     setCropUndo([]);
     setCropRedo([]);
@@ -141,6 +158,8 @@ export function EditorWindow(props: { id: string }) {
       setImage(img);
       setImageSize({ w: img.naturalWidth, h: img.naturalHeight });
       setDocument(nextDocument);
+      setCurrentMarks(nextDocument.marks);
+      setSavedSnapshot({ marks: nextDocument.marks, crop: null });
       setHasMarks(nextDocument.marks.length > 0);
       revisionRef.current = revisionSha256;
     })();
@@ -185,6 +204,7 @@ export function EditorWindow(props: { id: string }) {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isTextComposition(e)) return;
       if (completionLock.locked) {
         e.preventDefault();
         e.stopPropagation();
@@ -192,16 +212,16 @@ export function EditorWindow(props: { id: string }) {
       }
       if (e.key === "Escape") {
         if (tool === "crop") {
-          setCropSelection(null);
-          setCropUndo([]);
-          setCropRedo([]);
-          setTool("select");
+          cancelCrop();
           return;
         }
         void closeWindow();
         return;
       }
       if (e.key === "Enter" && !e.isComposing) {
+        // Focused controls own Enter (notably export and crop cancellation).
+        // Saving here before their native click could persist unintended edits.
+        if (e.target instanceof Element && e.target.closest("button,input,select,textarea,[contenteditable]")) return;
         void complete("save");
         return;
       }
@@ -239,11 +259,17 @@ export function EditorWindow(props: { id: string }) {
   }, [completionLock, cropRedo, cropSelection, cropUndo, document, tool]);
 
   function selectTool(next: EditorTool) {
-    if (tool === "crop" && next !== "crop") return;
     setTool(next);
     if (next === "crop" && document) {
       setCropSelection((current) => current ?? fullCropRect(document));
     }
+  }
+
+  function cancelCrop() {
+    setCropSelection(null);
+    setCropUndo([]);
+    setCropRedo([]);
+    if (tool === "crop") setTool("select");
   }
 
   function commitCrop(previous: Rect, next: Rect) {
@@ -269,7 +295,7 @@ export function EditorWindow(props: { id: string }) {
   }
 
   async function closeWindow() {
-    await getCurrentWindow().close();
+    await closeGuardRef.current?.requestClose();
   }
 
   async function complete(action: "save" | "saveAs") {
@@ -314,7 +340,12 @@ export function EditorWindow(props: { id: string }) {
         setActionError(failureMessage);
         return;
       }
-      if (action === "save") await closeWindow().catch(() => {});
+      // Save As exports a copy without updating the editable library asset.
+      // Only Save advances the library baseline; exported edits remain dirty.
+      if (action === "save") {
+        setSavedSnapshot({ marks: result.document.marks, crop: effectiveCrop });
+        await closeGuardRef.current?.closeSaved();
+      }
     } catch (error) {
       if (isEditorRevisionMismatch(error)) {
         revisionRef.current = null;
@@ -378,10 +409,16 @@ export function EditorWindow(props: { id: string }) {
             icon={icon}
             title={t(title)}
             active={tool === t2}
-            disabled={tool === "crop" && t2 !== "crop"}
             onClick={() => selectTool(t2)}
           />
         ))}
+        {cropSelection && (
+          <button type="button" className="kiri-button kiri-button--secondary"
+            style={{ flexShrink: 0, height: 28, padding: "0 8px" }}
+            onClick={cancelCrop}>
+            {t("Cancel crop")}
+          </button>
+        )}
         {tool !== "crop" && tool !== "select" && <>
           <div style={{ width: 1, height: 26, background: "#383838", margin: "0 4px" }} />
           {tool === "text" ? (
@@ -478,6 +515,8 @@ export function EditorWindow(props: { id: string }) {
         />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+        <EditorToolButton icon="qrcode" title={t("Recognize QR Codes")} disabled={!image || completing || tool === "crop"}
+          onClick={() => { void api.getAsset(props.id).then(setQrAsset).catch(() => setActionError(t("Can't read this file."))); }} />
         <EditorToolButton icon="text.viewfinder" title={t("Recognize Saved Image Locally")} disabled={!image || completing}
           onClick={() => { void api.getAsset(props.id).then(setOcrAsset).catch(() => setActionError(t("Can't read this file."))); }} />
         <button
@@ -515,6 +554,7 @@ export function EditorWindow(props: { id: string }) {
       </div>
 
       {ocrAsset && <OcrDialog asset={ocrAsset} onClose={() => setOcrAsset(null)} />}
+      {qrAsset && <QrAssetDialog key={qrAsset.id} asset={qrAsset} onClose={() => setQrAsset(null)} />}
 
       {actionError && (
         <div
@@ -579,6 +619,8 @@ export function EditorWindow(props: { id: string }) {
                 setHasMarks(populated);
               }}
               onCancel={closeWindow}
+              onDocumentChange={setCurrentMarks}
+              onTextDraftChange={onTextDraftChange}
             />
             {cropSelection && (
               <CropOverlay
@@ -593,6 +635,8 @@ export function EditorWindow(props: { id: string }) {
           </div>
         )}
       </div>
+      <ImageCloseGuard ref={closeGuardRef} dirty={dirty} busy={completing} lock={completionLock}
+        error={actionError} onSave={() => complete("save")} />
     </div>
   );
 }

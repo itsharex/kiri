@@ -30,11 +30,12 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 
 ## What you can do
 
-- **Capture and annotate** a window or region. Crop, draw, add text, or apply mosaic; reopen saved screenshots to edit them. Drag a selected line's endpoints or body to adjust it without changing tools. Pin a saved screenshot as a resizable reference above other windows.
+- **Capture and annotate** a window or region. Crop, draw, add text, or apply mosaic; reopen saved screenshots to edit them. Keep a pending crop while annotating; canceling it keeps your marks. Save As exports a copy without saving library edits. Drag a selected line's endpoints or body to adjust it without changing tools. Pin a saved screenshot as a resizable reference above other windows.
 - **Copy text** from your screen or saved images with local OCR. Correct saved recognition in Text History and restore the original text when needed.
-- **Record** a region as MP4 or GIF. On macOS and Windows, include system audio, microphone, and a visible red click highlight.
+- **Read QR codes** with the screenshot toolbar's Recognize QR Codes tool. Open an older screenshot in the editor to use the same tool later. Multiple codes keep their own positions, including repeated content and codes recovered at different contrast thresholds. Choose a code in its original image, review its content, then copy, open a web link, or save it in QR Favorites.
+- **Record** a region as MP4 or GIF. GIF export preserves playback timing and reports the encoded duration. On macOS and Windows, include system audio, microphone, and a visible red click highlight.
 - **Edit videos** on macOS and Windows: trim, reorder, change speed, and add annotations or privacy masks.
-- **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash. Paste an image from the clipboard to annotate or recognize it, or export selected captures to a folder without moving the originals.
+- **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash. Paste an image from the clipboard to annotate or recognize it, or export selected captures to a folder without moving the originals. Narrow windows wrap whole controls without splitting their labels.
 
 ## Download
 
@@ -56,7 +57,11 @@ macOS needs **Screen & System Audio Recording** permission; click highlights als
 
 Press **⇧⌘A** on macOS or **Shift+Ctrl+A** on Windows / Linux X11, then select a window or drag a region. On Wayland, use the Capture button or bind `kiri --capture` in desktop settings.
 
-Choose Screenshot, Record, or OCR. **Enter** confirms a screenshot; **Esc** cancels capture. Screenshots go to your clipboard and local library. You can change the capture shortcut in Settings on macOS, Windows, and X11.
+Choose Screenshot, Record, or OCR. The screenshot toolbar also offers Recognize QR Codes. **Enter** confirms a screenshot; **Esc** cancels capture. Screenshots go to your clipboard and local library. Screenshot tools, Cancel and Done stay on a compact bar. More Actions reveals colors and exact-size inputs; drawing tools reveal their appearance controls. Both groups stay within the active display. You can change the capture shortcut in Settings on macOS, Windows, and X11.
+
+On macOS, if you change display layout, resolution, or scale after selecting a region, start a new capture before recording. If recording is paused, stop and save it first.
+
+While typing an annotation, Ctrl/Cmd+Z undoes text and Shift+Enter adds a line. Esc leaves the text edit first; a second Esc cancels capture. Closing an edited saved image offers Save, Discard, or Keep editing when changes are unsaved.
 
 On GNOME Wayland, if the first capture shows no permission dialog, open Kiri's Library and choose **Request Access** in the error banner. Allow screenshot access in GNOME's dialog, then retry Capture. Kiri discards the authorization image. See the [Linux guide](docs/linux.md).
 

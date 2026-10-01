@@ -84,6 +84,7 @@ pub struct AssetDto {
     pub title: Option<String>,
     pub ocr_text: Option<String>,
     pub ocr_original_text: Option<String>,
+    pub qr_text: Option<String>,
     pub tags: Vec<String>,
     pub pixel_width: i64,
     pub pixel_height: i64,
@@ -134,6 +135,7 @@ pub(crate) fn asset_dto(asset: &CaptureAsset) -> AssetDto {
         title: asset.title.clone(),
         ocr_text: asset.ocr_text.clone(),
         ocr_original_text: asset.ocr_original_text.clone(),
+        qr_text: asset.qr_text.clone(),
         tags: asset.tags.clone(),
         pixel_width: asset.pixel_width,
         pixel_height: asset.pixel_height,
@@ -180,7 +182,7 @@ pub fn list_assets(
     let assets = library.search(&query, showing_trash);
     Ok(assets
         .iter()
-        .filter(|asset| showing_trash || asset.ocr_text.is_none())
+        .filter(|asset| showing_trash || (asset.ocr_text.is_none() && asset.qr_text.is_none()))
         .map(asset_dto)
         .collect())
 }
@@ -1617,8 +1619,8 @@ fn export_gif_file(
 
     #[cfg(windows)]
     {
-        let _ = app;
-        let gif_path = crate::gif::export_gif(source_path, max_long_edge, fps)
+        let _ = (app, source_duration);
+        let (gif_path, encoded_duration) = crate::gif::export_gif(source_path, max_long_edge, fps)
             .map_err(|error| error.to_string())?;
         let (width, height) = if _source_width > 0 && _source_height > 0 {
             (_source_width as u32, _source_height as u32)
@@ -1630,7 +1632,7 @@ fn export_gif_file(
             gif_path,
             i64::from(width),
             i64::from(height),
-            source_duration,
+            Some(encoded_duration),
         ))
     }
 
@@ -3304,7 +3306,14 @@ pub async fn start_recording_flow(
         }
     }
 
-    let (screen_frame, backing_scale, return_pid, was_kiri_frontmost, overlay_labels) = {
+    let (
+        screen_frame,
+        backing_scale,
+        return_pid,
+        was_kiri_frontmost,
+        overlay_labels,
+        recording_session_id,
+    ) = {
         let state = app.state::<AppState>();
         let _transition = state.library_transition.lock().unwrap();
         {
@@ -3351,6 +3360,7 @@ pub async fn start_recording_flow(
             session.return_pid,
             session.was_kiri_frontmost,
             session.overlay_labels,
+            recording.session_id,
         )
     };
 
@@ -3362,6 +3372,9 @@ pub async fn start_recording_flow(
         move || -> Result<(), String> {
             for label in &overlay_labels {
                 if let Some(window) = app.get_webview_window(label) {
+                    #[cfg(target_os = "linux")]
+                    platform::linux::hide_window_for_capture(&window)
+                        .map_err(|error| error.to_string())?;
                     let _ = window.close();
                 }
             }
@@ -3372,7 +3385,26 @@ pub async fn start_recording_flow(
         }
     };
     #[cfg(target_os = "linux")]
-    linux_run_on_main(&app, present_recording_ui)?;
+    if let Err(error) = linux_run_on_main(&app, present_recording_ui) {
+        // Hide failure must not leave an armed recorder or stale overlay. The
+        // session ID prevents a late failure from cancelling a replacement.
+        for label in &overlay_labels {
+            if let Some(window) = app.get_webview_window(label) {
+                let _ = window.close();
+            }
+        }
+        let still_current = app
+            .state::<AppState>()
+            .recording
+            .lock()
+            .unwrap()
+            .pending_start_is_current(recording_session_id);
+        if still_current {
+            let _ = cancel_recording_flow(app.clone(), recording_session_id).await;
+            emit_error(&app, "Could not start screen recording.".into(), None);
+        }
+        return Err(error);
+    }
     #[cfg(not(target_os = "linux"))]
     present_recording_ui()?;
 
@@ -3387,7 +3419,7 @@ pub async fn start_recording_flow(
 
     if !options.uses_countdown {
         // No countdown requested: start recording immediately.
-        return begin_recording(app, None).await;
+        return begin_recording(app, Some(recording_session_id)).await;
     }
 
     // React reveals/focuses the window after mounting its controls. Do not
@@ -3773,6 +3805,25 @@ fn recording_channels(options: RecordingOptions) -> (RecorderSenders, EncoderRec
     )
 }
 
+fn recording_start_error_notice(error: &str, resuming: bool) -> String {
+    // Only known recovery guidance crosses the public notice boundary;
+    // arbitrary native errors can contain implementation details.
+    #[cfg(target_os = "macos")]
+    if matches!(
+        error,
+        "The selected display geometry changed. Start a new capture before recording."
+            | "The selected display is no longer available. Start a new capture."
+    ) {
+        return if resuming {
+            "The selected display changed or is no longer available. Stop and save the paused recording, then start a new capture.".into()
+        } else {
+            error.to_string()
+        };
+    }
+    let _ = (error, resuming);
+    "Could not start screen recording.".into()
+}
+
 fn start_recorder(
     app: &AppHandle,
     configuration: &RecordingConfiguration,
@@ -3788,6 +3839,7 @@ fn start_recorder(
     {
         let recorder = crate::capture::macos::MacRecordingSession::start(
             configuration.display_id,
+            configuration.screen_frame,
             configuration.region,
             configuration.backing_scale,
             configuration.options,
@@ -4036,11 +4088,15 @@ pub async fn begin_recording(app: AppHandle, session_id: Option<uuid::Uuid>) -> 
         let configuration = configuration.clone();
         move || -> Result<(), String> {
             if let Some(window) = app.get_webview_window("countdown") {
+                #[cfg(target_os = "linux")]
+                platform::linux::hide_window_for_capture(&window)
+                    .map_err(|error| error.to_string())?;
                 let _ = window.close();
             }
             #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("toast") {
-                let _ = window.hide();
+                platform::linux::hide_window_for_capture(&window)
+                    .map_err(|error| error.to_string())?;
             }
             #[cfg(not(target_os = "linux"))]
             create_control_panel(&app, &configuration)?;
@@ -4118,7 +4174,7 @@ pub async fn begin_recording(app: AppHandle, session_id: Option<uuid::Uuid>) -> 
         Err(error) => {
             log::error!("recording: start_recorder failed: {error}");
             if reset_startup_if_current(&app, startup_token) {
-                emit_error(&app, "Could not start screen recording.".into(), None);
+                emit_error(&app, recording_start_error_notice(&error, false), None);
                 return Err(error);
             }
             return Ok(());
@@ -4368,7 +4424,7 @@ pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
         Ok(started) => started,
         Err(error) => {
             log::error!("recording: start_recorder failed: {error}");
-            emit_error(&app, "Could not start screen recording.".into(), None);
+            emit_error(&app, recording_start_error_notice(&error, true), None);
             recover_failed_resume(&app);
             return Err(error);
         }
@@ -5297,6 +5353,29 @@ mod command_security_tests {
     use std::sync::mpsc::TrySendError;
 
     #[test]
+    fn recording_notice_keeps_unknown_native_details_private() {
+        assert_eq!(
+            super::recording_start_error_notice("native failure at /private/test.mp4", false),
+            "Could not start screen recording."
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn recording_notice_preserves_display_recovery_guidance() {
+        for message in [
+            "The selected display geometry changed. Start a new capture before recording.",
+            "The selected display is no longer available. Start a new capture.",
+        ] {
+            assert_eq!(super::recording_start_error_notice(message, false), message);
+            assert_eq!(
+                super::recording_start_error_notice(message, true),
+                "The selected display changed or is no longer available. Stop and save the paused recording, then start a new capture."
+            );
+        }
+    }
+
+    #[test]
     fn removing_missing_record_notifies_after_commit_even_when_cleanup_fails() {
         for blocked_cleanup in [false, true] {
             let directory = tempfile::tempdir().unwrap();
@@ -5410,6 +5489,7 @@ mod command_security_tests {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: Vec::new(),
             pixel_width: 10,
             pixel_height: 20,

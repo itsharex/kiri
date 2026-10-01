@@ -13,8 +13,10 @@ source and make the library dimensions inaccurate.
 ## Decision
 
 The editor exposes Crop beside Select. Its frame moves and resizes with eight
-handles. Crop mode is exclusive: other annotation tools remain disabled until
-the user saves or presses Escape to cancel the pending crop. Save and Save As
+handles. The pending frame stays in the original document coordinates when
+switching to annotation tools; reopening Crop restores its frame and undo/redo
+history. Cancel crop removes only the pending frame, preserving annotations;
+Escape does the same while Crop is active. Save and Save As
 both include the crop in their output, but only Save changes the library.
 
 For Save, the WebView translates intersecting marks and drops marks fully
@@ -32,5 +34,10 @@ its editable project.
 - Pixels outside a saved crop are no longer retained in the editable source.
 - Cropping an annotated image stays re-editable inside the new bounds.
 - Canceling Crop or canceling Save As leaves the library unchanged.
+- Crop undo/redo is active in Crop; annotation undo/redo stays independent in
+  other tools. Switching tools never writes or destructively crops the source.
+- Enter on a focused toolbar/button/input follows that control's action.
+  The editor's canvas Enter-to-Save shortcut must not replace keyboard export
+  or Cancel crop with a library save.
 - The backend derives the source crop from the opened revision instead of
   trusting source bytes supplied by the WebView.

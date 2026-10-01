@@ -321,7 +321,7 @@ fn require_library_window(window: &WebviewWindow) -> Result<(), String> {
     }
 }
 
-fn require_active_overlay(
+pub(crate) fn require_active_overlay(
     window: &WebviewWindow,
     app: &AppHandle,
 ) -> Result<OcrRequestOwner, String> {
@@ -344,22 +344,22 @@ fn require_active_overlay(
         .ok_or_else(|| "This command is only available from the active capture overlay.".into())
 }
 
-struct FrozenPngSource {
-    png: Arc<[u8]>,
-    declared_width: i64,
-    declared_height: i64,
-    display_width: f64,
-    display_height: f64,
-    scale: f64,
+pub(crate) struct FrozenPngSource {
+    pub(crate) png: Arc<[u8]>,
+    pub(crate) declared_width: i64,
+    pub(crate) declared_height: i64,
+    pub(crate) display_width: f64,
+    pub(crate) display_height: f64,
+    pub(crate) scale: f64,
 }
 
-struct CroppedPng {
-    png: Vec<u8>,
-    width: u32,
-    height: u32,
+pub(crate) struct CroppedPng {
+    pub(crate) png: Vec<u8>,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 }
 
-fn crop_frozen_png(source: FrozenPngSource, selection: RectDto) -> Result<CroppedPng, String> {
+pub(crate) fn crop_frozen_png(source: FrozenPngSource, selection: RectDto) -> Result<CroppedPng, String> {
     let values = [
         selection.x,
         selection.y,

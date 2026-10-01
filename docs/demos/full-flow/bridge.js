@@ -14,6 +14,12 @@
       if(command==='plugin:event|emit'||command==='plugin:event|emit_to'){parent.emit(args.event,args.payload);return null;}
       if(command.startsWith('plugin:window|')){
         const op=command.split('|')[1];
+        // Opt-in editor regression models Tauri's close-request -> SDK destroy
+        // sequence. This is isolated IPC, never proof of native ACL enforcement.
+        if(kind==='editor'&&parent.state.editorCloseEvents){
+          if(op==='close'){queueMicrotask(()=>window.__emit('tauri://close-requested',null));return null;}
+          if(op==='destroy'){parent.state.editorDestroyCalls=(parent.state.editorDestroyCalls||0)+1;parent.hideWindow(kind);return null;}
+        }
         if(op==='close'||op==='hide'){parent.hideWindow(kind);return null;}
         if(op==='scale_factor')return 1.5;
         if(op==='inner_size')return {width:innerWidth*1.5,height:innerHeight*1.5};

@@ -386,6 +386,7 @@ impl AssetLibrary {
             created_at,
             None,
             None,
+            None,
         )
     }
 
@@ -412,6 +413,31 @@ impl AssetLibrary {
             None,
             None,
             Some(text),
+            None,
+        )
+    }
+
+    /// Store a QR crop and searchable payload in one atomic index commit.
+    /// Matching active records are reused rather than duplicated.
+    pub fn import_qr(
+        &mut self,
+        png: &[u8],
+        width: i64,
+        height: i64,
+        text: String,
+    ) -> Result<CaptureAsset> {
+        if text.is_empty() || text.len() > 16 * 1024 {
+            return Err(AssetLibraryError::InvalidOcrText);
+        }
+        if let Some(existing) = self.index.iter().find(|a| {
+            a.trashed_at.is_none() && a.qr_text.as_deref() == Some(&text)
+        }).cloned() {
+            self.set_favorite(true, &existing.id)?;
+            return Ok(self.asset_by_id(&existing.id).unwrap().clone());
+        }
+        self.import_data_inner(
+            png, CaptureKind::Image, "png", width, height,
+            None, None, None, None, None, Some(text),
         )
     }
 
@@ -474,6 +500,7 @@ impl AssetLibrary {
             created_at,
             Some((clean_source, document)),
             None,
+            None,
         )
     }
 
@@ -490,6 +517,7 @@ impl AssetLibrary {
         created_at: Option<f64>,
         annotation_project: Option<(&[u8], &serde_json::Value)>,
         ocr_text: Option<String>,
+        qr_text: Option<String>,
     ) -> Result<CaptureAsset> {
         self.validate_storage_layout()?;
         if annotation_project.is_some() && kind != CaptureKind::Image {
@@ -507,6 +535,8 @@ impl AssetLibrary {
             persisted_created_at,
         );
         asset.ocr_text = ocr_text;
+        asset.is_favorite = qr_text.is_some();
+        asset.qr_text = qr_text;
         let file_url = self.asset_url(&asset);
         atomic_write(&file_url, data)?;
 
@@ -1346,6 +1376,7 @@ impl AssetLibrary {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: Vec::new(),
             pixel_width,
             pixel_height,
@@ -1375,6 +1406,7 @@ impl AssetLibrary {
             title: None,
             ocr_text: None,
             ocr_original_text: None,
+            qr_text: None,
             tags: Vec::new(),
             pixel_width,
             pixel_height,
@@ -1806,6 +1838,39 @@ mod tests {
         library.persist_fail.set(false);
         assert!(library.asset_url(&asset).exists());
         assert_eq!(library.load_video_project(&asset.id, library_id, generation).unwrap(), saved);
+    }
+
+    #[test]
+    fn qr_favorites_persist_deduplicate_search_and_restore_from_trash() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("qr-library");
+        let mut library = AssetLibrary::open(root.clone()).unwrap();
+        let png = include_bytes!("../../tests/fixtures/qr/url.png");
+        let source = image::load_from_memory(png).unwrap();
+        let record = library.import_qr(png, source.width() as i64, source.height() as i64, "https://example.org/kiri-safe".into()).unwrap();
+        assert!(record.is_favorite);
+        assert!(record.ocr_text.is_none());
+        let same = library.import_qr(b"another fixture", 120, 120, record.qr_text.clone().unwrap()).unwrap();
+        assert_eq!(same.id, record.id);
+        assert_eq!(library.all_assets(false).len(), 1);
+        let mut reopened = AssetLibrary::open_existing(root.clone()).unwrap();
+        assert_eq!(std::fs::read(reopened.asset_url(&record)).unwrap(), png);
+        assert_eq!(reopened.search("KIRI-SAFE", false)[0].qr_text, record.qr_text);
+        reopened.move_to_trash(&record.id).unwrap();
+        assert!(reopened.search("KIRI-SAFE", false).is_empty());
+        reopened.restore(&record.id).unwrap();
+        assert!(reopened.asset_by_id(&record.id).unwrap().is_favorite);
+        assert_eq!(AssetLibrary::open_existing(root).unwrap().search("KIRI-SAFE", false).len(), 1);
+    }
+
+    #[test]
+    fn qr_favorite_import_failure_is_atomic() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut library = AssetLibrary::open(directory.path().join("qr-library")).unwrap();
+        library.persist_fail.set(true);
+        assert!(library.import_qr(include_bytes!("../../tests/fixtures/qr/url.png"), 296, 296, "content".into()).is_err());
+        assert!(library.all_assets(false).is_empty());
+        assert_eq!(std::fs::read_dir(&library.assets_url).unwrap().count(), 0);
     }
 
     #[test]

@@ -1,0 +1,88 @@
+# Kiri integrated acceptance candidate
+
+This draft candidate combines independently reviewed fixes on main `1851f58`.
+It does not merge or release the fixes or close reporter issues. QR (#55) was
+integrated in a24ad35; Wayland GlobalShortcuts Portal (#47) remains unimplemented.
+Latest Library/QR feedback and exact evidence boundaries are in
+[the current feedback record](../library-qr-feedback/README.md).
+
+| Source issue / PR | Included change | Existing evidence | Integrated acceptance still needed |
+| --- | --- | --- | --- |
+| #63 / #64 (`9d177f8`, `4cbc9dd`) | Reject stale macOS frozen/current display geometry before starting or resuming recording; explain recovery | Source CI and injected geometry boundaries | Signed Mac native; physical display changes / mixed DPI |
+| #65 / #66 (`18259a1`, `d6cf7e4`) | Compact shared annotation toolbar, measured viewport placement and expandable parameters | Independent exact-package X11 virtual 800×600 native mouse Done → 140×160 PNG | Same scenario on the integrated package; other native platforms |
+| #54 / #68 (`0bf8303`) + export-only correction (`bea5f80`) | Text undo, two-stage Escape, newline hint and unsaved image close guard; Save As preserves the library baseline | Original Save As-clean fixture assertion withdrawn; updated 20 built-browser paths | Native text Undo suspect; image close blocked by destroy ACL; real IME pending |
+| Pending crop follow-up (`48a7182`) | Keep a pending crop while annotating; cancel only the crop, keep marks and independent histories | Built-browser coordinate/export matrix, 3 languages × 2 viewports × 4 backing scales | New exact-package native crop/export replay pending |
+| #67 / #69 (`ea55c7a`) | Cumulative GIF centisecond timing and actual encoded metadata duration | Real Rust GIF fixture full decode and platform media tests | Same original 154.156667 s MP4 converted twice in native GUI |
+| #48 / merged #50 | Existing error-toast icon fallback retained from main | Previous Ubuntu24/GNOME46 native error path and current renderer tests | Integrated error-path replay; not a claim of capture success |
+| #21 | Preserve platform multi-display and configurable shortcut tracking | Current main and fixes above | Physical mixed DPI, hotplug/default display, conflict recovery |
+
+The OCR, toolbar and image-editing renderer checks share the existing CI entry
+point and run sequentially, with each browser fixture closed before the next.
+The crop/export matrix uses that same serial entry. Its document is 500×300,
+clean source 1000×600, and exact saved crop 600×360. Backing scale emulation is
+a browser fixture, not native desktop fractional scaling or mixed-DPI hardware.
+No synthetic capture mode is added to the application. Existing source-PR
+screenshots remain labelled by their own version and environment.
+
+## One exact-package Linux replay
+
+The PR body records final head, actual CI checkout (PR merge candidate), artifact
+identity and Debian SHA256. Read `provenance.json` and verify its package digest
+before installing the candidate in the isolated QA profile. Do not reuse source
+PR acceptance as proof of the integrated package.
+
+1. On the same virtual X11 outputs (1364×1024 primary plus 800×600 secondary,
+   scale 1), select local (650,420)→(790,580). Check More/Text/Mosaic placement,
+   focused More Enter/Space, dimension-field Enter, and mouse Done's 140×160 PNG.
+2. Check screenshot pixels, OCR copy, PNG Save As, text Undo/Redo, Shift+Enter,
+   first/second Escape and real IME. Exercise image Save/Discard/Keep editing,
+   cancelled Save As and failure retention. Record fixture-only failures separately.
+   Export must preserve the unsaved library warning. Keep editing, add a mark,
+   export again, and undo to the original library baseline. Retain a crop while
+   switching annotation tools; returning to Crop restores its undo/redo. Cancel
+   crop or Escape in Crop preserves marks; final Save must use mapped pixel size.
+3. Record only public patterns. Check countdown cancellation, start/stop,
+   pause/resume, complete MP4 decode and absence of Kiri controls in frames.
+4. Reuse the original public 154.156667 s, 560×300 source MP4. Convert twice,
+   decode every GIF frame, compare delays/total duration, and require stored
+   duration to equal actual encoded duration. Keep unedited images and originals.
+5. Check shortcut conflict recovery, language/restart persistence and safe error
+   notices. Restore the virtual layout and stop all task recording/test windows.
+   Only move task-created captures to recoverable Trash; never empty user Trash.
+
+## Evidence boundaries
+
+Debian13/Xfce/X11 is additional compatibility evidence, outside the documented
+Ubuntu24/GNOME target. Virtual mixed resolutions at scale 1 are not physical mixed
+DPI. Browser fixtures, Xvfb and isolated GNOME Wayland CI have separate labels.
+The available Mac inventory is one built-in display; physical hotplug/primary
+changes remain untested. Capture freezes one active display, not cross-display
+composition; current Wayland capture rejects multiple connected displays.
+Linux video editing remains unavailable by contract. A Debian WebKit preview
+failure has not been established as a product defect. QR is now implemented with native acceptance still pending; Portal setup remains
+unimplemented. Keep all acceptance gaps visible in the unified PR body.
+
+## Native close permission repair, awaiting exact-package replay
+
+Native cloud QA observed `plugin:window|destroy not allowed by ACL`: image bytes
+were saved but the editor stayed open. Tauri's `onCloseRequested` calls destroy
+when its event is not prevented; the editor currently has close permission only.
+The user explicitly authorized the image-editor permission repair on 2026-10-01.
+A dedicated image-close capability grants destroy only to editor-* callers;
+default and other window capabilities are unchanged. The same close guard remains.
+SDK/IPC tests now model close-request to destroy and prevention while dirty,
+but the final exact package still needs native clean/Keep/Discard/Save replay.
+
+The former 18-path fixture incorrectly asserted that successful Save As updates
+the library baseline. Backend Save As has always exported only. That assertion
+is withdrawn; its replacement checks warning retention, continuing edits and
+undo to the original baseline. Do not describe the old 18 paths as full native
+editor acceptance. Parent-reported cloud PNG export/cancel, OCR, pixel copy,
+Trash/Restore, two GIFs and a first 98-second recording passed on the earlier
+candidate; native text Undo and cloud pause/resume remain pending. These are
+not acceptance of the next crop/export package.
+
+A failed-jobs-only GitHub rerun currently increments run_attempt while retaining
+the old package manifest. Strict existing provenance rejects that mismatch. Do
+not relabel the package or bypass the check; record the CI infrastructure limit
+and use a completed matching candidate. No harness relaxation is included here.
