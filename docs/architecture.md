@@ -305,6 +305,15 @@ focus before long merge/GIF work, so background finalization does not block the
 next capture. Native finalization errors fail closed and preserve a recoverable
 MP4 whenever GIF conversion cannot complete.
 
+Stopping publishes a transient `recording-save-jobs` snapshot before native
+encoder shutdown. The library renders saving placeholders throughout shutdown,
+merge, conversion and import; reopening the library gets the same snapshot with
+`get_recording_save_jobs`. Each background worker owns a separate save job, so
+returning the live recording session to idle and starting another capture do
+not hide unfinished processing. Completion refreshes normal assets and pending
+recording recovery before removing the placeholder. Incomplete files are never
+exposed as library assets, and placeholder metadata is not persisted.
+
 The native-to-encoder video handoff has a hard two-frame capacity. On macOS,
 ScreenCaptureKit's native IOSurface queue is independently limited to three
 frames. On Windows, WGC delivery is throttled to the 30 fps recording policy
@@ -397,6 +406,12 @@ or move the asset to recoverable Trash. The library keeps a separate eye action
 for flat image quick preview. Images copy as clipboard pixels; MP4 and GIF
 assets copy as operating-system file items, never as a text path or a full
 in-memory video payload.
+
+The library exposes Copy for every media kind, including its context menu and
+focused-card Cmd/Ctrl+C shortcut. The viewer exposes file copying in preview
+mode; draft video edits must be saved before copying their output. Text fields
+and text selections retain their normal copy behavior, and failed clipboard
+actions display an error.
 
 Moving an asset to Trash collapses the preview into a compact three-second Undo
 row that calls the normal library restore operation. Permanent deletion is not

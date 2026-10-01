@@ -2,11 +2,12 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as qrSelection from "../../src/qr/selection.js";
 import * as cardInteraction from "../../src/windows/library-card-interaction.js";
+import * as viewerCopyShortcut from "../../src/windows/viewer-copy-shortcut.js";
 
 // Exercise the real component handlers without a WebView, native IPC, or a
 // user's library. This models hook state/effect cleanup, not DOM or layout.
 const source = readFileSync(new URL("../../src/windows/LibraryWindow.tsx", import.meta.url), "utf8");
-const compiled = ts.transpileModule(`${source}\nexport { AssetCard };`, {
+const compiled = ts.transpileModule(`${source}\nexport { AssetCard, RecordingSaveCard };`, {
   compilerOptions: {
     target: ts.ScriptTarget.ES2021,
     jsx: ts.JsxEmit.React,
@@ -78,6 +79,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
     },
   };
   const window = {
+    getSelection: () => null,
     addEventListener(name, callback) {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name).add(callback);
@@ -107,6 +109,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
         getLibraryStatus: async () => ({ availability: "ready" }),
         listAssets: async () => [testAsset],
         listPendingRecordings: async () => [],
+        getRecordingSaveJobs: async () => [],
         getShortcutStatus: async () => ({ status: "enabled", label: "shortcut" }),
         ...apiOverrides,
       },
@@ -114,6 +117,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
       onLibraryChanged: subscribe("libraryChanged"),
       onAssetContentChanged: subscribe("assetContentChanged"),
       onGifConversionState: subscribe("gifConversionState"),
+      onRecordingSaveJobs: subscribe("recordingSaveJobs"),
       onNotice: subscribe("notice"),
       onError: subscribe("error"),
     },
@@ -124,15 +128,16 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
       kiriResourceUrl: (route, [id], { v }) => `${route}:${id}?v=${v}`,
     },
     "./library-card-interaction.js": cardInteraction,
+    "./viewer-copy-shortcut.js": viewerCopyShortcut,
   };
   const module = { exports: {} };
   const componentCode = componentSource == null ? compiled : ts.transpileModule(componentSource, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
-  new Function("require", "module", "exports", "window", componentCode)((name) => {
+  new Function("require", "module", "exports", "window", "document", "requestAnimationFrame", "cancelAnimationFrame", componentCode)((name) => {
     if (!(name in modules)) throw new Error(`Unexpected import: ${name}`);
     return modules[name];
-  }, module, module.exports, window);
+  }, module, module.exports, window, { ...window, body: null, querySelector: () => null }, () => 1, () => {});
 
   return {
     window,

@@ -8,6 +8,7 @@ import { VideoTrimPlayer } from "./VideoTrimPlayer";
 import { OcrDialog } from "../ocr/TextHistory";
 import { t } from "../i18n";
 import { KiriIcon } from "../components/KiriIcons";
+import { installViewerCopyShortcut } from "./viewer-copy-shortcut.js";
 import {
   createViewerLoadingState,
   createViewerReadyState,
@@ -25,6 +26,10 @@ export function ViewerWindow(props: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [videoEditorOpen, setVideoEditorOpen] = useState(false);
+  const copyInFlight = useRef(false);
+  const mounted = useRef(true);
   const loadGeneration = useRef(0);
 
   const loadAsset = useCallback(async () => {
@@ -32,6 +37,7 @@ export function ViewerWindow(props: { id: string }) {
     setState(createViewerLoadingState());
     setConfirmRemove(false);
     setOperationError(null);
+    setVideoEditorOpen(false);
     try {
       const asset = await api.getAsset(props.id);
       if (generation === loadGeneration.current) {
@@ -51,8 +57,10 @@ export function ViewerWindow(props: { id: string }) {
   }, [props.id]);
 
   useEffect(() => {
+    mounted.current = true;
     void loadAsset();
     return () => {
+      mounted.current = false;
       loadGeneration.current += 1;
     };
   }, [loadAsset]);
@@ -82,6 +90,30 @@ export function ViewerWindow(props: { id: string }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  const copy = useCallback(async () => {
+    if (copyInFlight.current || state.kind !== "ready" || videoEditorOpen) return;
+    copyInFlight.current = true;
+    setCopying(true);
+    setOperationError(null);
+    const generation = loadGeneration.current;
+    try {
+      await api.copyAsset(state.asset.id);
+    } catch {
+      if (mounted.current && generation === loadGeneration.current) {
+        setOperationError("Couldn't copy this capture.");
+      }
+    } finally {
+      copyInFlight.current = false;
+      if (mounted.current) setCopying(false);
+    }
+  }, [state, videoEditorOpen]);
+
+  useEffect(() => installViewerCopyShortcut(window, {
+    canCopy: () => state.kind === "ready" && !copying && !videoEditorOpen && !ocrOpen,
+    hasTextSelection: () => !!window.getSelection()?.toString(),
+    copy: () => void copy(),
+  }), [state, copying, videoEditorOpen, ocrOpen, copy]);
 
   const close = () => {
     void getCurrentWindow().close();
@@ -149,6 +181,12 @@ export function ViewerWindow(props: { id: string }) {
   };
 
   const mediaKind = viewerMediaKind(state);
+  const copyButton = (
+    <button type="button" className="kiri-button kiri-button--secondary" disabled={copying}
+      onClick={() => void copy()}>
+      <KiriIcon name="doc.on.doc" size={14} />{t("Copy")}
+    </button>
+  );
 
   return (
     <div
@@ -253,6 +291,8 @@ export function ViewerWindow(props: { id: string }) {
           id={props.id}
           src={mediaUrl(props.id)}
           editable={videoEditing && state.kind === "ready" && !state.asset.trashedAt}
+          previewActions={copyButton}
+          onEditingChange={setVideoEditorOpen}
           onClose={close}
           onError={() => void handleMediaError()}
         />
@@ -267,10 +307,15 @@ export function ViewerWindow(props: { id: string }) {
         />
       ) : null}
 
-      {state.kind === "ready" && state.asset.kind === "image" && !state.asset.trashedAt && <>
-        <button type="button" className="kiri-button kiri-button--secondary" style={{ position: "absolute", top: 12, left: 12 }} onClick={() => setOcrOpen(true)}>
+      {state.kind === "ready" && mediaKind === "image" && <div style={{ position: "absolute", top: 12, left: 12, right: 54, display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {copyButton}
+        {state.asset.kind === "image" && !state.asset.trashedAt && <button type="button" className="kiri-button kiri-button--secondary" onClick={() => setOcrOpen(true)}>
           <KiriIcon name="text.viewfinder" size={14} />{t(state.asset.ocrText != null ? "Read Text" : "Recognize Text Locally")}
-        </button>
+        </button>}
+      </div>}
+      {state.kind === "ready" && operationError && <div role="alert" style={{ position: "absolute", bottom: 48, left: "50%", transform: "translateX(-50%)", maxWidth: "calc(100% - 32px)", padding: "10px 14px", borderRadius: 10, background: "var(--kiri-elevated)", color: "var(--kiri-label)", font: "400 13px var(--kiri-font-ui)" }}>{t(operationError)}</div>}
+
+      {state.kind === "ready" && state.asset.kind === "image" && !state.asset.trashedAt && <>
         {ocrOpen && <OcrDialog asset={state.asset} onClose={() => setOcrOpen(false)} />}
       </>}
       {!(state.kind === "ready" && mediaKind === "video") && <><button

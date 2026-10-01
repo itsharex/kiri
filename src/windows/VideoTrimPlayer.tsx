@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Scissors, Trash2, Undo2, Redo2, Play, Pause, RotateCcw, X, ImagePlus, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { api } from "../lib/ipc";
 import { currentMonitor, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
@@ -50,7 +50,7 @@ async function makeRoomForVideoEditor() {
   await window.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
 }
 
-export function VideoTrimPlayer(props: { id: string; src: string; editable: boolean; onClose(): void; onError(): void }) {
+export function VideoTrimPlayer(props: { id: string; src: string; editable: boolean; previewActions?: ReactNode; onEditingChange?(editing: boolean): void; onClose(): void; onError(): void }) {
   const video = useRef<HTMLVideoElement>(null);
   const container=useRef<HTMLDivElement>(null);
   const playbackIndex=useRef(0);
@@ -81,6 +81,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
   const [doc, setDoc] = useState<EditDocument>({segments:[],effects:[],annotations:[],stickers:[]});
   const docRef = useRef(doc); docRef.current=doc;
   const [editing, setEditing] = useState(false);
+  useEffect(() => { props.onEditingChange?.(editing); }, [editing, props.onEditingChange]);
   useEffect(() => {
     if (editing) void makeRoomForVideoEditor().catch(() => {});
   }, [editing]);
@@ -593,6 +594,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
     <header className="kiri-video-editor-heading">
       <div><strong>{t(editing ? "Video editor" : "Video")}</strong><span>{t(editing ? "Your original recording stays unchanged." : "Esc to close")}</span></div>
       <div className="kiri-video-header-actions">
+        {!editing && props.previewActions}
         {editing&&<div className="kiri-video-project-status" role="status" aria-live="polite">{project.state.status==="error"?<button type="button" className="kiri-video-save-retry" onClick={project.retry}>{t("Not saved · Retry")}</button>:t(project.state.status==="saved"?"Edit saved":project.state.status==="saving"||project.state.status==="waiting"?"Saving edit…":"Edits save automatically")}</div>}
         {editing&&<VideoExportPanel preset={preset} onPreset={next=>{setPreset(next);projectContext.current.preset=next;project.schedule();setSavedId(null);}} sourceSize={sourceSize} duration={total} valid={valid&&!project.state.error?.includes("SOURCE_CHANGED")} busy={busy} error={error} saved={!!savedId} progress={exportProgress} cancelling={cancelling} cancelled={exportCancelled} cancelFailed={cancelFailed} onCancel={()=>void cancelExport()} onSave={()=>void saveCopy()} onOpen={()=>{if(savedId)void api.openAsset(savedId).catch(()=>setError(true));}}/>}
 

@@ -33,6 +33,9 @@ pub struct AppState {
     /// confirmation IPC can block WebView2 before its response is delivered.
     pub pending_capture_completion: std::sync::Mutex<Option<PendingCaptureCompletion>>,
     pub recording: std::sync::Mutex<RecordingFlow>,
+    /// Finalization outlives the live recording session and can overlap a new
+    /// capture. These transient jobs are never written as library assets.
+    pub recording_save_jobs: std::sync::Mutex<RecordingSaveJobs>,
     pub saved_annotation_appearance: std::sync::Mutex<AnnotationAppearance>,
     pub saved_recording_options: std::sync::Mutex<RecordingOptions>,
     pub recording_recovery: std::sync::Mutex<RecordingRecoveryStore>,
@@ -361,6 +364,72 @@ pub struct RecordingStateDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RecordingSaveJobDto {
+    pub id: String,
+    pub kind: String,
+    pub created_at: String,
+    pub duration: Option<f64>,
+    pub pixel_width: i64,
+    pub pixel_height: i64,
+}
+
+#[derive(Default)]
+pub struct RecordingSaveJobs {
+    jobs: HashMap<String, RecordingSaveJobDto>,
+}
+
+impl RecordingSaveJobs {
+    pub fn begin(&mut self, job: RecordingSaveJobDto) {
+        self.jobs.insert(job.id.clone(), job);
+    }
+
+    pub fn finish(&mut self, id: &str) {
+        self.jobs.remove(id);
+    }
+
+    pub fn snapshot(&self) -> Vec<RecordingSaveJobDto> {
+        let mut jobs: Vec<_> = self.jobs.values().cloned().collect();
+        jobs.sort_by(|left, right| {
+            right.created_at.cmp(&left.created_at).then_with(|| left.id.cmp(&right.id))
+        });
+        jobs
+    }
+}
+
+/// Owns one background save independently of RecordingFlow::take_and_reset.
+/// Publishing under the registry lock preserves event order between workers.
+pub struct RecordingSaveJobGuard {
+    app: AppHandle,
+    id: String,
+}
+
+impl RecordingSaveJobGuard {
+    pub fn begin(app: &AppHandle, job: RecordingSaveJobDto) -> Self {
+        let state = app.state::<AppState>();
+        let mut jobs = state.recording_save_jobs.lock().unwrap();
+        let id = job.id.clone();
+        jobs.begin(job);
+        let _ = app.emit("recording-save-jobs", jobs.snapshot());
+        Self { app: app.clone(), id }
+    }
+}
+
+impl Drop for RecordingSaveJobGuard {
+    fn drop(&mut self) {
+        let state = self.app.state::<AppState>();
+        {
+            let mut jobs = state.recording_save_jobs.lock().unwrap();
+            jobs.finish(&self.id);
+            let _ = self.app.emit("recording-save-jobs", jobs.snapshot());
+        }
+        // Refresh both successful imports and the existing recovery banner
+        // before the frontend retires this job's placeholder.
+        emit_library_changed(&self.app);
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NoticeDto {
     pub id: String,
     pub title: String,
@@ -452,6 +521,7 @@ impl AppState {
             capture: Default::default(),
             pending_capture_completion: Default::default(),
             recording: Default::default(),
+            recording_save_jobs: Default::default(),
             saved_annotation_appearance: std::sync::Mutex::new(AnnotationAppearance::default()),
             saved_recording_options: std::sync::Mutex::new(RecordingOptions::default()),
             recording_recovery: std::sync::Mutex::new(recording_recovery),
@@ -1079,11 +1149,48 @@ mod tests {
     use super::{
         mark_error_seen, toast_position, urlencode, ActiveRecording, CaptureFlow,
         CaptureScheduleGate, CaptureSession, CaptureStartGate, RecordingConfiguration,
-        RecordingFlow,
+        RecordingFlow, RecordingSaveJobDto, RecordingSaveJobs,
     };
     use crate::capture::CapturedDisplay;
     use crate::core::geometry::Rect;
     use crate::core::policy::RecordingOptions;
+
+    fn save_job(id: &str, created_at: &str) -> RecordingSaveJobDto {
+        RecordingSaveJobDto {
+            id: id.into(),
+            kind: "video".into(),
+            created_at: created_at.into(),
+            duration: Some(120.0),
+            pixel_width: 1920,
+            pixel_height: 1080,
+        }
+    }
+
+    #[test]
+    fn recording_save_remains_visible_after_live_session_returns_to_idle() {
+        let mut jobs = RecordingSaveJobs::default();
+        jobs.begin(save_job("long-video", "2026-10-02T01:00:00Z"));
+        let mut recording = RecordingFlow {
+            is_finalizing: true,
+            ..Default::default()
+        };
+        let _ = recording.take_and_reset();
+        assert!(!recording.is_finalizing);
+        assert_eq!(jobs.snapshot()[0].id, "long-video");
+    }
+
+    #[test]
+    fn finishing_an_old_save_keeps_the_newer_background_job() {
+        let mut jobs = RecordingSaveJobs::default();
+        jobs.begin(save_job("first", "2026-10-02T01:00:00Z"));
+        jobs.begin(save_job("second", "2026-10-02T01:01:00Z"));
+        assert_eq!(jobs.snapshot().iter().map(|job| job.id.as_str()).collect::<Vec<_>>(), vec!["second", "first"]);
+        jobs.finish("first");
+        jobs.finish("first"); // A duplicate/stale completion cannot clear another save.
+        assert_eq!(jobs.snapshot()[0].id, "second");
+        jobs.finish("second");
+        assert!(jobs.snapshot().is_empty());
+    }
 
     #[test]
     fn urlencode_escapes_spaces_and_keeps_words() {

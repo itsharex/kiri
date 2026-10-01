@@ -72,6 +72,16 @@ export interface PendingRecordingDto {
   createdAt: number;
 }
 
+/** Background finalization status; transient and not a saved library asset. */
+export interface RecordingSaveJob {
+  id: string;
+  kind: "video" | "gif";
+  createdAt: string;
+  duration: number | null;
+  pixelWidth: number;
+  pixelHeight: number;
+}
+
 export type RecordingOutputFormat = "mp4" | "gif";
 
 export interface RecordingOptions {
@@ -241,6 +251,7 @@ export const api = {
     invoke<void>("remove_missing_asset", { id }),
   listPendingRecordings: () =>
     invoke<PendingRecordingDto[]>("list_pending_recordings"),
+  getRecordingSaveJobs: () => invoke<RecordingSaveJob[]>("get_recording_save_jobs"),
   retryPendingRecordings: () => invoke<number>("retry_pending_recordings"),
   setFavorite: (id: string, favorite: boolean) =>
     invoke<void>("set_favorite", { id, favorite }),
@@ -427,6 +438,12 @@ export function onRecordingState(
   handler: (state: RecordingState) => void,
 ): Promise<UnlistenFn> {
   return listen<RecordingState>("recording-state", (event) => handler(event.payload));
+}
+
+export function onRecordingSaveJobs(
+  handler: (jobs: RecordingSaveJob[]) => void,
+): Promise<UnlistenFn> {
+  return listen<RecordingSaveJob[]>("recording-save-jobs", (event) => handler(event.payload));
 }
 
 export function mediaUrl(id: string): string {

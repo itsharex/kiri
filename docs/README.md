@@ -89,6 +89,8 @@ application or a durable product decision.
   — explicit center-marker selection and validation of QR finder geometry.
 - [`adr/0064-direct-qr-selection-and-opening.md`](adr/0064-direct-qr-selection-and-opening.md)
   — original-region QR markers, automatic saving of selected codes and direct opening.
+- [`adr/0065-recording-save-status-and-file-copy.md`](adr/0065-recording-save-status-and-file-copy.md)
+  — visible background recording saves and native file copying from the library and viewer.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags
