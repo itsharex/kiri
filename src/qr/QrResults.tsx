@@ -3,7 +3,7 @@ import { QrCode, Copy, ExternalLink, Star, X, Trash2, ChevronRight } from "lucid
 import { api, mediaUrl, onLibraryChanged, type AssetDto, type QrCodeDto, type QrScanDto } from "../lib/ipc";
 import { t, fmt } from "../i18n";
 import type { Rect } from "../annotation/geom";
-import { initialQrSelection, qrCodeCenter, qrContentType } from "./selection.js";
+import { initialQrSelection, qrCodeCenter, qrContentType, qrLooksLikeLink } from "./selection.js";
 import "../ocr/text-history.css";
 import "./qr.css";
 
@@ -15,6 +15,8 @@ export function QrDetails({ code, action, saved = false, removable = false, auto
   const [message, setMessage] = useState("");
   const [favorite, setFavorite] = useState(saved);
   const contentType = qrContentType(code);
+  const linkWarning = code.suspicious && contentType !== "WeChat" && (!!code.url || qrLooksLikeLink(code.text ?? ""));
+  const directionWarning = code.text?.includes("\u202e") === true;
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { setFavorite(saved); }, [saved]);
@@ -37,8 +39,8 @@ export function QrDetails({ code, action, saved = false, removable = false, auto
     <div className="qr-content" tabIndex={0}>{code.text ?? t("This QR code could not be decoded. Try a clearer image.")}</div>
     {code.text && <>
       {code.host && <p className="qr-host">{t("Destination")}: <bdi>{code.host}</bdi></p>}
-      {code.suspicious && contentType !== "WeChat" && <p className="qr-warning" role="note">{t("Review this content carefully. This link may be unsafe.")}</p>}
-      {!code.url && code.suspicious && contentType !== "WeChat" && <p className="qr-warning">{t("Only explicit HTTP or HTTPS links without credentials can be opened.")}</p>}
+      {(linkWarning || directionWarning) && <p className="qr-warning" role="note">{t(linkWarning ? "Review this content carefully. This link may be unsafe." : "Review this content carefully.")}</p>}
+      {!code.url && linkWarning && <p className="qr-warning">{t("Only explicit HTTP or HTTPS links without credentials can be opened.")}</p>}
       <div className="qr-actions">
         {code.url && <button type="button" className="kiri-button kiri-button--primary" disabled={busy} onClick={() => void run("open")}><ExternalLink size={14}/>{t("Open Link")}</button>}
         <button type="button" className={`kiri-button ${code.url ? "kiri-button--secondary" : "kiri-button--primary"}`} disabled={busy} onClick={() => void run("copy")}><Copy size={14}/>{t("Copy Text")}</button>
@@ -180,30 +182,6 @@ export function QrResults({ scan, onOpened, sourceRect, viewport, onClose }: {
   </div>;
 }
 
-export function QrModal({ scan, failed, onClose, onRetry }: { scan: QrScanDto | null; failed?: boolean; onClose(): void; onRetry?(): void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { const element = dialog.current; element?.showModal(); return () => element?.close(); }, []);
-  return <dialog ref={dialog} className="text-dialog qr-dialog" aria-labelledby="qr-dialog-title" onPointerDown={event => event.stopPropagation()} onContextMenu={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()} onCancel={event => { event.preventDefault(); onClose(); }}>
-    <header className="text-dialog__header"><div><h2 id="qr-dialog-title">{t("QR Codes")}</h2><p>{t("Recognized locally. Choose what to copy, open, or save.")}</p></div><button type="button" className="kiri-icon-button" aria-label={t("Close")} onClick={onClose}><X size={16}/></button></header>
-    {scan ? <QrResults key={scan.requestId} scan={scan} onOpened={onClose}/> : <div className="text-history__empty" role={failed ? "alert" : "status"}><QrCode size={28}/><p>{t(failed ? "QR recognition failed." : "Recognizing QR Codes…")}</p></div>}
-    {(failed || scan?.codes.length === 0) && onRetry && <button type="button" className="kiri-button kiri-button--secondary" onClick={onRetry}>{t("Choose Another Region")}</button>}
-  </dialog>;
-}
-
-export function QrAssetDialog({ asset, onClose }: { asset: AssetDto; onClose(): void }) {
-  const [scan, setScan] = useState<QrScanDto | null>(null);
-  const [failed, setFailed] = useState(false);
-  const request = useRef<{ id: string; promise: Promise<QrScanDto> } | null>(null);
-  useEffect(() => {
-    let current = true;
-    if (!request.current) { const id = crypto.randomUUID(); request.current = { id, promise: api.scanQr(id, null, asset.id) }; }
-    void request.current.promise.then(scan => { if (current) setScan(scan); }, () => { if (current) setFailed(true); });
-    // StrictMode replays setup. Cancel belongs to the actual close action.
-    return () => { current = false; };
-  }, [asset.id]);
-  return <QrModal scan={scan} failed={failed} onClose={() => { if (request.current) void api.cancelQr(request.current.id); onClose(); }}/>;
-}
-
 export function QrFavorites() {
   const [query, setQuery] = useState("");
   const [records, setRecords] = useState<AssetDto[]>([]);
@@ -233,6 +211,6 @@ export function QrFavorites() {
 function favoriteCode(text: string): QrCodeDto {
   // The backend repeats URL validation before every explicit open action.
   let url: URL | null = null;
-  try { if (/^https?:\/\//i.test(text) && !/[\s\\\u0000-\u001f\u007f]/.test(text)) { const parsed = new URL(text); if (!parsed.username && !parsed.password) url = parsed; } } catch { /* Plain content. */ }
-  return { index: 0, corners: [], text, url: url?.href ?? null, host: url?.hostname ?? null, suspicious: url ? /xn--|localhost|^\[|^\d+\.\d+\.\d+\.\d+$/.test(url.hostname) : text.includes(":") || text.includes("\u202e") };
+  try { if (/^https?:\/\//i.test(text) && !/[\s\\\u0000-\u001f\u007f\u202e]/.test(text)) { const parsed = new URL(text); if (!parsed.username && !parsed.password) url = parsed; } } catch { /* Plain content. */ }
+  return { index: 0, corners: [], text, url: url?.href ?? null, host: url?.hostname ?? null, suspicious: text.includes("\u202e") || (url ? /xn--|localhost|^\[|^\d+\.\d+\.\d+\.\d+$/.test(url.hostname) : qrLooksLikeLink(text)) };
 }

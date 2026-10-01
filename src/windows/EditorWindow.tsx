@@ -2,10 +2,10 @@
 // Dark screenshot editor with one compact toolbar and an aspect-fit canvas.
 
 import { OcrDialog } from "../ocr/TextHistory";
-import { QrAssetDialog } from "../qr/QrResults";
-import type { AssetDto } from "../lib/ipc";
+import { QrOverlay } from "../qr/QrOverlay";
+import type { AssetDto, QrScanDto } from "../lib/ipc";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, isEditorRevisionMismatch } from "../lib/ipc";
+import { api, isEditorRevisionMismatch, onEditorRecognizeQr } from "../lib/ipc";
 import { t } from "../i18n";
 import { isTextComposition } from "../annotation/text-composition.js";
 import type { Rect } from "../annotation/geom";
@@ -51,6 +51,7 @@ const TOOLS: { tool: EditorTool; icon: IconName; title: string }[] = [
 ];
 
 export function EditorWindow(props: { id: string }) {
+  const [readOnly, setReadOnly] = useState(() => new URLSearchParams(window.location.search).get("readonly") === "1");
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [imageSize, setImageSize] = useState<{ w: number; h: number } | null>(null);
   const [document, setDocument] = useState<AnnotationDocumentV1 | null>(null);
@@ -64,7 +65,9 @@ export function EditorWindow(props: { id: string }) {
   const [canRedo, setCanRedo] = useState(false);
   const [hasMarks, setHasMarks] = useState(false);
   const [ocrAsset, setOcrAsset] = useState<AssetDto | null>(null);
-  const [qrAsset, setQrAsset] = useState<AssetDto | null>(null);
+  const [qrActive, setQrActive] = useState(false);
+  const [qrScan, setQrScan] = useState<QrScanDto | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [currentMarks, setCurrentMarks] = useState<AnnotationMark[]>([]);
@@ -74,12 +77,92 @@ export function EditorWindow(props: { id: string }) {
   const canvasRef = useRef<AnnotationCanvasHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const revisionRef = useRef<string | null>(null);
+  const qrRequestRef = useRef<string | null>(null);
+  const requestedQrRef = useRef(new URLSearchParams(window.location.search).get("qr") === "1");
   const completionLock = useMemo(() => new AnnotationInteractionLock(), []);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const canvasLock = useMemo(() => ({
+    get locked() { return readOnlyRef.current || completionLock.locked || qrRequestRef.current !== null; },
+  }), [completionLock]);
+  const closeQr = useCallback(() => {
+    const requestId = qrRequestRef.current;
+    qrRequestRef.current = null;
+    setQrActive(false);
+    setQrScan(null);
+    setQrError(null);
+    if (requestId) void api.cancelQr(requestId).catch(() => {});
+  }, []);
+  const runQr = useCallback(() => {
+    const revision = revisionRef.current;
+    if (!imageSize || !revision || ocrAsset || completionLock.locked || qrRequestRef.current) return;
+    const requestId = crypto.randomUUID();
+    qrRequestRef.current = requestId;
+    setActionError(null);
+    setQrActive(true);
+    setQrScan(null);
+    setQrError(null);
+    void api.scanQr(requestId, null, props.id, revision).then(scan => {
+      if (qrRequestRef.current !== requestId) return;
+      // The arrows describe this displayed source, never a changed asset or
+      // annotation document's logical coordinates (which can differ at 2x).
+      if (scan.width !== imageSize.w || scan.height !== imageSize.h) {
+        setQrError("The screenshot changed. Close and reopen the editor.");
+        void api.cancelQr(requestId).catch(() => {});
+        return;
+      }
+      setQrScan(scan);
+    }).catch(error => {
+      if (qrRequestRef.current !== requestId) return;
+      setQrError(isEditorRevisionMismatch(error)
+        ? "The screenshot changed. Close and reopen the editor."
+        : "QR recognition failed.");
+    });
+  }, [completionLock, imageSize, ocrAsset, props.id]);
+  const runQrRef = useRef(runQr);
+  runQrRef.current = runQr;
   const onTextDraftChange = useCallback((mark: AnnotationMark | null, previousId: number | null, editing: boolean) => {
     setTextDraft({ mark, previousId, editing });
   }, []);
   const effectiveCrop = document && cropSelection && !isFullCrop(document, cropSelection) ? cropSelection : null;
   const dirty = hasUnsavedImageChanges(savedSnapshot, currentMarks, effectiveCrop, textDraft);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const consumePending = async () => {
+      if (disposed) return;
+      try {
+        const requested = await api.takeEditorQrRequest();
+        if (disposed || !requested) return;
+        requestedQrRef.current = true;
+        runQrRef.current();
+        if (qrRequestRef.current) requestedQrRef.current = false;
+      } catch { /* The toolbar remains available if a window event fails. */ }
+    };
+    void onEditorRecognizeQr(() => { void consumePending(); }).then(stop => {
+      if (disposed) stop();
+      else {
+        unlisten = stop;
+        // The backend queues an existing editor's request until this listener
+        // is ready, including a request emitted while the WebView was loading.
+        void consumePending();
+      }
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+      // StrictMode replays this cleanup before the first image finishes loading.
+      // Preserve an unconsumed query/event intent for the next setup.
+      closeQr();
+    };
+  }, [closeQr, props.id]);
+
+  useEffect(() => {
+    if (!imageSize || !requestedQrRef.current) return;
+    runQr();
+    if (qrRequestRef.current) requestedQrRef.current = false;
+  }, [completing, imageSize, runQr]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -119,6 +202,7 @@ export function EditorWindow(props: { id: string }) {
       let revisionSha256: string;
       try {
         const snapshot = await api.getAssetAnnotationProject(props.id);
+        if (!disposed) setReadOnly(snapshot.readOnly === true);
         revisionSha256 = snapshot.revisionSha256;
         if (snapshot.state === "valid") {
           if (!snapshot.documentJson) throw new Error("valid project has no document");
@@ -205,9 +289,23 @@ export function EditorWindow(props: { id: string }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTextComposition(e)) return;
+      if (qrRequestRef.current) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          closeQr();
+        }
+        // QR controls and selected text retain their normal keyboard behavior.
+        // Editor save, undo, crop and annotation shortcuts stay paused.
+        return;
+      }
       if (completionLock.locked) {
         e.preventDefault();
         e.stopPropagation();
+        return;
+      }
+      if (readOnlyRef.current) {
+        if (e.key === "Escape") void closeWindow();
         return;
       }
       if (e.key === "Escape") {
@@ -256,9 +354,10 @@ export function EditorWindow(props: { id: string }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [completionLock, cropRedo, cropSelection, cropUndo, document, tool]);
+  }, [closeQr, completionLock, cropRedo, cropSelection, cropUndo, document, tool]);
 
   function selectTool(next: EditorTool) {
+    if (readOnlyRef.current || qrRequestRef.current) return;
     setTool(next);
     if (next === "crop" && document) {
       setCropSelection((current) => current ?? fullCropRect(document));
@@ -295,10 +394,12 @@ export function EditorWindow(props: { id: string }) {
   }
 
   async function closeWindow() {
+    if (qrRequestRef.current) { closeQr(); return; }
     await closeGuardRef.current?.requestClose();
   }
 
   async function complete(action: "save" | "saveAs") {
+    if (readOnlyRef.current || qrRequestRef.current) return;
     if (!completionLock.acquire()) return;
     setCompleting(true);
     const failureMessage = "Couldn't save the edited image. Try again.";
@@ -392,7 +493,8 @@ export function EditorWindow(props: { id: string }) {
           transition: "opacity 0.12s ease-out",
         }}
       >
-        <div
+        {!readOnly && <div
+          inert={qrActive}
           style={{
             minWidth: 0,
             flex: 1,
@@ -401,6 +503,7 @@ export function EditorWindow(props: { id: string }) {
             gap: 4,
             overflowX: "auto",
             scrollbarWidth: "none",
+            opacity: qrActive ? 0.5 : 1,
           }}
         >
         {TOOLS.map(({ tool: t2, icon, title }) => (
@@ -513,15 +616,16 @@ export function EditorWindow(props: { id: string }) {
           disabled={tool === "crop" || !hasMarks}
           onClick={() => canvasRef.current?.clearAnnotations()}
         />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-        <EditorToolButton icon="qrcode" title={t("Recognize QR Codes")} disabled={!image || completing || tool === "crop"}
-          onClick={() => { void api.getAsset(props.id).then(setQrAsset).catch(() => setActionError(t("Can't read this file."))); }} />
-        <EditorToolButton icon="text.viewfinder" title={t("Recognize Saved Image Locally")} disabled={!image || completing}
-          onClick={() => { void api.getAsset(props.id).then(setOcrAsset).catch(() => setActionError(t("Can't read this file."))); }} />
-        <button
+        </div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, marginLeft: "auto" }}>
+        <EditorToolButton icon="qrcode" title={t("Recognize QR Codes")} active={qrActive} disabled={!image || completing || !!ocrAsset}
+          onClick={() => qrRequestRef.current ? closeQr() : runQr()} />
+        {!readOnly && <EditorToolButton icon="text.viewfinder" title={t("Recognize Saved Image Locally")} disabled={!image || completing || qrActive}
+          onClick={() => { void api.getAsset(props.id).then(setOcrAsset).catch(() => setActionError(t("Can't read this file."))); }} />}
+        {!readOnly && <button
           type="button"
           className="kiri-button kiri-button--secondary"
+          disabled={qrActive}
           style={{
             height: 32,
             borderRadius: 10,
@@ -529,7 +633,7 @@ export function EditorWindow(props: { id: string }) {
           onClick={() => void complete("saveAs")}
         >
           {t("Save As…")}
-        </button>
+        </button>}
         <button
           type="button"
           className="kiri-button kiri-button--ghost"
@@ -538,23 +642,23 @@ export function EditorWindow(props: { id: string }) {
             height: 32,
             borderRadius: 10,
           }}
-          onClick={closeWindow}
+          onClick={() => qrRequestRef.current ? closeQr() : closeWindow()}
         >
-          {t("Cancel")}
+          {t(readOnly ? "Close" : "Cancel")}
         </button>
-        <button
+        {!readOnly && <button
           type="button"
           className="kiri-primary-button"
+          disabled={qrActive}
           style={{ minHeight: 32, borderRadius: 10 }}
           onClick={() => void complete("save")}
         >
           {t("Save")}
-        </button>
+        </button>}
         </div>
       </div>
 
       {ocrAsset && <OcrDialog asset={ocrAsset} onClose={() => setOcrAsset(null)} />}
-      {qrAsset && <QrAssetDialog key={qrAsset.id} asset={qrAsset} onClose={() => setQrAsset(null)} />}
 
       {actionError && (
         <div
@@ -602,15 +706,20 @@ export function EditorWindow(props: { id: string }) {
       {/* Canvas area */}
       <div ref={containerRef} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#141414", position: "relative" }}>
         {imageSize && document && (
-          <div style={{ position: "relative", width: viewSize.width, height: viewSize.height }}>
+          <div style={{ position: "relative", width: viewSize.width, height: viewSize.height,
+            backgroundImage: qrActive && image ? `url("${image.src}")` : undefined,
+            backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}>
+            {/* Keep the canvas and native text editor mounted: QR reads the
+                same clean source, then restores all unsaved edits on exit. */}
+            <div style={{ visibility: qrActive ? "hidden" : undefined }}>
             <AnnotationCanvas
               ref={canvasRef}
               image={image}
               region={documentRegion}
               viewSize={viewSize}
               initialDocument={document}
-              interactionDisabled={completing || tool === "crop"}
-              interactionLock={completionLock}
+              interactionDisabled={readOnly || completing || tool === "crop" || qrActive}
+              interactionLock={canvasLock}
               tool={tool === "crop" ? "select" : tool}
               appearance={appearance}
               onHistoryChange={(u, r, populated) => {
@@ -627,16 +736,22 @@ export function EditorWindow(props: { id: string }) {
                 document={document}
                 viewSize={viewSize}
                 selection={cropSelection}
-                active={tool === "crop" && !completing}
+                active={tool === "crop" && !completing && !qrActive}
                 onChange={setCropSelection}
                 onCommit={commitCrop}
               />
             )}
+            </div>
           </div>
         )}
+        {qrActive && <QrOverlay scan={qrScan} failed={!!qrError} error={qrError}
+          sourceRect={{ x: (containerSize.width - viewSize.width) / 2,
+            y: (containerSize.height - viewSize.height) / 2, ...viewSize }}
+          selection={documentRegion} bounds={{ x: 0, y: 0, ...containerSize }} scale={1}
+          onRetry={() => { closeQr(); runQr(); }} onClose={closeQr} onOpened={closeQr} />}
       </div>
-      <ImageCloseGuard ref={closeGuardRef} dirty={dirty} busy={completing} lock={completionLock}
-        error={actionError} onSave={() => complete("save")} />
+      <ImageCloseGuard ref={closeGuardRef} dirty={!readOnly && dirty} busy={completing} lock={completionLock}
+        error={actionError} onSave={() => { closeQr(); return complete("save"); }} />
     </div>
   );
 }

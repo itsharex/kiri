@@ -54,6 +54,8 @@ pub struct AppState {
     /// One native-save-panel destination per live editor window. The renderer
     /// receives only the opaque token; a save consumes both token and path.
     pub editor_save_destinations: std::sync::Mutex<HashMap<String, ApprovedEditorSave>>,
+    /// QR intents retained until the matching editor registers its listener.
+    pub editor_qr_requests: std::sync::Mutex<HashSet<String>>,
     remote_ocr: std::sync::OnceLock<Option<crate::remote_ocr::RemoteOcrClient>>,
 }
 
@@ -65,6 +67,11 @@ pub struct AppState {
 pub(crate) struct CaptureScheduleGate(std::sync::Arc<std::sync::atomic::AtomicBool>);
 
 impl CaptureScheduleGate {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
     pub(crate) fn try_begin(&self) -> Option<CaptureSchedulePermit> {
         self.0
             .compare_exchange(
@@ -94,6 +101,11 @@ impl Drop for CaptureSchedulePermit {
 pub(crate) struct CaptureStartGate(std::sync::atomic::AtomicBool);
 
 impl CaptureStartGate {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
     /// Allows only one native display freeze to be in flight. Windows Graphics
     /// Capture can pump another shortcut event before its first frame arrives;
     /// a second `start_capture` must fail fast instead of waiting on a mutex
@@ -533,6 +545,7 @@ impl AppState {
             ocr_requests: Arc::new(crate::ocr_controller::OcrRequestController::default()),
             editor_annotations: Default::default(),
             editor_save_destinations: Default::default(),
+            editor_qr_requests: Default::default(),
             remote_ocr: std::sync::OnceLock::new(),
         })
     }

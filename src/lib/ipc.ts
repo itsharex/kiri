@@ -61,6 +61,11 @@ export interface LibraryStatusDto {
   isDefault: boolean;
 }
 
+export interface DockVisibilityDto {
+  supported: boolean;
+  visible: boolean;
+}
+
 export type AssetAvailability = "ready" | "missing" | "unreadable" | "libraryUnavailable";
 
 export interface AssetAvailabilityDto {
@@ -203,6 +208,7 @@ export interface AnnotationProjectDto {
   revisionSha256: string;
   state: "none" | "valid" | "invalid";
   documentJson: string | null;
+  readOnly: boolean;
 }
 
 export interface EditorUpdateDto {
@@ -224,7 +230,7 @@ export interface QrCodeDto { index: number; corners: [number, number][]; text: s
 export interface QrScanDto { requestId: string; imageUrl: string; width: number; height: number; codes: QrCodeDto[]; }
 
 export const api = {
-  scanQr: (requestId: string, selection: RectDto | null, assetId: string | null) => invoke<QrScanDto>("scan_qr", { requestId, selection, assetId }),
+  scanQr: (requestId: string, selection: RectDto | null, assetId: string | null, expectedRevisionSha256?: string) => invoke<QrScanDto>("scan_qr", { requestId, selection, assetId, expectedRevisionSha256 }),
   cancelQr: (requestId: string) => invoke<void>("cancel_qr", { requestId }),
   qrAction: (requestId: string, index: number, action: string) => invoke<AssetDto | null>("qr_action", { requestId, index, action }),
   listQrFavorites: (query: string) => invoke<AssetDto[]>("list_qr_favorites", { query }),
@@ -238,6 +244,8 @@ export const api = {
     invoke<AssetDto[]>("list_assets", { query, showingTrash }),
   getAsset: (id: string) => invoke<AssetDto>("get_asset", { id }),
   getLibraryStatus: () => invoke<LibraryStatusDto>("get_library_status"),
+  getDockVisibility: () => invoke<DockVisibilityDto>("get_dock_visibility"),
+  setDockVisibility: (visible: boolean) => invoke<void>("set_dock_visibility", { visible }),
   chooseLibraryLocation: () => invoke<LibraryStatusDto>("choose_library_location"),
   locateLibrary: () => invoke<LibraryStatusDto>("locate_library"),
   restoreDefaultLibrary: () => invoke<LibraryStatusDto>("restore_default_library"),
@@ -281,7 +289,8 @@ export const api = {
   copyAsset: (id: string) => invoke<void>("copy_asset", { id }),
   openAsset: (id: string) => invoke<void>("open_asset", { id }),
   pinAsset: (id: string) => invoke<void>("pin_asset", { id }),
-  openEditor: (id: string) => invoke<void>("open_editor", { id }),
+  openEditor: (id: string, recognizeQr = false) => invoke<void>("open_editor", { id, recognizeQr }),
+  takeEditorQrRequest: () => invoke<boolean>("take_editor_qr_request"),
   revealAsset: (id: string) => invoke<void>("reveal_asset", { id }),
   loadVideoProject: (id:string) => invoke<VideoProjectSnapshot>("load_video_project",{id}),
   saveVideoProject: (id:string,revision:string,project:VideoProject) => invoke<VideoProjectSnapshot>("save_video_project",{id,revision,project}),
@@ -432,6 +441,10 @@ export function onCaptureShortcutConfirmed(handler: () => void): Promise<Unliste
 
 export function onAssetContentChanged(handler: (assetId: string) => void): Promise<UnlistenFn> {
   return listen<string>("asset-content-changed", (event) => handler(event.payload));
+}
+
+export function onEditorRecognizeQr(handler: () => void): Promise<UnlistenFn> {
+  return listen("editor-recognize-qr", handler);
 }
 
 export function onRecordingState(

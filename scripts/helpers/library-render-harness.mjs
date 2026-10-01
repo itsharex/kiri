@@ -30,7 +30,7 @@ export const testAsset = {
   duration: null,
 };
 
-export function createLibraryHarness(apiOverrides = {}, componentSource = null) {
+export function createLibraryHarness(apiOverrides = {}, componentSource = null, environment = {}) {
   let active;
   const listeners = new Map();
   const events = new Map();
@@ -38,7 +38,11 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
     left.every((value, index) => Object.is(value, right[index]));
   const React = {
     lazy: () => () => null,
-    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    createElement(type, props, ...children) {
+      const node = { type, props: { ...props, children } };
+      environment.attachRef?.(node);
+      return node;
+    },
     useState(initial) {
       const owner = active;
       const index = owner.cursor++;
@@ -71,7 +75,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
       if (sameDeps(owner.hooks[index]?.deps, deps)) return;
       owner.effects.push(() => {
         owner.hooks[index]?.cleanup?.();
-        owner.hooks[index] = { deps, cleanup: create() };
+        owner.hooks[index] = { deps, cleanup: create(), effectCreate: create };
       });
     },
     useLayoutEffect(create, deps) {
@@ -79,6 +83,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
     },
   };
   const window = {
+    location: { search: environment.search ?? "" },
     getSelection: () => null,
     addEventListener(name, callback) {
       if (!listeners.has(name)) listeners.set(name, new Set());
@@ -99,7 +104,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
     "../ocr/text-history.css": {},
     "./qr.css": {},
     "./selection.js": qrSelection,
-    "../qr/QrResults": { QrFavorites: "qr-favorites", QrAssetDialog: "qr-dialog" },
+    "../qr/QrResults": { QrFavorites: "qr-favorites" },
     "../ocr/TextHistory": { TextHistory: "text-history", OcrDialog: "ocr-dialog" },
     "react-dom": { createPortal: (child) => child },
     "../lib/ipc": {
@@ -110,6 +115,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
         listAssets: async () => [testAsset],
         listPendingRecordings: async () => [],
         getRecordingSaveJobs: async () => [],
+        getDockVisibility: async () => ({ supported: true, visible: true }),
         getShortcutStatus: async () => ({ status: "enabled", label: "shortcut" }),
         ...apiOverrides,
       },
@@ -129,15 +135,17 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
     },
     "./library-card-interaction.js": cardInteraction,
     "./viewer-copy-shortcut.js": viewerCopyShortcut,
+    ...environment.modules,
   };
   const module = { exports: {} };
   const componentCode = componentSource == null ? compiled : ts.transpileModule(componentSource, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
-  new Function("require", "module", "exports", "window", "document", "requestAnimationFrame", "cancelAnimationFrame", componentCode)((name) => {
+  const globals = environment.globals ?? {};
+  new Function("require", "module", "exports", "window", "document", "requestAnimationFrame", "cancelAnimationFrame", "navigator", ...Object.keys(globals), componentCode)((name) => {
     if (!(name in modules)) throw new Error(`Unexpected import: ${name}`);
     return modules[name];
-  }, module, module.exports, window, { ...window, body: null, querySelector: () => null }, () => 1, () => {});
+  }, module, module.exports, window, { ...window, body: null, querySelector: () => null }, () => 1, () => {}, environment.navigator ?? { userAgent: "Macintosh" }, ...Object.values(globals));
 
   return {
     window,
@@ -155,6 +163,11 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
             const tree = module.exports[name](props);
             const effects = owner.effects.splice(0);
             effects.forEach((effect) => effect());
+            if (environment.strictEffects && !owner.replayedEffects) {
+              owner.replayedEffects = true;
+              owner.hooks.forEach(hook => hook?.effectCreate && hook.cleanup?.());
+              owner.hooks.forEach(hook => { if (hook?.effectCreate) hook.cleanup = hook.effectCreate(); });
+            }
             if (!owner.dirty) return tree;
           }
           throw new Error("Component did not settle");

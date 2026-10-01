@@ -58,6 +58,11 @@ The tray and explicit recording commands provide controls without relying on
 portal window exclusion. Linux video viewers expose playback and GIF conversion;
 the macOS/Windows video editor and export controls stay unavailable.
 
+On macOS, Show in Dock is a persisted application preference, enabled by
+default. It selects regular or accessory activation policy at startup and
+when changed in Settings. Library and capture activation respect that choice;
+the tray and global shortcut remain available when the Dock icon is hidden.
+
 ## Capture flow
 
 1. The native global shortcut asks Rust to start a capture session and records
@@ -217,12 +222,16 @@ payloads and capping the combined result at 64 codes (ADR 0062).
 Request UUIDs and window/capture owners
 prevent canceled or superseded publication; saving also checks the library
 identity/generation. Saved-image scans are scoped to the library window or the
-editor whose label matches that asset UUID. Capture results place markers directly
-on the original frozen region and show selected content in a nearby bounded panel.
+editor whose label matches that asset UUID. Editor scans use the exact opened
+revision's clean source, temporarily hiding the still-mounted draft canvas and
+crop controls. The library menu opens or targets that editor. Both capture and
+editor results place markers directly on the original image and show selected
+content in a nearby bounded panel; loading and failure stay compact.
 Closing the results returns to the selected region and preserves its annotations.
 Selecting a readable code saves it automatically. Opening waits for pending saves,
 then delegates a validated HTTP/HTTPS URL to the default browser with one action.
-Successful opening ends the capture; failures retain the result. No image or
+Successful opening ends the owned capture or leaves the editor open with its draft
+restored; failures retain the result. No image or
 payload is uploaded.
 
 QR Favorites stores an optional searchable `qrText` field and a selected-code PNG
@@ -234,6 +243,8 @@ codes are unsupported. See [ADR 0061](adr/0061-local-qr-recognition-and-favorite
 and [ADR 0063](adr/0063-qr-center-markers-and-supported-geometry.md).
 [ADR 0064](adr/0064-direct-qr-selection-and-opening.md) records direct selection,
 automatic saving, content labels and one-action browser handoff.
+[ADR 0068](adr/0068-qr-markers-in-saved-image-editor.md) extends original-image
+markers to the editor and library menu while preserving pending edits.
 
 ## OCR flow
 

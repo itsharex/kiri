@@ -89,7 +89,6 @@ function updaterHarness(windows = true, portable = false, linux = false) {
   const settings = read('src/settings/SettingsView.tsx');
   const source = `import React, { useState, useRef, useEffect } from 'react';
     import { api } from '../lib/ipc';
-    const navigator = { userAgent: '${linux ? 'Linux' : windows ? 'Windows' : 'Macintosh'}' };
     const check = api.check, getVersion = api.getVersion, relaunch = api.relaunch;
     const t = value => value, fmt = (value, arg) => value.replace('%@', arg);
     ${settings.slice(settings.indexOf('type UpdateDetails ='), settings.indexOf('function GeneralSettingsSection'))}
@@ -98,7 +97,9 @@ function updaterHarness(windows = true, portable = false, linux = false) {
     getVersion: async () => '1.5.0', isPortableBuild: async () => portable,
     platformCapabilities: async () => ({ manualUpdates: linux }),
     openReleasePage: async () => { releaseOpens++; },
-    relaunch: async () => { restarts++; } }, source);
+    relaunch: async () => { restarts++; } }, source, {
+      navigator: { userAgent: linux ? 'Linux' : windows ? 'Windows' : 'Macintosh' },
+    });
   const component = harness.mount('AboutSettingsSection');
   const render = () => component.render();
   const button = () => nodes(render()).find(node => node?.type === 'button');

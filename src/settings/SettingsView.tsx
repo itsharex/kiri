@@ -16,6 +16,7 @@ import {
   type ShortcutStatusDto,
 } from "../lib/ipc";
 import { OcrProfileDialog } from "./OcrProfileDialog";
+import { DockVisibilityRow } from "./DockVisibilityRow";
 import { OcrSettingsSection } from "./OcrSettingsSection";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
 import "./settings.css";
@@ -686,6 +687,7 @@ function GeneralSettingsSection() {
           ))}
         </div>
       </div>
+      <DockVisibilityRow />
       <div className="kiri-settings-card kiri-shortcut-row">
         <div className="kiri-shortcut-copy">
           <strong>{t("Capture Shortcut")}</strong>

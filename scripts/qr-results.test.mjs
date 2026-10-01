@@ -1,15 +1,56 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 import { createLibraryHarness, nodes, settleRequests, deferred, testAsset } from "./helpers/library-render-harness.mjs";
 import { captureToolbarPosition } from "../src/windows/toolbar-layout.js";
-import { initialQrSelection, qrCodeCenter, qrContentType } from "../src/qr/selection.js";
+import { initialQrSelection, qrCodeCenter, qrContentType, qrLooksLikeLink } from "../src/qr/selection.js";
 
 const source = 'import React from "react";\n' + readFileSync(new URL("../src/qr/QrResults.tsx", import.meta.url), "utf8");
 const code = (index, text = "https://example.org/kiri-safe") => ({ index, text, url: text.startsWith("https:") ? text : null, host: "example.org", suspicious: false, corners: [[.1,.1],[.4,.1],[.4,.4],[.1,.4]] });
 const scan = codes => ({ requestId: "test-request", width: 1000, height: 500, imageUrl: "data:image/png;base64,test", codes });
 const has = (tree, text) => nodes(tree).includes(text);
 const button = (tree, text) => nodes(tree).find(n => n?.type === "button" && has(n, text));
+
+test("library QR entry opens the original image editor instead of a second image dialog", async () => {
+  const calls = [];
+  const harness = createLibraryHarness({ openEditor: async (...args) => calls.push(args) });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  nodes(library.render()).find(node => node?.type?.name === "AssetCard").props.onMenu(10, 10);
+  const card = nodes(library.render()).find(node => node?.type?.name === "AssetCard");
+  const recognize = nodes(card.props.menu).find(node => node?.props?.label === "Recognize QR Codes");
+  assert.ok(recognize);
+  recognize.props.onClick(); await settleRequests();
+  assert.deepEqual(calls, [[testAsset.id, true]]);
+  assert.equal(nodes(library.render()).some(node => node?.type === "qr-dialog"), false);
+  library.unmount();
+});
+
+test("editor QR IPC preserves source revision and exposes the editor request event", async () => {
+  const invokes = [], listens = [];
+  const ipc = ts.transpileModule(readFileSync(new URL("../src/lib/ipc.ts", import.meta.url), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 },
+  }).outputText;
+  const module = { exports: {} };
+  new Function("require", "module", "exports", ipc)(name => {
+    if (name === "@tauri-apps/api/core") return { invoke: async (...args) => invokes.push(args) };
+    if (name === "@tauri-apps/api/event") return { listen: async (...args) => listens.push(args) };
+    if (name === "./kiri-resource-url.js") return { kiriResourceUrl() {} };
+    throw new Error(`Unexpected IPC import: ${name}`);
+  }, module, module.exports);
+  await module.exports.api.openEditor(testAsset.id, true);
+  await module.exports.api.scanQr("request", null, testAsset.id, "a".repeat(64));
+  await module.exports.api.takeEditorQrRequest();
+  const handler = () => {};
+  await module.exports.onEditorRecognizeQr(handler);
+  assert.deepEqual(invokes, [
+    ["open_editor", { id: testAsset.id, recognizeQr: true }],
+    ["scan_qr", { requestId: "request", selection: null, assetId: testAsset.id, expectedRevisionSha256: "a".repeat(64) }],
+    ["take_editor_qr_request"],
+  ]);
+  assert.deepEqual(listens, [["editor-recognize-qr", handler]]);
+});
 
 test("screenshot toolbar recognition is explicit and does not complete the capture", () => {
   const overlay = readFileSync(new URL("../src/windows/OverlayWindow.tsx", import.meta.url), "utf8");
@@ -37,21 +78,6 @@ test("region selection and initial mode choice do not trigger QR recognition", (
   assert.doesNotMatch(selection, /runQr/);
   assert.doesNotMatch(overlay, /switchMode\("qr"\)/);
   assert.match(overlay, /phaseRef\.current === "qr-result"\) \{ closeQr\(\); return; \}/);
-});
-
-test("saved-image dialog reuses the asset id and cancels only its own request on close", async () => {
-  const calls = [], closed = [];
-  const harness = createLibraryHarness({scanQr:async (...args)=>{calls.push(args);return scan([code(0)]);},
-    cancelQr:async id=>calls.push(["cancel",id])}, source);
-  const component = harness.mount("QrAssetDialog", {asset:{...testAsset,id:"saved-image"},onClose:()=>closed.push(true)});
-  component.render(); await settleRequests();
-  assert.equal(calls.length, 1);
-  const [request, region, id] = calls[0];
-  assert.equal(region, null); assert.equal(id, "saved-image");
-  nodes(component.render()).find(n => n?.props?.onClose).props.onClose();
-  assert.deepEqual(calls[1], ["cancel", request]);
-  assert.deepEqual(closed, [true]);
-  component.unmount();
 });
 
 test("single, multiple and empty scans await explicit selection", () => {
@@ -174,6 +200,46 @@ test("link, plain text and standard WeChat payloads get distinct simple labels",
     component.unmount();
   }
   assert.equal(qrContentType({...code(0),host:"weixin.qq.com.example.org"}), "Link");
+});
+
+test("plain colon content stays copyable without link warnings in results and favorites", async () => {
+  for (const text of ["兔子二维码 https://tuzim.net", "Note: https://example.org", "Time: 12:30"]) {
+    assert.equal(qrLooksLikeLink(text), false);
+    // Even an older DTO with the former colon flag should render as text.
+    const value = {...code(0, text), host:null, url:null, suspicious:true};
+    const detail = createLibraryHarness({}, source).mount("QrDetails", {code:value, action:async()=>{}});
+    assert.equal(button(detail.render(), "Open Link"), undefined);
+    assert.ok(button(detail.render(), "Copy Text"));
+    assert.equal(has(detail.render(), "Review this content carefully. This link may be unsafe."), false);
+    assert.equal(has(detail.render(), "Only explicit HTTP or HTTPS links without credentials can be opened."), false);
+    detail.unmount();
+    const favorite = createLibraryHarness({listQrFavorites:async()=>[{...testAsset, qrText:text}]}, source).mount("QrFavorites");
+    favorite.render(); await new Promise(resolve=>setTimeout(resolve,5)); await settleRequests();
+    const saved = nodes(favorite.render()).find(node=>node?.props?.code).props.code;
+    assert.equal(saved.suspicious, false);
+    assert.equal(saved.url, null);
+    favorite.unmount();
+  }
+});
+
+test("explicit unsupported links retain warnings while WeChat schemes and RTL use their own content treatment", () => {
+  for (const text of ["https://user:password@example.org", "https://", "javascript:alert(1)", "file:///tmp/test", "ftp://example.org"]) {
+    assert.equal(qrLooksLikeLink(text), true);
+    const detail = createLibraryHarness({}, source).mount("QrDetails", {code:{...code(0,text),host:null,url:null,suspicious:true},action:async()=>{}});
+    assert.equal(button(detail.render(),"Open Link"),undefined);
+    assert.ok(has(detail.render(),"Only explicit HTTP or HTTPS links without credentials can be opened."));
+    detail.unmount();
+  }
+  for (const text of ["weixin://wxpay/bizpayurl?pr=public", "wxp://public-fixture"]) {
+    const detail = createLibraryHarness({}, source).mount("QrDetails", {code:{...code(0,text),host:null,url:null,suspicious:true},action:async()=>{}});
+    assert.ok(has(detail.render(),"WeChat"));
+    assert.equal(nodes(detail.render()).some(node=>node?.props?.className==="qr-warning"),false);
+    detail.unmount();
+  }
+  const detail = createLibraryHarness({}, source).mount("QrDetails", {code:{...code(0,"text\u202ereordered"),host:null,url:null,suspicious:true},action:async()=>{}});
+  assert.ok(has(detail.render(),"Review this content carefully."));
+  assert.equal(has(detail.render(),"Only explicit HTTP or HTTPS links without credentials can be opened."),false);
+  detail.unmount();
 });
 
 test("saving a repeated payload retains its favorite state when selecting another copy", async () => {
