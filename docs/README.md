@@ -95,6 +95,8 @@ application or a durable product decision.
   — an immediate macOS Dock switch remembered across launches.
 - [`adr/0067-bounded-local-qr-recovery.md`](adr/0067-bounded-local-qr-recovery.md)
   — bounded overlapping scans recover codes beyond full-image decoder limits.
+- [`adr/0068-qr-markers-in-saved-image-editor.md`](adr/0068-qr-markers-in-saved-image-editor.md)
+  — saved-image recognition uses the original editor surface and preserves drafts.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags

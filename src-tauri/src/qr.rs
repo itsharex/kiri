@@ -24,6 +24,7 @@ pub fn link(text: &str) -> Option<url::Url> {
     if text != text.trim()
         || text.chars().any(|c| c.is_control() || c.is_whitespace())
         || text.contains('\\')
+        || text.contains('\u{202e}')
     {
         return None;
     }
@@ -56,7 +57,8 @@ pub fn describe(index: usize, corners: [[f64; 2]; 4], text: Option<String>) -> Q
                 || h == "localhost"
                 || h.starts_with('[')
                 || h.parse::<std::net::IpAddr>().is_ok()
-        }) || (parsed.is_none() && (text.contains(":") || text.contains('\u{202e}')))
+        }) || text.contains('\u{202e}')
+            || (parsed.is_none() && looks_like_link(text))
     });
     QrCode {
         index,
@@ -66,6 +68,23 @@ pub fn describe(index: usize, corners: [[f64; 2]; 4], text: Option<String>) -> Q
         host,
         suspicious,
     }
+}
+
+fn looks_like_link(text: &str) -> bool {
+    let Some((scheme, rest)) = text.trim().split_once(':') else {
+        return false;
+    };
+    let mut bytes = scheme.bytes();
+    if !bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic())
+        || !bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
+    {
+        return false;
+    }
+    rest.starts_with("//")
+        || matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http" | "https" | "javascript" | "data" | "file" | "vbscript"
+        )
 }
 
 pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
@@ -439,6 +458,35 @@ mod tests {
         assert!(describe(0, [[0.0; 2]; 4], Some("http://127.0.0.1".into())).suspicious);
         assert!(describe(0, [[0.0; 2]; 4], Some("https://[::1]".into())).suspicious);
         assert!(!describe(0, [[0.0; 2]; 4], Some("http://example.org".into())).suspicious);
+    }
+
+    #[test]
+    fn plain_colon_text_and_embedded_urls_do_not_get_link_warnings() {
+        for text in [
+            "兔子二维码 https://tuzim.net",
+            "Note: https://example.org",
+            "Time: 12:30",
+            "备注：测试",
+        ] {
+            let code = describe(0, [[0.0; 2]; 4], Some(text.into()));
+            assert!(code.url.is_none());
+            assert!(!code.suspicious, "plain content: {text}");
+        }
+        for text in [
+            "https://user:password@example.org",
+            "https://",
+            " http://example.org",
+            "ftp://example.org",
+            "javascript:alert(1)",
+            "file:///tmp/test",
+            "data:text/html,test",
+            "text\u{202e}reordered",
+            "https://example.org/\u{202e}reordered",
+        ] {
+            let code = describe(0, [[0.0; 2]; 4], Some(text.into()));
+            assert!(code.url.is_none(), "must not open: {text}");
+            assert!(code.suspicious, "retain a warning: {text}");
+        }
     }
     #[test]
     fn invalid_images_fail_without_results() {

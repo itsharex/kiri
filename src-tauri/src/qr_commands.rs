@@ -27,6 +27,7 @@ pub async fn scan_qr(
     request_id: String,
     selection: Option<RectDto>,
     asset_id: Option<String>,
+    expected_revision_sha256: Option<String>,
 ) -> Result<ScanDto, String> {
     let id = uuid::Uuid::parse_str(&request_id).map_err(|_| "Invalid QR request.")?;
     let label = window.label().to_string();
@@ -35,6 +36,12 @@ pub async fn scan_qr(
         .map(uuid::Uuid::parse_str)
         .transpose()
         .map_err(|_| "Invalid image.")?;
+    validate_editor_revision_request(
+        &label,
+        image_owner,
+        selection.is_some(),
+        expected_revision_sha256.as_deref(),
+    )?;
     let owner = if image_owner
         .is_some_and(|id| crate::qr_controller::image_owner_matches(&label, id))
         && selection.is_none()
@@ -106,16 +113,20 @@ pub async fn scan_qr(
                 .asset_by_id(&id)
                 .filter(|a| a.kind == CaptureKind::Image && a.trashed_at.is_none())
                 .ok_or("Choose a screenshot from the library.")?;
-            let path = library
-                .readable_asset_url(asset)
-                .map_err(|e| e.to_string())?;
-            let mut png = Vec::new();
-            std::fs::File::open(path)
-                .map_err(|_| "The QR image could not be read.")?
-                .take(qr::MAX_PNG_BYTES as u64 + 1)
-                .read_to_end(&mut png)
-                .map_err(|_| "The QR image could not be read.")?;
-            png
+            if let Some(revision) = expected_revision_sha256.as_deref() {
+                editor_qr_source(library, &id, revision)?
+            } else {
+                let path = library
+                    .readable_asset_url(asset)
+                    .map_err(|e| e.to_string())?;
+                let mut png = Vec::new();
+                std::fs::File::open(path)
+                    .map_err(|_| "The QR image could not be read.")?
+                    .take(qr::MAX_PNG_BYTES as u64 + 1)
+                    .read_to_end(&mut png)
+                    .map_err(|_| "The QR image could not be read.")?;
+                png
+            }
         };
         let (width, height, codes) = qr::decode(&png)?;
         let image_url = format!(
@@ -154,6 +165,42 @@ pub async fn scan_qr(
     .await
     .map_err(|_| "QR recognition failed.".to_string())?;
     result
+}
+
+fn validate_editor_revision_request(
+    label: &str,
+    asset_id: Option<uuid::Uuid>,
+    has_selection: bool,
+    expected_revision: Option<&str>,
+) -> Result<(), String> {
+    let Some(revision) = expected_revision else {
+        return Ok(());
+    };
+    if has_selection || !asset_id.is_some_and(|id| label == format!("editor-{id}")) {
+        return Err("QR recognition is unavailable from this window.".into());
+    }
+    if revision.len() != 64
+        || !revision
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("The screenshot changed after the editor opened.".into());
+    }
+    Ok(())
+}
+
+fn editor_qr_source(
+    library: &crate::core::library::AssetLibrary,
+    id: &uuid::Uuid,
+    expected_revision: &str,
+) -> Result<Vec<u8>, String> {
+    let snapshot = library.load_editor_snapshot(id).map_err(|e| e.to_string())?;
+    if snapshot.revision_sha256 != expected_revision {
+        return Err("The screenshot changed after the editor opened.".into());
+    }
+    // Use the same content-addressed clean source shown by annotation-source.
+    // Unsaved marks, text drafts and pending crops stay entirely in the editor.
+    Ok(snapshot.source)
 }
 
 #[tauri::command]
@@ -601,6 +648,49 @@ fn open_web_url(url: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::validate_qr_favorite_save;
+
+    #[test]
+    fn editor_revision_is_accepted_only_from_its_matching_image_editor() {
+        let id = uuid::Uuid::new_v4();
+        let revision = "a".repeat(64);
+        let editor = format!("editor-{id}");
+        assert!(super::validate_editor_revision_request(&editor, Some(id), false, Some(&revision)).is_ok());
+        for (label, asset, selected) in [
+            ("library".to_string(), Some(id), false),
+            ("overlay".to_string(), None, true),
+            (format!("editor-{}", uuid::Uuid::new_v4()), Some(id), false),
+            (editor.clone(), Some(id), true),
+        ] {
+            assert!(super::validate_editor_revision_request(&label, asset, selected, Some(&revision)).is_err());
+        }
+        for invalid in ["", "a", &"A".repeat(64), &"g".repeat(64)] {
+            assert!(super::validate_editor_revision_request(&editor, Some(id), false, Some(invalid)).is_err());
+        }
+        assert!(super::validate_editor_revision_request("library", Some(id), false, None).is_ok());
+    }
+
+    #[test]
+    fn editor_qr_scans_its_exact_clean_source_and_rejects_a_changed_revision() {
+        use crate::core::{asset::CaptureKind, library::AssetLibrary};
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = AssetLibrary::open(dir.path().to_path_buf()).unwrap();
+        let document = serde_json::json!({
+            "schemaVersion": 1,
+            "canvas": { "width": 100, "height": 80 },
+            "sourcePixels": { "width": 100, "height": 80 },
+            "marks": [],
+        });
+        let asset = library.import_data_with_annotation_project(
+            b"flattened-with-annotations", CaptureKind::Image, "png", 100, 80,
+            None, None, None, b"clean-source", &document,
+        ).unwrap();
+        let snapshot = library.load_editor_snapshot(&asset.id).unwrap();
+        assert_eq!(super::editor_qr_source(&library, &asset.id, &snapshot.revision_sha256).unwrap(), b"clean-source");
+        library.save_editor_snapshot(&asset.id, &snapshot.revision_sha256, b"changed-flat", Some(&document)).unwrap();
+        assert_eq!(super::editor_qr_source(&library, &asset.id, &snapshot.revision_sha256).unwrap_err(), "The screenshot changed after the editor opened.");
+        let current = library.load_editor_snapshot(&asset.id).unwrap();
+        assert_eq!(super::editor_qr_source(&library, &asset.id, &current.revision_sha256).unwrap(), b"clean-source");
+    }
 
     #[cfg(unix)]
     #[test]

@@ -8,6 +8,10 @@ export function qrContentType(code) {
   return code.url ? "Link" : "Text";
 }
 
+export function qrLooksLikeLink(text) {
+  return /^(?:[a-z][a-z0-9+.-]*:\/\/|(?:https?|javascript|data|file|vbscript):)/i.test(text.trim());
+}
+
 export function qrCodeCenter(corners) {
   // Diagonals meet at the projected center even when a code is in perspective.
   const [a, b, c, d] = corners;

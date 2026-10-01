@@ -159,6 +159,7 @@ pub fn run() {
                         state.qr_requests.clear(label);
                         state.editor_annotations.lock().unwrap().remove(label);
                         state.editor_save_destinations.lock().unwrap().remove(label);
+                        state.editor_qr_requests.lock().unwrap().remove(label);
                         let destroyed_overlay = {
                             let mut capture = state.capture.lock().unwrap();
                             capture.destroy_overlay(label)
@@ -235,6 +236,7 @@ pub fn run() {
             commands::open_asset,
             commands::pin_asset,
             commands::open_editor,
+            commands::take_editor_qr_request,
             commands::reveal_asset,
             commands::convert_to_gif,
             commands::export_video_copy,

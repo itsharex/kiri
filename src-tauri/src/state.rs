@@ -54,6 +54,8 @@ pub struct AppState {
     /// One native-save-panel destination per live editor window. The renderer
     /// receives only the opaque token; a save consumes both token and path.
     pub editor_save_destinations: std::sync::Mutex<HashMap<String, ApprovedEditorSave>>,
+    /// QR intents retained until the matching editor registers its listener.
+    pub editor_qr_requests: std::sync::Mutex<HashSet<String>>,
     remote_ocr: std::sync::OnceLock<Option<crate::remote_ocr::RemoteOcrClient>>,
 }
 
@@ -543,6 +545,7 @@ impl AppState {
             ocr_requests: Arc::new(crate::ocr_controller::OcrRequestController::default()),
             editor_annotations: Default::default(),
             editor_save_destinations: Default::default(),
+            editor_qr_requests: Default::default(),
             remote_ocr: std::sync::OnceLock::new(),
         })
     }

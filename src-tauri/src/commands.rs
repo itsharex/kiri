@@ -516,7 +516,8 @@ pub async fn pin_asset(window: WebviewWindow, app: AppHandle, id: String) -> Res
 }
 
 #[tauri::command]
-pub fn open_editor(app: AppHandle, id: String) -> Result<(), String> {
+pub fn open_editor(app: AppHandle, id: String, recognize_qr: Option<bool>) -> Result<(), String> {
+    let recognize_qr = recognize_qr.unwrap_or(false);
     let parsed =
         uuid::Uuid::parse_str(&id).map_err(|_| "The capture id is invalid.".to_string())?;
     let state = app.state::<AppState>();
@@ -536,9 +537,13 @@ pub fn open_editor(app: AppHandle, id: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&label) {
         let _ = window.show();
         let _ = window.set_focus();
+        if recognize_qr {
+            queue_editor_qr(&window, &app)?;
+        }
         return Ok(());
     }
     let asset_id = asset.id;
+    let read_only = asset.ocr_text.is_some();
     std::thread::Builder::new()
         .name("kiri-open-editor".into())
         .spawn(move || {
@@ -547,12 +552,19 @@ pub fn open_editor(app: AppHandle, id: String) -> Result<(), String> {
             if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.show();
                 let _ = window.set_focus();
+                if recognize_qr {
+                    if let Err(error) = queue_editor_qr(&window, &app) {
+                        log::error!("[editor] QR request failed asset_id={asset_id}: {error}");
+                    }
+                }
                 return;
             }
+            let qr_query = if recognize_qr { "&qr=1" } else { "" };
+            let read_only_query = if read_only { "&readonly=1" } else { "" };
             match WebviewWindowBuilder::new(
                 &app,
                 label,
-                WebviewUrl::App(format!("index.html?window=editor&id={asset_id}").into()),
+                WebviewUrl::App(format!("index.html?window=editor&id={asset_id}{qr_query}{read_only_query}").into()),
             )
             .title("kiri")
             .inner_size(880.0, 620.0)
@@ -564,12 +576,40 @@ pub fn open_editor(app: AppHandle, id: String) -> Result<(), String> {
             {
                 Ok(_) => log::info!("[editor] window opened asset_id={asset_id}"),
                 Err(error) => {
+                    // Another opener can win after our reuse check. Deliver
+                    // this QR intent to that window without replacing its draft.
+                    if recognize_qr {
+                        if let Some(window) = app.get_webview_window(&format!("editor-{asset_id}")) {
+                            if queue_editor_qr(&window, &app).is_ok() {
+                                return;
+                            }
+                        }
+                    }
                     log::error!("[editor] window creation failed asset_id={asset_id}: {error}")
                 }
             }
         })
         .map_err(|error| format!("The screenshot editor could not be opened: {error}"))?;
     Ok(())
+}
+
+fn queue_editor_qr(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
+    app.state::<AppState>()
+        .editor_qr_requests
+        .lock()
+        .unwrap()
+        .insert(window.label().to_string());
+    window
+        .emit_to(window.label(), "editor-recognize-qr", ())
+        .map_err(|_| "QR recognition failed.".to_string())
+}
+
+#[tauri::command]
+pub fn take_editor_qr_request(window: WebviewWindow, app: AppHandle) -> Result<bool, String> {
+    editor_window_id(&window)?;
+    let state = app.state::<AppState>();
+    let requested = state.editor_qr_requests.lock().unwrap().remove(window.label());
+    Ok(requested)
 }
 
 #[tauri::command]
@@ -2965,6 +3005,7 @@ pub struct AnnotationProjectDto {
     revision_sha256: String,
     state: EditorAnnotationState,
     document_json: Option<String>,
+    read_only: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -3073,7 +3114,7 @@ pub fn get_asset_annotation_project(
         uuid::Uuid::parse_str(&id).map_err(|_| "The edited asset id is invalid.".to_string())?;
     require_editor_window(&window, &parsed)?;
     let state = app.state::<AppState>();
-    let (snapshot, expected_size) = {
+    let (snapshot, expected_size, read_only) = {
         let mut context = state.library.lock().unwrap();
         let library = context.library().map_err(|error| error.to_string())?;
         let asset = library
@@ -3083,10 +3124,11 @@ pub fn get_asset_annotation_project(
             return Err("Only image captures can be edited.".into());
         }
         let expected_size = (asset.pixel_width, asset.pixel_height);
+        let read_only = asset.ocr_text.is_some();
         let snapshot = library
             .load_editor_snapshot(&parsed)
             .map_err(|error| error.to_string())?;
-        (snapshot, expected_size)
+        (snapshot, expected_size, read_only)
     };
     let document_json = snapshot
         .document
@@ -3103,6 +3145,7 @@ pub fn get_asset_annotation_project(
         revision_sha256: snapshot.revision_sha256,
         state: snapshot.state,
         document_json,
+        read_only,
     })
 }
 

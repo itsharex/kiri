@@ -23,7 +23,7 @@ import {
   type ShortcutStatusDto,
 } from "../lib/ipc";
 import { t, fmt } from "../i18n";
-import { QrFavorites, QrAssetDialog } from "../qr/QrResults";
+import { QrFavorites } from "../qr/QrResults";
 import { TextHistory, OcrDialog } from "../ocr/TextHistory";
 import brandIcon from "../../src-tauri/icons/128x128.png";
 import { KiriIcon, type IconName } from "../components/KiriIcons";
@@ -83,7 +83,6 @@ function groupByDay<T extends { createdAt: number | string }>(assets: T[]): { ke
 }
 
 export function LibraryWindow() {
-  const [qrAsset, setQrAsset] = useState<AssetDto | null>(null);
   const [ocrAsset, setOcrAsset] = useState<AssetDto | null>(null);
   const [assets, setAssets] = useState<AssetDto[]>([]);
   const [section, setSection] = useState<Section>("library");
@@ -681,7 +680,7 @@ export function LibraryWindow() {
           disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
           onClick={run(() => void copyCapture(asset.id))}
         />
-        {asset.kind === "image" && !showingTrash && <MenuRow icon="qrcode" label={t("Recognize QR Codes")} disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"} onClick={run(() => setQrAsset(asset))} />}
+        {asset.kind === "image" && !showingTrash && <MenuRow icon="qrcode" label={t("Recognize QR Codes")} disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"} onClick={run(() => void api.openEditor(asset.id, true).catch(() => setError({ message: t("QR recognition failed."), recovery: null })))} />}
         {asset.kind === "image" && (!showingTrash || asset.ocrText != null) && <MenuRow
           icon="text.viewfinder"
           label={t(asset.ocrText != null ? "Read Text" : "Recognize Text Locally")}
@@ -1270,7 +1269,6 @@ export function LibraryWindow() {
         </React.Suspense>
       )}
 
-      {qrAsset && <QrAssetDialog key={qrAsset.id} asset={qrAsset} onClose={() => setQrAsset(null)} />}
       {ocrAsset && <OcrDialog key={ocrAsset.id} asset={ocrAsset} onClose={() => setOcrAsset(null)} />}
 
       {/* Window-level progress and local notices stay in one predictable

@@ -796,6 +796,25 @@ impl AssetLibrary {
     /// editor. Invalid projects fail open only to the current flattened image;
     /// their untrusted documents and sources are never applied.
     pub fn load_editor_snapshot(&self, id: &uuid::Uuid) -> Result<LoadedEditorSnapshot> {
+        // OCR records retain their screenshot for read-only viewing and QR
+        // recognition. They never gain an editable annotation project.
+        if let Some(asset) = self.asset_by_id(id).filter(|asset| {
+            asset.kind == CaptureKind::Image && asset.ocr_text.is_some()
+        }) {
+            let source = std::fs::read(self.readable_asset_url(asset)?)?;
+            return Ok(LoadedEditorSnapshot {
+                revision_sha256: editor_revision_sha256(
+                    EditorAnnotationState::None,
+                    (asset.pixel_width, asset.pixel_height),
+                    &source,
+                    None,
+                    None,
+                ),
+                state: EditorAnnotationState::None,
+                document: None,
+                source,
+            });
+        }
         let EditorSnapshotFiles {
             rendered,
             source,
@@ -2547,6 +2566,26 @@ mod tests {
                 .document,
             annotation_document("capture")
         );
+    }
+
+    #[test]
+    fn ocr_image_snapshots_allow_reading_but_keep_annotation_saves_rejected() {
+        let (_dir, root) = temp_root();
+        let mut library = AssetLibrary::open(root).unwrap();
+        let asset = library.import_ocr(b"ocr-source", 100, 80, "text".into(), None).unwrap();
+        let snapshot = library.load_editor_snapshot(&asset.id).unwrap();
+        assert_eq!(snapshot.state, EditorAnnotationState::None);
+        assert_eq!(snapshot.document, None);
+        assert_eq!(snapshot.source, b"ocr-source");
+        assert!(matches!(
+            library.save_editor_snapshot(&asset.id, &snapshot.revision_sha256, b"edited", None),
+            Err(AssetLibraryError::UnsupportedAnnotationAsset)
+        ));
+        assert_eq!(std::fs::read(library.asset_url(&asset)).unwrap(), b"ocr-source");
+        std::fs::write(library.asset_url(&asset), b"replaced-ocr-source").unwrap();
+        let replaced = library.load_editor_snapshot(&asset.id).unwrap();
+        assert_ne!(replaced.revision_sha256, snapshot.revision_sha256);
+        assert_eq!(replaced.source, b"replaced-ocr-source");
     }
 
     #[test]
