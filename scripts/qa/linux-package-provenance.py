@@ -127,7 +127,8 @@ def verify(args, evidence):
     require(re.fullmatch(r"[1-9][0-9]*", args.run_id), "Run ID must be a positive integer")
     repository = os.environ["GITHUB_REPOSITORY"]
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "Invalid repository")
-    reused = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    reused = (os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+              and args.run_id != os.environ["GITHUB_RUN_ID"])
     require(reused or args.run_id == os.environ["GITHUB_RUN_ID"], "Automatic checks must use their own package")
     root = f"repos/{repository}/actions"
     run = api(f"{root}/runs/{args.run_id}")
