@@ -81,9 +81,41 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
         .map_err(|_| "The QR image could not be read.".to_string())?
         .into_luma8();
     let mut decoder = quircs::Quirc::default();
+    let mut codes = identify(&mut decoder, width, height, &gray);
+    // A whole-image Otsu threshold can erase a locally low-contrast code when
+    // unrelated bright/dark content dominates the image. Retry only an empty
+    // result, at most three times, without resizing or changing coordinates.
+    if codes.is_empty() {
+        let mut binary = vec![0; gray.len()];
+        for threshold in [64, 128, 192] {
+            for (pixel, value) in binary.iter_mut().zip(gray.iter()) {
+                *pixel = if *value < threshold { 0 } else { 255 };
+            }
+            let retry = identify(&mut decoder, width, height, &binary);
+            if retry.iter().any(|code| code.text.is_some()) {
+                codes = retry;
+                break;
+            }
+            if codes.is_empty() {
+                codes = retry;
+            }
+        }
+    }
+    codes.sort_by(|a, b| {
+        a.corners[0][1]
+            .total_cmp(&b.corners[0][1])
+            .then(a.corners[0][0].total_cmp(&b.corners[0][0]))
+    });
+    for (i, code) in codes.iter_mut().enumerate() {
+        code.index = i;
+    }
+    Ok((width, height, codes))
+}
+
+fn identify(decoder: &mut quircs::Quirc, width: u32, height: u32, gray: &[u8]) -> Vec<QrCode> {
     let mut codes = Vec::new();
     for code in decoder
-        .identify(width as usize, height as usize, &gray)
+        .identify(width as usize, height as usize, gray)
         .take(64)
         .flatten()
     {
@@ -100,15 +132,7 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
             .filter(|s| !s.is_empty() && s.len() <= 16 * 1024);
         codes.push(describe(codes.len(), corners, text));
     }
-    codes.sort_by(|a, b| {
-        a.corners[0][1]
-            .total_cmp(&b.corners[0][1])
-            .then(a.corners[0][0].total_cmp(&b.corners[0][0]))
-    });
-    for (i, code) in codes.iter_mut().enumerate() {
-        code.index = i;
-    }
-    Ok((width, height, codes))
+    codes
 }
 
 pub fn crop_code(png: &[u8], code: &QrCode) -> Result<(Vec<u8>, u32, u32), String> {
@@ -218,5 +242,45 @@ mod tests {
         assert_eq!(unsafe_code[0].text.as_deref(), Some("javascript:alert(1)"));
         assert!(unsafe_code[0].url.is_none());
         assert!(unsafe_code[0].suspicious);
+    }
+
+    #[test]
+    fn low_contrast_codes_survive_unrelated_bright_and_dark_backgrounds() {
+        let source = image::load_from_memory(include_bytes!("../tests/fixtures/qr/url.png"))
+            .unwrap()
+            .into_luma8();
+        for (dark, light, background) in [(0, 100, 255), (100, 160, 0), (160, 230, 0)] {
+            let mut code = source.clone();
+            for value in code.iter_mut() {
+                *value = if *value < 128 { dark } else { light };
+            }
+            let mut canvas = image::GrayImage::from_pixel(960, 480, image::Luma([background]));
+            image::imageops::replace(&mut canvas, &code, 32, 32);
+            image::imageops::replace(&mut canvas, &code, 600, 120);
+            // The old single whole-image threshold loses both physical codes.
+            assert!(identify(&mut quircs::Quirc::default(), 960, 480, &canvas).is_empty());
+            let mut png = std::io::Cursor::new(Vec::new());
+            canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            let (width, height, codes) = decode(png.get_ref()).unwrap();
+            assert_eq!((width, height), (960, 480));
+            assert_eq!(codes.len(), 2);
+            for (index, code) in codes.iter().enumerate() {
+                assert_eq!(code.index, index);
+                assert_eq!(code.text.as_deref(), Some("https://example.org/kiri-safe"));
+            }
+            assert!((codes[0].corners[0][0] * 960.0 - 64.0).abs() <= 1.0);
+            assert!((codes[1].corners[0][0] * 960.0 - 632.0).abs() <= 1.0);
+            assert!((codes[1].corners[0][1] * 480.0 - 152.0).abs() <= 1.0);
+        }
+    }
+
+    #[test]
+    fn empty_threshold_retries_do_not_invent_codes() {
+        for value in [0, 64, 128, 192, 255] {
+            let blank = image::GrayImage::from_pixel(320, 240, image::Luma([value]));
+            let mut png = std::io::Cursor::new(Vec::new());
+            blank.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            assert!(decode(png.get_ref()).unwrap().2.is_empty());
+        }
     }
 }

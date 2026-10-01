@@ -1,8 +1,10 @@
 # Kiri integrated acceptance candidate
 
 This draft candidate combines independently reviewed fixes on main `1851f58`.
-It does not merge or release the fixes, close reporter issues, or implement the
-QR (#55) and Wayland GlobalShortcuts Portal (#47) feature requests.
+It does not merge or release the fixes or close reporter issues. QR (#55) was
+integrated in a24ad35; Wayland GlobalShortcuts Portal (#47) remains unimplemented.
+Latest Library/QR feedback and exact evidence boundaries are in
+[the current feedback record](../library-qr-feedback/README.md).
 
 | Source issue / PR | Included change | Existing evidence | Integrated acceptance still needed |
 | --- | --- | --- | --- |
@@ -57,7 +59,7 @@ The available Mac inventory is one built-in display; physical hotplug/primary
 changes remain untested. Capture freezes one active display, not cross-display
 composition; current Wayland capture rejects multiple connected displays.
 Linux video editing remains unavailable by contract. A Debian WebKit preview
-failure has not been established as a product defect. QR and Portal setup remain
+failure has not been established as a product defect. QR is now implemented with native acceptance still pending; Portal setup remains
 unimplemented. Keep all acceptance gaps visible in the unified PR body.
 
 ## Native close permission repair, awaiting exact-package replay

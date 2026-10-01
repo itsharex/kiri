@@ -9,7 +9,9 @@ const params = new URLSearchParams(location.search);
 setLanguage(params.get("language") === "en" ? "en" : "zh-Hans");
 const scenario = params.get("scenario") ?? "multi";
 const base = "/src-tauri/tests/fixtures/qr/";
-const meta = await fetch(base + (scenario === "single" ? "url" : scenario === "favorites" ? "multi" : scenario) + ".json").then(r => r.json());
+const metaName = scenario === "single" ? "url" : scenario === "favorites" ? "multi"
+  : scenario === "contrast" && params.get("before") === "1" ? "contrast-before" : scenario;
+const meta = await fetch(base + metaName + ".json").then(r => r.json());
 const image = base + (scenario === "single" ? "url" : scenario) + ".png";
 function ModalHarness() {
   const [open, setOpen] = useState(true);

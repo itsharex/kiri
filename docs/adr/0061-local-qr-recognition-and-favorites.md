@@ -11,6 +11,11 @@ the editor offers the same tool; the library menu also provides it. Region
 selection itself does not start recognition. Recognition reads the selected
 frozen source or the saved image, including when editor marks are still unsaved.
 Recognition runs locally on a background worker using a portable Rust decoder.
+When the default whole-image threshold locates no codes, recognition retries
+three fixed contrast thresholds (64, 128, 192), stopping at a readable result.
+This bounded fallback preserves original dimensions and polygon coordinates;
+it does not reconstruct missing pixels, promise recovery of covered finder
+patterns, or replace the default result when codes were already located.
 The original selected image retains clickable polygons for each physical code,
 including repeated payloads. A single code opens its content directly; multiple
 codes wait for a selection. Located but undecodable codes show a failure message.

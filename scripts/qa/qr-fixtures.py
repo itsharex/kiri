@@ -25,3 +25,8 @@ size = damaged.width
 draw.rectangle((size * .36, size * .36, size * .77, size * .77), fill="white")
 damaged.save(directory / "damaged.png")
 Image.new("RGB", (640, 360), "white").save(directory / "empty.png")
+
+# Global threshold regression: a readable local contrast range surrounded by white.
+contrast = Image.new("L", (960, 480), 255)
+contrast.paste(images["url"].convert("L").point(lambda value: value * 100 // 255), (32, 32))
+contrast.save(directory / "contrast.png")
