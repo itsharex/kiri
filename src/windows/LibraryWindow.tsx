@@ -1875,7 +1875,7 @@ function AssetCard(props: {
           />
         ) : (
           <div
-            title={asset.filename}
+            title={asset.title ?? asset.filename}
             onClick={(e) => {
               // Keep title gestures separate from opening the asset because
               // double-click edits the title inline.

@@ -1303,9 +1303,8 @@ button:active:not(:disabled) {
 }
 
 .kiri-card-actions {
-  position: absolute;
-  top: 0;
-  right: 1px;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 2;
   display: flex;
   align-items: center;
