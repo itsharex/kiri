@@ -49,14 +49,12 @@ pub fn describe(index: usize, corners: [[f64; 2]; 4], text: Option<String>) -> Q
         .and_then(|u| u.host_str())
         .map(str::to_owned);
     let suspicious = text.as_ref().is_some_and(|text| {
-        parsed.as_ref().is_some_and(|u| u.scheme() == "http")
-            || host.as_ref().is_some_and(|h| {
-                h.contains("xn--")
-                    || h == "localhost"
-                    || h.starts_with('[')
-                    || h.parse::<std::net::IpAddr>().is_ok()
-            })
-            || (parsed.is_none() && (text.contains(":") || text.contains('\u{202e}')))
+        host.as_ref().is_some_and(|h| {
+            h.contains("xn--")
+                || h == "localhost"
+                || h.starts_with('[')
+                || h.parse::<std::net::IpAddr>().is_ok()
+        }) || (parsed.is_none() && (text.contains(":") || text.contains('\u{202e}')))
     });
     QrCode {
         index,
@@ -281,6 +279,7 @@ mod tests {
         assert!(describe(0, [[0.0; 2]; 4], Some("https://xn--pple-43d.com".into())).suspicious);
         assert!(describe(0, [[0.0; 2]; 4], Some("http://127.0.0.1".into())).suspicious);
         assert!(describe(0, [[0.0; 2]; 4], Some("https://[::1]".into())).suspicious);
+        assert!(!describe(0, [[0.0; 2]; 4], Some("http://example.org".into())).suspicious);
     }
     #[test]
     fn invalid_images_fail_without_results() {

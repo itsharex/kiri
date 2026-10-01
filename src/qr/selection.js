@@ -2,6 +2,12 @@ export function initialQrSelection() {
   return null;
 }
 
+export function qrContentType(code) {
+  const host = (code.host ?? "").toLowerCase().replace(/\.$/, "");
+  if (host === "weixin.qq.com" || host.endsWith(".weixin.qq.com") || /^(?:weixin|wxp):\/\//i.test(code.text ?? "")) return "WeChat";
+  return code.url ? "Link" : "Text";
+}
+
 export function qrCodeCenter(corners) {
   // Diagonals meet at the projected center even when a code is in perspective.
   const [a, b, c, d] = corners;

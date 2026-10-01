@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createLibraryHarness, nodes, settleRequests, deferred, testAsset } from "./helpers/library-render-harness.mjs";
 import { captureToolbarPosition } from "../src/windows/toolbar-layout.js";
-import { initialQrSelection, qrCodeCenter } from "../src/qr/selection.js";
+import { initialQrSelection, qrCodeCenter, qrContentType } from "../src/qr/selection.js";
 
 const source = 'import React from "react";\n' + readFileSync(new URL("../src/qr/QrResults.tsx", import.meta.url), "utf8");
 const code = (index, text = "https://example.org/kiri-safe") => ({ index, text, url: text.startsWith("https:") ? text : null, host: "example.org", suspicious: false, corners: [[.1,.1],[.4,.1],[.4,.4],[.1,.4]] });
@@ -61,7 +61,7 @@ test("single, multiple and empty scans await explicit selection", () => {
   assert.deepEqual(qrCodeCenter(code(0).corners), [.25, .25]);
 });
 
-test("single-code center button reveals content without invoking an action", () => {
+test("single-code center button saves the chosen code without opening or copying", async () => {
   const calls = [];
   const harness = createLibraryHarness({ qrAction: (...args) => calls.push(args) }, source);
   const component = harness.mount("QrResults", { scan: scan([code(0)]) });
@@ -76,7 +76,8 @@ test("single-code center button reveals content without invoking an action", () 
   tree = component.render();
   assert.equal(nodes(tree).find(n => n?.props?.code).props.code.index, 0);
   assert.equal(nodes(tree).find(n => n?.props?.className === "kiri-qr-marker").props["aria-pressed"], true);
-  assert.deepEqual(calls, []);
+  await settleRequests();
+  assert.deepEqual(calls.map(args => args[2]), ["favorite"]);
   component.unmount();
 });
 
@@ -87,7 +88,7 @@ test("perspective markers use the diagonal intersection rather than corner avera
   assert.deepEqual(qrCodeCenter([[.2, .3], [.2, .3], [.2, .3], [.2, .3]]), [.2, .3]);
 });
 
-test("duplicate payloads retain independent clickable positions without auto actions", () => {
+test("duplicate payloads retain positions and save only after explicit selection", async () => {
   const calls = [];
   const harness = createLibraryHarness({ qrAction: (...args) => { calls.push(args); } }, source);
   const component = harness.mount("QrResults", { scan: scan([code(0), {...code(1), corners:[[.6,.6],[.9,.6],[.9,.9],[.6,.9]]}]) });
@@ -98,28 +99,81 @@ test("duplicate payloads retain independent clickable positions without auto act
   targets[1].props.onClick();
   tree = component.render();
   assert.equal(nodes(tree).find(n => n?.props?.code)?.props.code.index, 1);
-  assert.deepEqual(calls, []);
+  await settleRequests();
+  assert.deepEqual(calls.map(args => args[2]), ["favorite"]);
   component.unmount();
 });
 
-test("opening waits for explicit review confirmation; cancel never invokes navigation", async () => {
+test("opening invokes the default-browser action once without another confirmation", async () => {
   const calls = [];
   const harness = createLibraryHarness({}, source);
   const component = harness.mount("QrDetails", { code: code(0), action: async a => calls.push(a) });
-  let tree = component.render();
+  const tree = component.render();
   assert.deepEqual(calls, []);
   button(tree, "Open Link").props.onClick();
-  tree = component.render();
-  assert.ok(has(tree, "Only open links you trust."));
-  assert.deepEqual(calls, []);
-  button(tree, "Cancel").props.onClick(); component.render();
-  assert.deepEqual(calls, []);
-  button(component.render(), "Open Link").props.onClick();
-  tree = component.render();
-  const buttons = nodes(tree).filter(n => n?.type === "button" && has(n, "Open Link"));
-  buttons.at(-1).props.onClick(); await settleRequests();
+  await settleRequests();
   assert.deepEqual(calls, ["open"]);
+  assert.equal(nodes(component.render()).filter(n => n?.type === "button" && has(n, "Open Link")).length, 1);
+  assert.equal(has(component.render(), "Only open links you trust."), false);
   component.unmount();
+});
+
+test("result opening closes only after success and failures leave the result available", async () => {
+  const pending = deferred(), calls = [], closed = [];
+  const harness = createLibraryHarness({qrAction:async (...args)=>{calls.push(args);return pending.promise;}},source);
+  const component = harness.mount("QrResults", {scan:scan([code(0)]),onOpened:()=>closed.push(true)});
+  nodes(component.render()).find(n=>n?.props?.className==="kiri-qr-marker").props.onClick();
+  const action = nodes(component.render()).find(n=>n?.props?.code).props.action;
+  const opening = action("open");
+  assert.deepEqual(closed, []);
+  pending.resolve(null); await opening;
+  assert.deepEqual(closed, [true]);
+  assert.deepEqual(calls.map(args=>args[2]), ["favorite", "open"]);
+  component.unmount();
+  const failing = createLibraryHarness({qrAction:async()=>{throw "Could not open this link.";}},source);
+  const failed = failing.mount("QrResults", {scan:scan([code(0)]),onOpened:()=>closed.push(false)});
+  nodes(failed.render()).find(n=>n?.props?.className==="kiri-qr-marker").props.onClick();
+  await assert.rejects(nodes(failed.render()).find(n=>n?.props?.code).props.action("open"));
+  assert.deepEqual(closed, [true]);
+  assert.equal(nodes(failed.render()).find(n=>n?.props?.code).props.code.index, 0);
+  failed.unmount();
+});
+
+test("rapid repeated clicks invoke only one open while its request is pending", async () => {
+  const pending = deferred(), calls = [];
+  const harness = createLibraryHarness({}, source);
+  const component = harness.mount("QrDetails", {code:code(0), action:a=>{calls.push(a);return pending.promise;}});
+  const target = button(component.render(), "Open Link");
+  target.props.onClick(); target.props.onClick();
+  assert.deepEqual(calls, ["open"]);
+  pending.resolve(null); await settleRequests();
+  component.unmount();
+});
+
+test("an opening response from a closed result cannot dismiss a newer dialog", async () => {
+  const pending=deferred(),closed=[];
+  const harness=createLibraryHarness({qrAction:()=>pending.promise},source);
+  const component=harness.mount("QrResults",{scan:scan([code(0)]),onOpened:()=>closed.push(true)});
+  nodes(component.render()).find(n=>n?.props?.className==="kiri-qr-marker").props.onClick();
+  const opening=nodes(component.render()).find(n=>n?.props?.code).props.action("open");
+  component.unmount();pending.resolve(null);await opening;
+  assert.deepEqual(closed,[]);
+});
+
+test("link, plain text and standard WeChat payloads get distinct simple labels", () => {
+  assert.equal(qrContentType(code(0)), "Link");
+  assert.equal(qrContentType({...code(0,"Kiri QR 测试"),host:null}), "Text");
+  for (const host of ["weixin.qq.com", "login.weixin.qq.com", "mp.weixin.qq.com"]) {
+    assert.equal(qrContentType({...code(0),host}), "WeChat");
+  }
+  for (const text of ["weixin://wxpay/bizpayurl?pr=public", "wxp://public-fixture"]) {
+    const value={...code(0,text),host:null};
+    assert.equal(qrContentType(value), "WeChat");
+    const component=createLibraryHarness({},source).mount("QrDetails",{code:value,action:async()=>{}});
+    assert.equal(button(component.render(),"Open Link"),undefined);
+    component.unmount();
+  }
+  assert.equal(qrContentType({...code(0),host:"weixin.qq.com.example.org"}), "Link");
 });
 
 test("saving a repeated payload retains its favorite state when selecting another copy", async () => {
@@ -127,7 +181,7 @@ test("saving a repeated payload retains its favorite state when selecting anothe
   const harness = createLibraryHarness({ qrAction: async (...args) => { calls.push(args); } }, source);
   const component = harness.mount("QrResults", { scan: scan([code(0), code(1)]) });
   nodes(component.render()).filter(n => n?.type === "button" && n.props.className === "kiri-qr-marker")[0].props.onClick();
-  await nodes(component.render()).find(n => n?.props?.code).props.action("favorite");
+  await settleRequests();
   nodes(component.render()).filter(n => n?.type === "button" && n.props.className === "kiri-qr-marker")[1].props.onClick();
   const detail = nodes(component.render()).find(n => n?.props?.code);
   assert.equal(detail.props.code.index, 1);
@@ -135,6 +189,44 @@ test("saving a repeated payload retains its favorite state when selecting anothe
   await detail.props.action("unfavorite");
   assert.equal(nodes(component.render()).find(n => n?.props?.code).props.saved, false);
   assert.deepEqual(calls.map(c => c[2]), ["favorite", "unfavorite"]);
+  component.unmount();
+});
+
+test("opening waits for every chosen code to finish saving and locks further selection", async () => {
+  const first=deferred(),second=deferred(),calls=[];
+  const harness=createLibraryHarness({qrAction:async(_id,index,action)=>{
+    calls.push([index,action]);
+    if(action==="favorite")return index===0?first.promise:second.promise;
+    return null;
+  }},source);
+  const component=harness.mount("QrResults",{scan:scan([code(0),code(1,"Kiri QR test")])});
+  const markers=()=>nodes(component.render()).filter(n=>n?.props?.className==="kiri-qr-marker");
+  markers()[0].props.onClick();markers()[1].props.onClick();markers()[0].props.onClick();
+  const opening=nodes(component.render()).find(n=>n?.props?.code).props.action("open");
+  await settleRequests();
+  assert.deepEqual(calls,[[0,"favorite"],[1,"favorite"]]);
+  assert.ok(markers().every(n=>n.props.disabled));
+  first.resolve(null);await settleRequests();
+  assert.deepEqual(calls,[[0,"favorite"],[1,"favorite"]]);
+  second.resolve(null);await opening;
+  assert.deepEqual(calls,[[0,"favorite"],[1,"favorite"],[0,"open"]]);
+  component.unmount();
+});
+
+test("failed automatic saving leaves content readable and manual saving can retry", async () => {
+  let attempts=0;
+  const harness=createLibraryHarness({qrAction:async()=>{if(++attempts===1)throw "Could not save this QR code.";return null;}},source);
+  const component=harness.mount("QrResults",{scan:scan([code(0)])});
+  nodes(component.render()).find(n=>n?.props?.className==="kiri-qr-marker").props.onClick();
+  await settleRequests();
+  let detail=nodes(component.render()).find(n=>n?.props?.code);
+  assert.equal(detail.props.autoSaveError,"Could not save this QR code.");
+  assert.equal(detail.props.autoSaving,false);
+  assert.equal(detail.props.saved,false);
+  await detail.props.action("favorite");
+  detail=nodes(component.render()).find(n=>n?.props?.code);
+  assert.equal(detail.props.autoSaveError,null);
+  assert.equal(detail.props.saved,true);
   component.unmount();
 });
 

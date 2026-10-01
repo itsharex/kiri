@@ -225,7 +225,7 @@ pub async fn qr_action(
             Ok(None)
         }
         "open" => {
-            open_link(&app, text).await?;
+            open_link(&app, text, Some((window, request_id, index))).await?;
             Ok(None)
         }
         "favorite" | "unfavorite" => {
@@ -239,23 +239,25 @@ pub async fn qr_action(
                 let state = app.state::<AppState>();
                 let capture = state.capture.lock().unwrap();
                 let scans = state.qr_requests.scans.lock().unwrap();
-                if !scans.get(&label).is_some_and(|s| s.id == scan.id)
-                    || scan.capture_id.is_some_and(|id| {
-                        !capture.session.as_ref().is_some_and(|s| {
+                let request_current = scans.get(&label).is_some_and(|s| s.id == scan.id)
+                    && scan.capture_id.is_none_or(|id| {
+                        capture.session.as_ref().is_some_and(|s| {
                             s.capture_id == id && s.overlay_labels.contains(&label)
                         })
-                    })
-                {
-                    return Err("The QR request was canceled.".into());
-                }
+                    });
                 let mut context = state.library.lock().unwrap();
-                if (
-                    context.expected_library_id(),
-                    context.expected_library_generation(),
-                ) != scan.library_identity
-                {
-                    return Err("The library changed during QR recognition.".into());
-                }
+                // selected() already accepted Favorite with a frozen PNG and
+                // payload. Closing its result does not retract that explicit
+                // save, but it must never write to a replacement library.
+                validate_qr_favorite_save(
+                    &action,
+                    request_current,
+                    scan.library_identity,
+                    (
+                        context.expected_library_id(),
+                        context.expected_library_generation(),
+                    ),
+                )?;
                 let library = context.library_mut().map_err(|e| e.to_string())?;
                 let asset = if let Some((png, width, height)) = crop {
                     Some(
@@ -286,6 +288,21 @@ pub async fn qr_action(
         }
         _ => Err("Invalid QR action.".into()),
     }
+}
+
+fn validate_qr_favorite_save(
+    action: &str,
+    request_current: bool,
+    expected_library: (uuid::Uuid, uuid::Uuid),
+    current_library: (uuid::Uuid, uuid::Uuid),
+) -> Result<(), String> {
+    if action == "unfavorite" && !request_current {
+        return Err("The QR request was canceled.".into());
+    }
+    if expected_library != current_library {
+        return Err("The library changed during QR recognition.".into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -337,7 +354,7 @@ pub async fn qr_favorite_action(
     match action.as_str() {
         "copy" => crate::platform::write_text_to_clipboard(&text).map_err(|e| e.to_string()),
         "copyImage" => crate::commands::copy_asset(app, window, id.to_string()),
-        "open" => open_link(&app, &text).await,
+        "open" => open_link(&app, &text, None).await,
         "remove" => {
             emit_library_changed(&app);
             Ok(())
@@ -346,13 +363,42 @@ pub async fn qr_favorite_action(
     }
 }
 
-async fn open_link(app: &AppHandle, text: &str) -> Result<(), String> {
+#[cfg(not(target_os = "linux"))]
+async fn open_link(
+    app: &AppHandle,
+    text: &str,
+    owner: Option<(WebviewWindow, String, usize)>,
+) -> Result<(), String> {
     let url = qr::link(text)
         .ok_or("Only explicit HTTP or HTTPS links without credentials can be opened.")?
         .to_string();
     let (tx, rx) = std::sync::mpsc::channel();
+    let app_handle = app.clone();
     app.run_on_main_thread(move || {
-        let _ = tx.send(open_web_url(&url));
+        let result = (|| {
+            if let Some((window, request_id, index)) = owner {
+                // Ownership may change while this command waits for the main
+                // thread. Revalidate before hiding or closing any capture.
+                let (scan, code) = selected(&window, &app_handle, &request_id, index)?;
+                let url = code
+                    .text
+                    .as_deref()
+                    .and_then(qr::link)
+                    .ok_or("Only explicit HTTP or HTTPS links without credentials can be opened.")?
+                    .to_string();
+                if let Some(capture_id) = scan.capture_id {
+                    return crate::commands::open_capture_link(
+                        &window,
+                        &app_handle,
+                        capture_id,
+                        || open_web_url(&url),
+                    );
+                }
+                return open_web_url(&url);
+            }
+            open_web_url(&url)
+        })();
+        let _ = tx.send(result);
     })
     .map_err(|_| "Could not open this link.")?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -363,6 +409,160 @@ async fn open_link(app: &AppHandle, text: &str) -> Result<(), String> {
     .map_err(|_| "Could not open this link.".to_string())?
 }
 
+#[cfg(target_os = "linux")]
+async fn open_link(
+    app: &AppHandle,
+    text: &str,
+    owner: Option<(WebviewWindow, String, usize)>,
+) -> Result<(), String> {
+    let url = qr::link(text)
+        .ok_or("Only explicit HTTP or HTTPS links without credentials can be opened.")?
+        .to_string();
+    let app_handle = app.clone();
+    let prepare_owner = owner.clone();
+    let (url, prepared) = on_main_thread(app, move || {
+        let Some((window, request_id, index)) = prepare_owner else {
+            return Ok((url, None));
+        };
+        let (scan, code) = selected(&window, &app_handle, &request_id, index)?;
+        let url = code
+            .text
+            .as_deref()
+            .and_then(qr::link)
+            .ok_or("Only explicit HTTP or HTTPS links without credentials can be opened.")?
+            .to_string();
+        let prepared = scan
+            .capture_id
+            .map(|id| crate::commands::prepare_capture_link(&window, &app_handle, id))
+            .transpose()?;
+        Ok((url, prepared))
+    })
+    .await?;
+    let opened = tauri::async_runtime::spawn_blocking(move || {
+        let mut command = std::process::Command::new("xdg-open");
+        command
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        wait_for_link_launcher(command, std::time::Duration::from_secs(10))
+    })
+    .await
+    .map_err(|_| "Could not open this link.".to_string())
+    .and_then(|result| result);
+    let app_handle = app.clone();
+    on_main_thread(app, move || {
+        let owner_valid: Result<(), String> = (|| {
+            if let Some((window, request_id, index)) = owner {
+                let (scan, _) = selected(&window, &app_handle, &request_id, index)?;
+                if scan.capture_id != prepared.as_ref().map(|token| token.capture_id) {
+                    return Err("The QR request was canceled.".into());
+                }
+            }
+            Ok(())
+        })();
+        // A canceled/replaced QR request still needs to unhide its capture.
+        // The token guard prevents restoring a different, newer session.
+        let finished = if let Some(prepared) = prepared {
+            crate::commands::finish_capture_link(
+                &app_handle,
+                prepared,
+                opened.is_ok() && owner_valid.is_ok(),
+            )
+        } else {
+            Ok(())
+        };
+        owner_valid?;
+        finished?;
+        opened
+    })
+    .await
+}
+
+#[cfg(target_os = "linux")]
+async fn on_main_thread<T: Send + 'static>(
+    app: &AppHandle,
+    action: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(action());
+    })
+    .map_err(|_| "Could not open this link.")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .map_err(|_| "Could not open this link.".to_string())?
+    })
+    .await
+    .map_err(|_| "Could not open this link.".to_string())?
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn wait_for_link_launcher(
+    mut command: std::process::Command,
+    timeout: std::time::Duration,
+) -> Result<(), String> {
+    let mut child = command
+        .spawn()
+        .map_err(|_| "Could not open this link.".to_string())?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err("Could not open this link.".into())
+                };
+            }
+            Err(_) => {
+                stop_link_launcher(&mut child);
+                return Err("Could not open this link.".into());
+            }
+            Ok(None) => {}
+        }
+        if std::time::Instant::now() >= deadline {
+            stop_link_launcher(&mut child);
+            return Err("Could not open this link.".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn stop_link_launcher(child: &mut std::process::Child) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(arguments) = std::fs::read(format!("/proc/{}/cmdline", child.id())) else {
+            return;
+        };
+        let names: Vec<_> = arguments
+            .split(|byte| *byte == 0)
+            .take(2)
+            .map(|argument| std::path::Path::new(std::ffi::OsStr::from_bytes(argument)).file_name())
+            .collect();
+        let xdg = Some(std::ffi::OsStr::new("xdg-open"));
+        let is_launcher = names.first().copied() == Some(xdg)
+            || (names.get(1).copied() == Some(xdg)
+                && names.first().copied().flatten().is_some_and(|name| {
+                    ["sh", "dash", "bash", "busybox"]
+                        .iter()
+                        .any(|shell| name == std::ffi::OsStr::new(shell))
+                }));
+        // xdg-open may have exec'd the browser. Only terminate a child that
+        // still identifies as the launcher, never the destination application.
+        if is_launcher && child.kill().is_ok() {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+            while matches!(child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = child;
+}
+
+#[cfg(not(target_os = "linux"))]
 fn open_web_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -395,12 +595,48 @@ fn open_web_url(url: &str) -> Result<(), String> {
             return Err("Could not open this link.".into());
         }
     }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .map_err(|_| "Could not open this link.")?;
-    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_qr_favorite_save;
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_success_and_failure_follow_the_exit_status() {
+        for (status, succeeds) in [(0, true), (7, false)] {
+            let mut command = std::process::Command::new("sh");
+            command.arg("-c").arg(format!("exit {status}"));
+            assert_eq!(
+                super::wait_for_link_launcher(command, std::time::Duration::from_secs(1)).is_ok(),
+                succeeds,
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_launcher_is_an_open_failure() {
+        let command = std::process::Command::new("/kiri-missing-link-launcher");
+        assert!(super::wait_for_link_launcher(command, std::time::Duration::from_secs(1)).is_err());
+    }
+
+    #[test]
+    fn accepted_favorite_survives_result_close_but_unfavorite_requires_its_owner() {
+        let identity = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        assert!(validate_qr_favorite_save("favorite", false, identity, identity).is_ok());
+        assert!(validate_qr_favorite_save("unfavorite", false, identity, identity).is_err());
+    }
+
+    #[test]
+    fn accepted_favorite_cannot_write_to_a_replacement_library_or_generation() {
+        let identity = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        for replacement in [
+            (uuid::Uuid::new_v4(), identity.1),
+            (identity.0, uuid::Uuid::new_v4()),
+        ] {
+            assert!(validate_qr_favorite_save("favorite", false, identity, replacement).is_err());
+        }
+    }
 }

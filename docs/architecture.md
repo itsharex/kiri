@@ -217,9 +217,13 @@ payloads and capping the combined result at 64 codes (ADR 0062).
 Request UUIDs and window/capture owners
 prevent canceled or superseded publication; saving also checks the library
 identity/generation. Saved-image scans are scoped to the library window or the
-editor whose label matches that asset UUID. Closing the capture's QR results
-returns to the selected region and preserves its annotations. Opening delegates a validated HTTP/HTTPS URL to the OS only
-after content and destination review. No image or payload is uploaded.
+editor whose label matches that asset UUID. Capture results place markers directly
+on the original frozen region and show selected content in a nearby bounded panel.
+Closing the results returns to the selected region and preserves its annotations.
+Selecting a readable code saves it automatically. Opening waits for pending saves,
+then delegates a validated HTTP/HTTPS URL to the default browser with one action.
+Successful opening ends the capture; failures retain the result. No image or
+payload is uploaded.
 
 QR Favorites stores an optional searchable `qrText` field and a selected-code PNG
 crop through one atomic library import. Duplicate active payloads reuse a record;
@@ -228,6 +232,8 @@ the QR Favorites destination provides search and content/image reuse.
 Standard square WeChat QR codes use this local path; circular Mini Program
 codes are unsupported. See [ADR 0061](adr/0061-local-qr-recognition-and-favorites.md)
 and [ADR 0063](adr/0063-qr-center-markers-and-supported-geometry.md).
+[ADR 0064](adr/0064-direct-qr-selection-and-opening.md) records direct selection,
+automatic saving, content labels and one-action browser handoff.
 
 ## OCR flow
 

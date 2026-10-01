@@ -48,7 +48,7 @@ import { useAnnotationAppearance } from "../annotation/useAnnotationAppearance";
 import AnnotationCanvas, { type AnnotationCanvasHandle } from "../annotation/AnnotationCanvas";
 import { AnnotationInteractionLock } from "../annotation/interaction-lock.js";
 import { KiriIcon, type IconName } from "../components/KiriIcons";
-import { QrModal } from "../qr/QrResults";
+import { QrOverlay } from "../qr/QrOverlay";
 import { RemoteOcrConsent } from "../ocr/RemoteOcrConsent";
 import { kiriResourceUrl } from "../lib/kiri-resource-url.js";
 import { captureToolbarPosition } from "./toolbar-layout.js";
@@ -548,6 +548,9 @@ export function OverlayWindow() {
         e.stopPropagation();
         return;
       }
+      // QR content is selectable, and its buttons keep their native keyboard
+      // behavior. Annotation shortcuts must not intercept this reading phase.
+      if (phaseRef.current === "qr-result") return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -857,7 +860,9 @@ export function OverlayWindow() {
         // annotating (tearing down annotations); otherwise it cancels.
         e.preventDefault();
         if (completing) return;
-        if (phase === "annotating") {
+        if (phase === "qr-result") {
+          closeQr();
+        } else if (phase === "annotating") {
           setPhase("selecting");
           setSelection(null);
           setTool("select");
@@ -919,7 +924,7 @@ export function OverlayWindow() {
       )}
 
       {/* Selection outline: white outer keyline + black inner keyline. */}
-      {displayRect && phase !== "annotating" && (
+      {displayRect && phase !== "annotating" && phase !== "qr-result" && (
         <>
           <div
             style={{
@@ -1012,7 +1017,7 @@ export function OverlayWindow() {
                 : undefined
             }
             region={{ x: selection.x, y: selection.y, width: selection.width, height: selection.height }}
-            interactionDisabled={completing}
+            interactionDisabled={completing || phase === "qr-result"}
             interactionLock={completionLock}
             tool={tool}
             appearance={appearance}
@@ -1090,7 +1095,11 @@ export function OverlayWindow() {
         </>
       )}
 
-      {phase === "qr-result" && <QrModal scan={qrScan} failed={qrFailed} onClose={closeQr}/>}
+      {phase === "qr-result" && selection && <QrOverlay scan={qrScan} failed={qrFailed} selection={selection} bounds={bounds} scale={context?.scale ?? 1} onClose={closeQr} onOpened={() => {
+        // Wait for the opening IPC response before closing its owner WebView.
+        // The backend already ended the capture and hid this overlay.
+        void getCurrentWindow().close().catch(error => reportFrontend(`QR window close rejected: ${String(error)}`));
+      }}/>}
 
       {/* OCR states */}
       {phase === "ocr-preparing" && <HintLabel text={t("Preparing Text…")} top={DEFAULT_HINT_TOP} />}

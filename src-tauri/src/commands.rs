@@ -2214,6 +2214,129 @@ pub(crate) fn teardown_cancelled_capture(
     );
 }
 
+pub(crate) struct CaptureLinkPreparation {
+    pub capture_id: uuid::Uuid,
+    owner_label: String,
+    hidden_overlays: Vec<String>,
+}
+
+pub(crate) fn prepare_capture_link(
+    owner: &WebviewWindow,
+    app: &AppHandle,
+    capture_id: uuid::Uuid,
+) -> Result<CaptureLinkPreparation, String> {
+    let state = app.state::<AppState>();
+    let _transition = state.library_transition.lock().unwrap();
+    let capture = state.capture.lock().unwrap();
+    let session = capture
+        .session
+        .as_ref()
+        .filter(|session| {
+            session.capture_id == capture_id
+                && session
+                    .overlay_labels
+                    .iter()
+                    .any(|label| label == owner.label())
+        })
+        .ok_or("The QR request was canceled.")?;
+    let mut hidden_overlays: Vec<WebviewWindow> = Vec::new();
+    for label in &session.overlay_labels {
+        if let Some(window) = app.get_webview_window(label) {
+            if window.is_visible().unwrap_or(false) {
+                if window.hide().is_err() {
+                    for hidden in &hidden_overlays {
+                        let _ = hidden.show();
+                    }
+                    let _ = owner.set_focus();
+                    return Err("Could not open this link.".into());
+                }
+                hidden_overlays.push(window);
+            }
+        }
+    }
+    // Restore the pre-capture windows before opening the browser. Doing this
+    // after opening would activate the old app over the requested destination.
+    restore_capture_origin(
+        app,
+        &session.hidden_windows,
+        session.was_kiri_frontmost,
+        session.return_pid,
+    );
+    Ok(CaptureLinkPreparation {
+        capture_id,
+        owner_label: owner.label().to_string(),
+        hidden_overlays: hidden_overlays
+            .into_iter()
+            .map(|window| window.label().to_string())
+            .collect(),
+    })
+}
+
+pub(crate) fn finish_capture_link(
+    app: &AppHandle,
+    prepared: CaptureLinkPreparation,
+    opened: bool,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let _transition = state.library_transition.lock().unwrap();
+    let mut capture = state.capture.lock().unwrap();
+    let session = capture
+        .session
+        .as_ref()
+        .filter(|session| {
+            session.capture_id == prepared.capture_id
+                && session.overlay_labels.contains(&prepared.owner_label)
+        })
+        .ok_or("The QR request was canceled.")?;
+    if !opened {
+        for label in &session.hidden_windows {
+            if let Some(window) = app.get_webview_window(label) {
+                let _ = window.hide();
+            }
+        }
+        for label in prepared.hidden_overlays {
+            if session.overlay_labels.contains(&label) {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.show();
+                }
+            }
+        }
+        if let Some(owner) = app.get_webview_window(&prepared.owner_label) {
+            let _ = owner.set_focus();
+        }
+        return Ok(());
+    }
+    let session = capture.session.take().unwrap();
+    drop(capture);
+    crate::microphone::stop();
+    invalidate_capture_resources(app, &session);
+    for label in session.overlay_labels {
+        state.qr_requests.clear(&label);
+        // Keep the hidden IPC owner alive until WebView2 delivers the open
+        // response. Its frontend closes it from onOpened after success.
+        if label == prepared.owner_label {
+            continue;
+        }
+        if let Some(window) = app.get_webview_window(&label) {
+            let _ = window.close();
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn open_capture_link(
+    owner: &WebviewWindow,
+    app: &AppHandle,
+    capture_id: uuid::Uuid,
+    open_link: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let prepared = prepare_capture_link(owner, app, capture_id)?;
+    let result = open_link();
+    finish_capture_link(app, prepared, result.is_ok())?;
+    result
+}
+
 fn invalidate_capture_resources(app: &AppHandle, session: &CaptureSession) {
     let state = app.state::<AppState>();
     for label in &session.overlay_labels {
