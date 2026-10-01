@@ -31,6 +31,8 @@
   "All captures in Trash will be permanently deleted. This cannot be undone.": "回收站中的所有内容将被永久删除，此操作无法撤销。",
   "Trash Emptied": "回收站已清空",
   "Copy": "复制",
+  "Couldn't copy this capture.": "未能复制此素材。",
+  "Saving Recording…": "保存中…",
   "Open": "打开",
   "Edit": "编辑",
   "Edit screenshot": "编辑截图",

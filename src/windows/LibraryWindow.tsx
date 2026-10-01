@@ -13,11 +13,13 @@ import {
   onGifConversionState,
   onLibraryChanged,
   onNotice,
+  onRecordingSaveJobs,
   type AssetDto,
   type AssetAvailability,
   type ErrorDto,
   type LibraryStatusDto,
   type NoticeDto,
+  type RecordingSaveJob,
   type ShortcutStatusDto,
 } from "../lib/ipc";
 import { t, fmt } from "../i18n";
@@ -35,6 +37,7 @@ import {
   getLibraryMenuPosition,
   getMenuFocusIndex,
 } from "./library-card-interaction.js";
+import { canCopyCaptureOnKeyDown } from "./viewer-copy-shortcut.js";
 
 const SettingsView = React.lazy(() =>
   import("../settings/SettingsView").then((module) => ({ default: module.SettingsView })),
@@ -48,8 +51,8 @@ function thumbnailUrl(id: string, revision: number): string {
 }
 
 /** Groups assets by calendar day, newest group first. */
-function groupByDay(assets: AssetDto[]): { key: string; label: string; assets: AssetDto[] }[] {
-  const groups = new Map<string, AssetDto[]>();
+function groupByDay<T extends { createdAt: number | string }>(assets: T[]): { key: string; label: string; assets: T[] }[] {
+  const groups = new Map<string, T[]>();
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const dayMs = 86_400_000;
@@ -91,6 +94,8 @@ export function LibraryWindow() {
   const [libraryStatusError, setLibraryStatusError] = useState(false);
   const [libraryRecoveryBusy, setLibraryRecoveryBusy] = useState(false);
   const [pendingRecordingCount, setPendingRecordingCount] = useState(0);
+  const [recordingSaveJobs, setRecordingSaveJobs] = useState<RecordingSaveJob[]>([]);
+  const recordingSaveJobsSnapshotRef = useRef<RecordingSaveJob[]>([]);
   const [pendingRetryBusy, setPendingRetryBusy] = useState(false);
   const [assetAvailability, setAssetAvailability] = useState<Record<string, AssetAvailability>>({});
   const [thumbnailRevisions, setThumbnailRevisions] = useState<Record<string, number>>({});
@@ -140,6 +145,16 @@ export function LibraryWindow() {
       return asset.kind === kindFilter;
     });
   }, [assets, kindFilter, favoritesOnly, tagFilter]);
+
+  // An unfinished recording has no searchable title, tags, or favorite state.
+  // Keep it in the ordinary media view, without making it selectable as an asset.
+  const visibleEntries = useMemo(() => {
+    const jobs = section === "library" && !query.trim() && !favoritesOnly && !tagFilter
+      ? recordingSaveJobs.filter((job) => kindFilter === "all" || kindFilter === job.kind)
+      : [];
+    return [...jobs, ...filteredAssets].sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [section, query, favoritesOnly, tagFilter, recordingSaveJobs, kindFilter, filteredAssets]);
 
   const visibleAssetIds = useMemo(
     () => new Set(filteredAssets.map((asset) => asset.id)),
@@ -364,6 +379,9 @@ export function LibraryWindow() {
       setAssets(list);
       setPendingRecordingCount(pending.length);
       setAssetAvailability({});
+      // Commit completion and the refreshed real assets together. A removed
+      // job stays visible until this fetch settles instead of leaving a gap.
+      setRecordingSaveJobs(recordingSaveJobsSnapshotRef.current);
     } catch {
       if (generation !== refreshGenerationRef.current) return;
       setLibraryStatusError(true);
@@ -377,6 +395,38 @@ export function LibraryWindow() {
   useEffect(() => {
     void refresh().catch(() => {});
   }, [query, refresh, showingTrash]);
+
+  useEffect(() => {
+    let active = true;
+    let eventVersion = 0;
+    let dispose: (() => void) | undefined;
+    const acceptSnapshot = (next: RecordingSaveJob[], refreshAfterSnapshot = false) => {
+      if (!active) return;
+      const ids = new Set(next.map((job) => job.id));
+      const removed = recordingSaveJobsSnapshotRef.current.some((job) => !ids.has(job.id));
+      recordingSaveJobsSnapshotRef.current = next;
+      setRecordingSaveJobs((current) => [
+        ...next,
+        ...current.filter((job) => !ids.has(job.id)),
+      ]);
+      if (removed || refreshAfterSnapshot) void refresh();
+    };
+    // Listen first so a long save can finish while this window is opening.
+    // The initial reply must never overwrite an event received after its request.
+    void onRecordingSaveJobs((next) => {
+      eventVersion++;
+      acceptSnapshot(next);
+    }).then(async (unlisten) => {
+      if (!active) { unlisten(); return; }
+      dispose = unlisten;
+      const version = eventVersion;
+      const snapshot = await api.getRecordingSaveJobs();
+      // The first asset fetch may have preceded the library subscription.
+      // Refresh after this snapshot even if a completed job is already absent.
+      if (active && version === eventVersion) acceptSnapshot(snapshot, true);
+    }).catch(() => {});
+    return () => { active = false; dispose?.(); };
+  }, [refresh]);
 
   useEffect(() => {
     const subscriptions = [
@@ -445,11 +495,19 @@ export function LibraryWindow() {
 
   const hasActiveFilter =
     query.trim().length > 0 || kindFilter !== "all" || favoritesOnly || tagFilter !== null;
-  const isEmpty = assets.length === 0 && loaded && !hasActiveFilter;
-  const isFilterEmpty = filteredAssets.length === 0 && loaded && hasActiveFilter;
+  const isEmpty = visibleEntries.length === 0 && loaded && !hasActiveFilter;
+  const isFilterEmpty = visibleEntries.length === 0 && loaded && hasActiveFilter;
   const libraryUnavailable =
     loaded && (libraryStatusError || libraryStatus?.availability === "unavailable");
   const libraryMigrating = loaded && libraryStatus?.availability === "migrating";
+
+  const copyCapture = async (id: string) => {
+    try {
+      await api.copyAsset(id);
+    } catch {
+      setError({ message: "Couldn't copy this capture.", recovery: null });
+    }
+  };
 
   const openMenu = (id: string, x: number, y: number, trigger?: HTMLButtonElement, focusFirst = false) => {
     if (menuFor === id && trigger && menuTriggerRef.current === trigger) {
@@ -617,14 +675,12 @@ export function LibraryWindow() {
           animation: "kiri-menu-in 0.12s ease-out",
         }}
       >
-        {asset.kind === "image" && (
-          <MenuRow
-            icon="doc.on.doc"
-            label={t("Copy")}
-            disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
-            onClick={run(() => void api.copyAsset(asset.id).catch(() => {}))}
-          />
-        )}
+        <MenuRow
+          icon="doc.on.doc"
+          label={t("Copy")}
+          disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"}
+          onClick={run(() => void copyCapture(asset.id))}
+        />
         {asset.kind === "image" && !showingTrash && <MenuRow icon="qrcode" label={t("Recognize QR Codes")} disabled={assetAvailability[asset.id] !== undefined && assetAvailability[asset.id] !== "ready"} onClick={run(() => setQrAsset(asset))} />}
         {asset.kind === "image" && (!showingTrash || asset.ocrText != null) && <MenuRow
           icon="text.viewfinder"
@@ -1098,7 +1154,7 @@ export function LibraryWindow() {
               }}
             />
           )}
-          {groupByDay(filteredAssets).map((group) => (
+          {groupByDay(visibleEntries).map((group) => (
             <div key={group.key} style={{ marginBottom: 22 }}>
               <div
                 style={{
@@ -1140,7 +1196,9 @@ export function LibraryWindow() {
                 </span>
               </div>
               <div style={gridStyle}>
-                {group.assets.map((asset) => (
+                {group.assets.map((asset) => !("filename" in asset) ? (
+                  <RecordingSaveCard key={`saving-${asset.id}`} job={asset} />
+                ) : (
                   <AssetCard
                     key={asset.id}
                     asset={asset}
@@ -1167,6 +1225,7 @@ export function LibraryWindow() {
                       }
                     }}
                     onRestoreMissing={() => restoreMissing(asset.id)}
+                    onCopy={() => void copyCapture(asset.id)}
                     onOpen={() =>
                       assetAvailability[asset.id] === undefined ||
                       assetAvailability[asset.id] === "ready"
@@ -1403,6 +1462,30 @@ function recoveryLabel(recovery: string): string {
   }
 }
 
+function RecordingSaveCard({ job }: { job: RecordingSaveJob }) {
+  const duration = job.duration != null && Number.isFinite(job.duration) && job.duration >= 0
+    ? `${Math.floor(job.duration / 60)}:${String(Math.floor(job.duration % 60)).padStart(2, "0")}`
+    : null;
+  return (
+    <div className="library-recording-save" data-saving-job={job.id} role="status" aria-busy="true">
+      <div className="library-recording-save__preview">
+        <KiriIcon name="video.fill" size={26} />
+        <div className="library-recording-save__status">
+          <span className="library-recording-save__spinner" aria-hidden="true" />
+          <span>{t("Saving Recording…")}</span>
+        </div>
+        <span className="library-recording-save__detail">
+          {t(job.kind === "gif" ? "GIF" : "Video")}{duration && ` · ${duration}`}
+        </span>
+      </div>
+      <div className="library-recording-save__footer">
+        <span>{new Date(job.createdAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>
+        {job.pixelWidth > 0 && job.pixelHeight > 0 && <span>{job.pixelWidth}×{job.pixelHeight}</span>}
+      </div>
+    </div>
+  );
+}
+
 function AssetCard(props: {
   asset: AssetDto;
   availability?: AssetAvailability;
@@ -1416,6 +1499,7 @@ function AssetCard(props: {
   registerRef(el: HTMLDivElement | null): void;
   onAvailability(availability: AssetAvailability): void;
   onRestoreMissing(): Promise<void>;
+  onCopy(): void;
 }) {
   const {
     asset,
@@ -1430,6 +1514,7 @@ function AssetCard(props: {
     registerRef,
     onAvailability,
     onRestoreMissing,
+    onCopy,
   } = props;
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -1564,7 +1649,23 @@ function AssetCard(props: {
       className="library-asset-card"
       data-card={asset.id}
       role="article"
+      tabIndex={0}
       aria-label={asset.title ?? asset.filename}
+      onKeyDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("input,textarea,[contenteditable=true]")) return;
+        if (canCopyCaptureOnKeyDown(event, {
+          canCopy: () => contentAvailable,
+          hasTextSelection: () => !!window.getSelection()?.toString(),
+        })) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) onCopy();
+        } else if (target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          if (contentAvailable) openCard();
+        }
+      }}
       onClick={handleClick}
       onContextMenu={(e) => {
         // Right-click shows the localized action menu at the cursor
@@ -1875,12 +1976,12 @@ function AssetCard(props: {
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
-              if (contentAvailable) void api.copyAsset(asset.id).catch(() => {});
+              if (contentAvailable) onCopy();
             }}
             onDoubleClick={(e) => {
               // A rapid double-click on Copy must copy, not open the asset.
               e.stopPropagation();
-              if (contentAvailable) void api.copyAsset(asset.id).catch(() => {});
+              if (contentAvailable) onCopy();
             }}
             style={{
               width: 26,

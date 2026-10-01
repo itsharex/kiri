@@ -211,6 +211,7 @@ pub fn run() {
             commands::restore_missing_asset,
             commands::remove_missing_asset,
             commands::list_pending_recordings,
+            commands::get_recording_save_jobs,
             commands::retry_pending_recordings,
             commands::set_favorite,
             commands::move_to_trash,

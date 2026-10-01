@@ -28,7 +28,8 @@ use crate::state::{
     emit_asset_content_changed, emit_error, emit_library_changed, emit_notice, emit_notice_local,
     emit_notice_on_monitor, emit_recording_state, show_completion_preview, ActiveRecording,
     AppState, ApprovedEditorSave, CaptureSession, CompletionPreviewDto, PendingCaptureCompletion,
-    RecordingConfiguration, RecordingFlow, StagedCaptureAnnotation, StagedEditorAnnotation,
+    RecordingConfiguration, RecordingFlow, RecordingSaveJobDto, RecordingSaveJobGuard,
+    StagedCaptureAnnotation, StagedEditorAnnotation,
 };
 
 // ---------------------------------------------------------------------------
@@ -1013,6 +1014,11 @@ pub async fn list_pending_recordings(app: AppHandle) -> Result<Vec<PendingRecord
     })
     .await
     .map_err(|error| format!("Could not check pending recordings: {error}"))?
+}
+
+#[tauri::command]
+pub fn get_recording_save_jobs(app: AppHandle) -> Vec<RecordingSaveJobDto> {
+    app.state::<AppState>().recording_save_jobs.lock().unwrap().snapshot()
 }
 
 #[tauri::command]
@@ -4712,12 +4718,26 @@ fn stop_recording_session(
     stop_click_monitor(&app);
     close_recording_windows(&app);
 
+    let completion_id = uuid::Uuid::new_v4().to_string();
+    let save_job = RecordingSaveJobGuard::begin(&app, RecordingSaveJobDto {
+        id: completion_id.clone(),
+        kind: match output_format {
+            RecordingOutputFormat::Mp4 => "video",
+            RecordingOutputFormat::Gif => "gif",
+        }.into(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        duration: finalize_metadata.and_then(|metadata| metadata.duration),
+        pixel_width: finalize_metadata.map_or(0, |metadata| metadata.pixel_width),
+        pixel_height: finalize_metadata.map_or(0, |metadata| metadata.pixel_height),
+    });
+
     // Entire stop + finalize runs on a background thread: recorder.stop()
     // and encoder.finish() can block on SCK/native callbacks, and merging
     // + probing takes time. The UI already shows the finalizing spinner, so
     // the async command returns immediately and the panel stays responsive.
     let handle = app.clone();
     std::thread::spawn(move || {
+        let _save_job = save_job;
         let mut failure = None;
         let mut final_segments = segments;
         if let Some(mut active) = active {
@@ -4784,7 +4804,6 @@ fn stop_recording_session(
             );
             emit_error(&handle, message, None);
         } else {
-            let completion_id = uuid::Uuid::new_v4().to_string();
             let (processing_kind, processing_title, processing_detail) = match output_format {
                 RecordingOutputFormat::Mp4 => ("video", "Saving Recording", "MP4"),
                 RecordingOutputFormat::Gif => ("gif", "Creating GIF", "12 fps · 720 px long edge"),

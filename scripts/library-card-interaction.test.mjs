@@ -171,6 +171,7 @@ function cardProps(overrides = {}) {
     registerRef() {},
     onAvailability() {},
     async onRestoreMissing() {},
+    onCopy() {},
     ...overrides,
   };
 }
@@ -324,4 +325,169 @@ test("media drops import local paths once while an import is pending", async () 
   const status = nodes(library.render()).find(node => node?.props?.role === "status");
   assert.ok(status);
   library.unmount();
+});
+
+const savingVideo = {
+  id: "saving-video", kind: "video", createdAt: new Date().toISOString(),
+  duration: 125, pixelWidth: 1920, pixelHeight: 1080,
+};
+const saveCards = (tree) => nodes(tree).filter((node) => node?.type?.name === "RecordingSaveCard");
+
+test("opening the library restores saving cards and filters them by output kind", async () => {
+  const savingGif = { ...savingVideo, id: "saving-gif", kind: "gif" };
+  const harness = createLibraryHarness({ listAssets: async () => [], getRecordingSaveJobs: async () => [savingVideo, savingGif] });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  assert.deepEqual(saveCards(library.render()).map((node) => node.props.job.kind), ["video", "gif"]);
+  const filter = () => nodes(library.render()).find((node) => node?.type?.name === "FilterBar");
+  filter().props.onChangeKind("video");
+  assert.deepEqual(saveCards(library.render()).map((node) => node.props.job.kind), ["video"]);
+  filter().props.onChangeKind("image");
+  assert.deepEqual(saveCards(library.render()), []);
+  filter().props.onChangeKind("gif");
+  assert.deepEqual(saveCards(library.render()).map((node) => node.props.job.kind), ["gif"]);
+  filter().props.onToggleFavorites();
+  assert.deepEqual(saveCards(library.render()), []);
+  library.unmount();
+});
+
+test("a saving card has status metadata but no asset actions or selectable identity", () => {
+  const harness = createLibraryHarness();
+  const card = harness.mount("RecordingSaveCard", { job: savingVideo });
+  const tree = card.render();
+  assert.ok(nodes(tree).includes("Saving Recording…"));
+  assert.ok(nodes(tree).includes(" · 2:05"));
+  assert.ok(nodes(tree).includes(1920));
+  assert.equal(tree.props["aria-busy"], "true");
+  assert.equal(tree.props["data-card"], undefined);
+  assert.equal(nodes(tree).filter((node) => node?.type === "button").length, 0);
+  card.unmount();
+});
+
+test("a stale initial save-job reply cannot resurrect a finished recording", async () => {
+  const initial = deferred();
+  const harness = createLibraryHarness({ listAssets: async () => [], getRecordingSaveJobs: () => initial.promise });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  harness.emit("recordingSaveJobs", [savingVideo]);
+  assert.equal(saveCards(library.render()).length, 1);
+  harness.emit("recordingSaveJobs", []);
+  await settleRequests();
+  initial.resolve([savingVideo]); await settleRequests();
+  assert.equal(saveCards(library.render()).length, 0);
+  library.unmount();
+});
+
+test("the initial job snapshot refreshes a completion missed while subscriptions were opening", async () => {
+  const oldAssets = deferred();
+  const jobSnapshot = deferred();
+  let assetCalls = 0;
+  const savedVideo = { ...testAsset, kind: "video", filename: "finished.mp4" };
+  const harness = createLibraryHarness({
+    listAssets: () => ++assetCalls === 1 ? oldAssets.promise : Promise.resolve([savedVideo]),
+    getRecordingSaveJobs: () => jobSnapshot.promise,
+  });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  assert.equal(assetCalls, 1);
+  // Import completes before the window receives any library-change event;
+  // only an empty initial save-job snapshot remains to reveal the transition.
+  jobSnapshot.resolve([]); await settleRequests();
+  assert.equal(assetCalls, 2);
+  const cards = () => nodes(library.render()).filter((node) => node?.type?.name === "AssetCard");
+  assert.equal(cards()[0].props.asset.filename, "finished.mp4");
+  oldAssets.resolve([]); await settleRequests();
+  assert.equal(cards()[0].props.asset.filename, "finished.mp4");
+  library.unmount();
+});
+
+test("completion keeps its saving card until real assets have refreshed", async () => {
+  let reply = Promise.resolve([]);
+  const harness = createLibraryHarness({ listAssets: () => reply, getRecordingSaveJobs: async () => [savingVideo] });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  assert.equal(saveCards(library.render()).length, 1);
+  const completed = deferred(); reply = completed.promise;
+  harness.emit("recordingSaveJobs", []); await settleRequests();
+  assert.equal(saveCards(library.render()).length, 1, "retain the placeholder while final list loads");
+  completed.resolve([{ ...testAsset, kind: "video", filename: "recording.mp4" }]);
+  await settleRequests();
+  const tree = library.render();
+  assert.equal(saveCards(tree).length, 0);
+  assert.equal(nodes(tree).filter((node) => node?.type?.name === "AssetCard").length, 1);
+  library.unmount();
+});
+
+test("failed finalization yields the existing recovery prompt instead of an endless saving card", async () => {
+  let pending = [];
+  const harness = createLibraryHarness({ listAssets: async () => [], listPendingRecordings: async () => pending, getRecordingSaveJobs: async () => [savingVideo] });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  assert.equal(saveCards(library.render()).length, 1);
+  pending = [{ id: savingVideo.id }];
+  harness.emit("recordingSaveJobs", []); await settleRequests();
+  const tree = library.render();
+  assert.equal(saveCards(tree).length, 0);
+  assert.ok(nodes(tree).includes("%d recording is waiting to save"));
+  library.unmount();
+});
+
+for (const kind of ["video", "gif"]) {
+  test(`${kind} card supports direct Copy and its focused Cmd/Ctrl+C without overriding text edits`, () => {
+    let copies = 0;
+    const harness = createLibraryHarness();
+    const card = harness.mount("AssetCard", cardProps({ asset: { ...testAsset, kind }, onCopy: () => copies++ }));
+    const tree = card.render();
+    const copy = nodes(tree).find((node) => node?.type === "button" && node.props["aria-label"] === "Copy");
+    copy.props.onClick({ stopPropagation() {} });
+    const event = { key: "c", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false,
+      target: { closest: () => null }, preventDefault() {}, stopPropagation() {} };
+    tree.props.onKeyDown(event);
+    tree.props.onKeyDown({ ...event, target: { closest: () => ({ tagName: "INPUT" }) } });
+    assert.equal(copies, 2);
+    card.unmount();
+  });
+}
+
+test("library copy shortcut preserves selected text, IME, handled keys and single-copy repeats", () => {
+  let copies = 0;
+  const harness = createLibraryHarness();
+  const card = harness.mount("AssetCard", cardProps({ asset: { ...testAsset, kind: "video" }, onCopy: () => copies++ }));
+  const tree = card.render();
+  const press = (overrides = {}) => {
+    let prevented = false;
+    tree.props.onKeyDown({ key: "c", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false,
+      defaultPrevented: false, repeat: false, target: { closest: () => null },
+      preventDefault: () => { prevented = true; }, stopPropagation() {}, ...overrides });
+    return prevented;
+  };
+  harness.window.getSelection = () => ({ toString: () => "selected title" });
+  assert.equal(press(), false, "selected titles use browser text copying");
+  harness.window.getSelection = () => null;
+  for (const overrides of [
+    { isComposing: true }, { nativeEvent: { isComposing: true } },
+    { keyCode: 229 }, { defaultPrevented: true },
+    { target: { closest: () => ({ tagName: "INPUT" }) } },
+  ]) assert.equal(press(overrides), false);
+  assert.equal(copies, 0);
+  assert.equal(press(), true);
+  assert.equal(press({ repeat: true }), true);
+  assert.equal(copies, 1, "holding Cmd/Ctrl+C cannot repeat file copying");
+  card.unmount();
+});
+
+test("video and GIF context menus expose Copy and report a failed clipboard write", async () => {
+  for (const kind of ["video", "gif"]) {
+    const harness = createLibraryHarness({ listAssets: async () => [{ ...testAsset, kind }], copyAsset: async () => { throw new Error("clipboard unavailable"); } });
+    const library = harness.mount("LibraryWindow", {});
+    library.render(); await settleRequests();
+    const card = nodes(library.render()).find((node) => node?.type?.name === "AssetCard");
+    card.props.onMenu(10, 10);
+    const openCard = nodes(library.render()).find((node) => node?.type?.name === "AssetCard");
+    const copy = nodes(openCard.props.menu).find((node) => node?.props?.label === "Copy");
+    assert.ok(copy);
+    copy.props.onClick(); await settleRequests();
+    assert.ok(nodes(library.render()).includes("Couldn't copy this capture."));
+    library.unmount();
+  }
 });
