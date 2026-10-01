@@ -8,6 +8,7 @@ mod commands;
 mod batch_export;
 mod core;
 mod diagnostics;
+mod dock_settings;
 mod gif;
 mod video_export;
 mod video_project_commands;
@@ -95,19 +96,24 @@ pub fn run() {
         })
         .setup(|app| {
             log::info!("[app] setup beginning");
-            // Force a regular activation policy (macOS Dock icon). A bare
-            // binary launched from a terminal may otherwise drop out of the
-            // Dock once every window is hidden; the library window handles
-            // the Dock-click reopen.
+            let dock_visible = dock_settings::load(app.handle());
+            app.manage(dock_settings::DockSettings::new(dock_visible));
+            // Keep the regular-app default, or restore an explicit tray-only
+            // preference before opening windows. Showing capture/auxiliary
+            // windows never overrides this choice.
             #[cfg(target_os = "macos")]
             {
-                app.set_activation_policy(tauri::ActivationPolicy::Regular);
+                app.set_activation_policy(if dock_visible {
+                    tauri::ActivationPolicy::Regular
+                } else {
+                    tauri::ActivationPolicy::Accessory
+                });
                 // Tauri installs this icon itself in dev. Release builds also
                 // set it at runtime so the Dock and bare --no-bundle binaries
                 // cannot fall back to a stale or generic icon.
                 #[cfg(not(debug_assertions))]
                 install_macos_app_icon()?;
-                log::info!("[app] activation policy = Regular (Dock icon enabled)");
+                log::info!("[app] Dock visibility = {dock_visible}");
             }
             let state = AppState::new(app.handle())?;
             let appearance = state::load_annotation_appearance(app.handle());
@@ -202,6 +208,8 @@ pub fn run() {
             commands::list_assets,
             commands::get_asset,
             commands::get_library_status,
+            dock_settings::get_dock_visibility,
+            dock_settings::set_dock_visibility,
             commands::get_asset_availability,
             commands::choose_library_location,
             commands::locate_library,

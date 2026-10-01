@@ -6,6 +6,8 @@ use serde::Serialize;
 pub const MAX_PNG_BYTES: usize = 20 * 1024 * 1024;
 const MAX_PIXELS: u64 = 32_000_000;
 const MAX_CODES: usize = 64;
+const MAX_LOCAL_SCAN_PIXELS: u64 = 8_000_000;
+const MAX_LOCAL_REGION_PIXELS: u64 = 500_000;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +83,8 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
         .into_luma8();
     let mut decoder = quircs::Quirc::default();
     let mut codes = identify(&mut decoder, width, height, &gray);
+    let mut finders = finder_centers(&decoder);
+    let mut finder_limit_reached = decoder.capstones.len() >= 32;
     // A whole-image Otsu threshold can erase a locally low-contrast code when
     // unrelated bright/dark content dominates the image. Merge all three
     // bounded contrast passes, even after a partial result; different physical
@@ -96,7 +100,23 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
             width,
             height,
         );
+        for center in finder_centers(&decoder) {
+            if !finders
+                .iter()
+                .any(|point| (point[0] - center[0]).hypot(point[1] - center[1]) <= 2.0)
+            {
+                finders.push(center);
+            }
+        }
+        finder_limit_reached |= decoder.capstones.len() >= 32;
     }
+    recover_local_codes(
+        &mut decoder,
+        &gray,
+        &finders,
+        finder_limit_reached,
+        &mut codes,
+    );
     codes.sort_by(|a, b| {
         a.corners[0][1]
             .total_cmp(&b.corners[0][1])
@@ -106,6 +126,145 @@ pub fn decode(png: &[u8]) -> Result<(u32, u32, Vec<QrCode>), String> {
         code.index = i;
     }
     Ok((width, height, codes))
+}
+
+fn finder_centers(decoder: &quircs::Quirc) -> Vec<[f64; 2]> {
+    decoder
+        .capstones
+        .iter()
+        .take(MAX_CODES * 3)
+        .map(|cap| [cap.center.x as f64, cap.center.y as f64])
+        .collect()
+}
+
+fn finder_is_readable(point: [f64; 2], codes: &[QrCode], width: u32, height: u32) -> bool {
+    codes.iter().filter(|code| code.text.is_some()).any(|code| {
+        let corners = code
+            .corners
+            .map(|corner| [corner[0] * width as f64, corner[1] * height as f64]);
+        let sides = std::array::from_fn::<_, 4, _>(|index| {
+            let a = corners[index];
+            let b = corners[(index + 1) % 4];
+            (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+        });
+        sides.iter().all(|side| *side >= 0.0) || sides.iter().all(|side| *side <= 0.0)
+    })
+}
+
+fn recover_local_codes(
+    decoder: &mut quircs::Quirc,
+    gray: &image::GrayImage,
+    finders: &[[f64; 2]],
+    finder_limit_reached: bool,
+    codes: &mut Vec<QrCode>,
+) {
+    // In a montage, Quirc can consume three neighboring codes' finders in one
+    // unsupported grid. Threshold retries see the same grouping. Overlapping
+    // local views remove distant neighbors without relaxing geometry checks.
+    // Ordinary single-code and blank images never need these extra views.
+    if finders.len() <= 3 {
+        return;
+    }
+    let (width, height) = gray.dimensions();
+    let uncovered_in = |x: u32, y: u32, tile_width: u32, tile_height: u32, codes: &[QrCode]| {
+        finders
+            .iter()
+            .filter(|&&point| {
+                point[0] >= x as f64
+                    && point[0] < (x + tile_width) as f64
+                    && point[1] >= y as f64
+                    && point[1] < (y + tile_height) as f64
+                    && !finder_is_readable(point, codes, width, height)
+            })
+            .count()
+    };
+    let mut regions = Vec::new();
+    for (divisions, padding) in [(4, 2), (4, 3), (2, 2)] {
+        // Padding leaves room for a complete finder triangle between adjacent
+        // tile origins; without it a code can straddle every quarter view.
+        let (tile_width, tile_height) = (
+            (width.div_ceil(divisions) * padding / 2).min(width),
+            (height.div_ceil(divisions) * padding / 2).min(height),
+        );
+        let steps = divisions * 2 - 2;
+        for row in 0..=steps {
+            for column in 0..=steps {
+                let x = (width - tile_width) * column / steps;
+                let y = (height - tile_height) * row / steps;
+                let count = uncovered_in(x, y, tile_width, tile_height, codes);
+                // Quirc has a hard 32-finder / 8-grid limit. At saturation,
+                // unobserved parts of the image need scanning too.
+                if finder_limit_reached || count >= 3 {
+                    // Cover all quarters first, including finders the global
+                    // 32-finder cap never observed. Then spend on overlap.
+                    let coverage =
+                        if divisions == 4 && padding == 2 && row % 2 == 0 && column % 2 == 0 {
+                            0
+                        } else {
+                            1
+                        };
+                    regions.push((coverage, count, x, y, tile_width, tile_height));
+                }
+            }
+        }
+    }
+    regions.sort_by_key(|&(coverage, count, _, _, tile_width, tile_height)| {
+        (
+            coverage,
+            u64::from(tile_width) * u64::from(tile_height),
+            std::cmp::Reverse(count),
+        )
+    });
+    let mut pixels = 0;
+    for (_, _, x, y, tile_width, tile_height) in regions {
+        let area = u64::from(tile_width) * u64::from(tile_height);
+        let scale = (MAX_LOCAL_REGION_PIXELS as f64 / area as f64)
+            .sqrt()
+            .min(1.0);
+        let (local_width, local_height) = (
+            (tile_width as f64 * scale).floor().max(1.0) as u32,
+            (tile_height as f64 * scale).floor().max(1.0) as u32,
+        );
+        let local_area = u64::from(local_width) * u64::from(local_height);
+        if pixels + local_area > MAX_LOCAL_SCAN_PIXELS {
+            continue;
+        }
+        if !finder_limit_reached && uncovered_in(x, y, tile_width, tile_height, codes) < 3 {
+            continue;
+        }
+        pixels += local_area;
+        // Sample directly from the source. imageops::resize allocates a float
+        // intermediate at the original tile width even for Nearest sampling.
+        let tile = image::GrayImage::from_fn(local_width, local_height, |column, row| {
+            *gray.get_pixel(
+                x + (u64::from(column) * u64::from(tile_width) / u64::from(local_width)) as u32,
+                y + (u64::from(row) * u64::from(tile_height) / u64::from(local_height)) as u32,
+            )
+        });
+        let candidates = identify(decoder, local_width, local_height, &tile)
+            .into_iter()
+            // Whole-image passes keep damaged, locatable codes. Local crops
+            // are only a decoding recovery: cut-off neighbors must not add
+            // speculative unreadable targets to an otherwise valid montage.
+            .filter(|code| code.text.is_some())
+            // A cut-off grid must not publish clamped, distorted geometry.
+            .filter(|code| {
+                code.corners
+                    .iter()
+                    .all(|point| point.iter().all(|value| *value > 0.0 && *value < 1.0))
+            })
+            .map(|mut code| {
+                code.corners = code.corners.map(|point| {
+                    [
+                        (x as f64 + point[0] * tile_width as f64) / width as f64,
+                        (y as f64 + point[1] * tile_height as f64) / height as f64,
+                    ]
+                });
+                code
+            })
+            .collect();
+        merge_codes(codes, candidates, width, height);
+    }
 }
 
 fn identify(decoder: &mut quircs::Quirc, width: u32, height: u32, gray: &[u8]) -> Vec<QrCode> {
@@ -318,6 +477,96 @@ mod tests {
             let (crop, _, _) =
                 crop_code(include_bytes!("../tests/fixtures/qr/multi.png"), &code).unwrap();
             assert!(decode(&crop).unwrap().2.iter().any(|c| c.text == code.text));
+        }
+    }
+
+    fn public_montage(
+        columns: u32,
+        rows: u32,
+        width: u32,
+        height: u32,
+        side: u32,
+    ) -> image::GrayImage {
+        let source = image::load_from_memory(include_bytes!("../tests/fixtures/qr/url.png"))
+            .unwrap()
+            .into_luma8();
+        let code =
+            image::imageops::resize(&source, side, side, image::imageops::FilterType::Nearest);
+        let mut canvas = image::GrayImage::from_pixel(width, height, image::Luma([255]));
+        for row in 0..rows {
+            for column in 0..columns {
+                let x = column * width / columns + (width / columns - side) / 2;
+                let y = row * height / rows + (height / rows - side) / 2;
+                image::imageops::replace(&mut canvas, &code, x as i64, y as i64);
+            }
+        }
+        canvas
+    }
+
+    #[test]
+    fn dense_montages_recover_more_than_eight_codes_without_merging_duplicate_payloads() {
+        for (count, dimension) in [(3, 544), (4, 712)] {
+            let canvas = public_montage(count, count, dimension, dimension, 148);
+            let whole = identify(&mut quircs::Quirc::default(), dimension, dimension, &canvas);
+            assert!(whole.len() < (count * count) as usize);
+            let mut png = std::io::Cursor::new(Vec::new());
+            canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            let (_, _, codes) = decode(png.get_ref()).unwrap();
+            assert_eq!(codes.len(), (count * count) as usize);
+            for row in 0..count {
+                for column in 0..count {
+                    let center_x = (column as f64 + 0.5) * dimension as f64 / count as f64;
+                    let center_y = (row as f64 + 0.5) * dimension as f64 / count as f64;
+                    assert_eq!(
+                        codes
+                            .iter()
+                            .filter(|code| {
+                                let x = code.corners.iter().map(|p| p[0]).sum::<f64>()
+                                    * dimension as f64
+                                    / 4.0;
+                                let y = code.corners.iter().map(|p| p[1]).sum::<f64>()
+                                    * dimension as f64
+                                    / 4.0;
+                                code.text.as_deref() == Some("https://example.org/kiri-safe")
+                                    && (x - center_x).abs() <= 3.0
+                                    && (y - center_y).abs() <= 3.0
+                            })
+                            .count(),
+                        1,
+                        "one marker at every original code center"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn large_montages_recover_unobserved_bottom_rows_with_original_coordinates() {
+        let canvas = public_montage(4, 4, 8000, 4000, 296);
+        let mut png = std::io::Cursor::new(Vec::new());
+        canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let (width, height, codes) = decode(png.get_ref()).unwrap();
+        assert_eq!((width, height), (8000, 4000));
+        assert_eq!(codes.len(), 16);
+        assert!(codes
+            .iter()
+            .all(|code| code.text.as_deref() == Some("https://example.org/kiri-safe")));
+        for row in 0..4 {
+            for column in 0..4 {
+                let center = [(column as f64 + 0.5) / 4.0, (row as f64 + 0.5) / 4.0];
+                assert_eq!(
+                    codes
+                        .iter()
+                        .filter(|code| {
+                            let x = code.corners.iter().map(|p| p[0]).sum::<f64>() / 4.0;
+                            let y = code.corners.iter().map(|p| p[1]).sum::<f64>() / 4.0;
+                            (x - center[0]).abs() * width as f64 <= 4.0
+                                && (y - center[1]).abs() * height as f64 <= 4.0
+                        })
+                        .count(),
+                    1
+                );
+            }
         }
     }
 
@@ -544,23 +793,24 @@ mod tests {
         for (png, expected) in [
             (
                 include_bytes!("../tests/fixtures/qr/cross-finders.png").as_slice(),
-                [53.0, 521.0, 202.0, 670.0],
+                [[563.0, 282.0, 712.0, 431.0], [53.0, 521.0, 202.0, 670.0]],
             ),
             (
                 include_bytes!("../tests/fixtures/qr/projective-pole.png").as_slice(),
-                [667.0, 358.0, 788.0, 479.0],
+                [[449.0, 246.0, 605.0, 402.0], [667.0, 358.0, 788.0, 479.0]],
             ),
         ] {
             let (_, _, codes) = decode(png).unwrap();
-            assert_eq!(codes.len(), 1, "only the genuine QR target should remain");
-            assert_eq!(
-                codes[0].text.as_deref(),
-                Some("https://example.org/kiri-safe")
-            );
-            for corner in codes[0].corners {
-                let (x, y) = (corner[0] * 1300.0, corner[1] * 750.0);
-                assert!((expected[0] - 2.0..=expected[2] + 2.0).contains(&x));
-                assert!((expected[1] - 2.0..=expected[3] + 2.0).contains(&y));
+            // Both undamaged source codes now recover; the neighboring-finder
+            // false grid and the code with a removed finder remain excluded.
+            assert_eq!(codes.len(), 2, "only genuine QR targets should remain");
+            for (code, expected) in codes.iter().zip(expected) {
+                assert_eq!(code.text.as_deref(), Some("https://example.org/kiri-safe"));
+                for corner in code.corners {
+                    let (x, y) = (corner[0] * 1300.0, corner[1] * 750.0);
+                    assert!((expected[0] - 2.0..=expected[2] + 2.0).contains(&x));
+                    assert!((expected[1] - 2.0..=expected[3] + 2.0).contains(&y));
+                }
             }
         }
     }

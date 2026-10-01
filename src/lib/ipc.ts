@@ -61,6 +61,11 @@ export interface LibraryStatusDto {
   isDefault: boolean;
 }
 
+export interface DockVisibilityDto {
+  supported: boolean;
+  visible: boolean;
+}
+
 export type AssetAvailability = "ready" | "missing" | "unreadable" | "libraryUnavailable";
 
 export interface AssetAvailabilityDto {
@@ -238,6 +243,8 @@ export const api = {
     invoke<AssetDto[]>("list_assets", { query, showingTrash }),
   getAsset: (id: string) => invoke<AssetDto>("get_asset", { id }),
   getLibraryStatus: () => invoke<LibraryStatusDto>("get_library_status"),
+  getDockVisibility: () => invoke<DockVisibilityDto>("get_dock_visibility"),
+  setDockVisibility: (visible: boolean) => invoke<void>("set_dock_visibility", { visible }),
   chooseLibraryLocation: () => invoke<LibraryStatusDto>("choose_library_location"),
   locateLibrary: () => invoke<LibraryStatusDto>("locate_library"),
   restoreDefaultLibrary: () => invoke<LibraryStatusDto>("restore_default_library"),

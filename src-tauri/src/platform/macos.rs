@@ -36,6 +36,19 @@ pub fn activate_application(pid: u32) {
     });
 }
 
+/// Keep an unfocused library visible after a Dock transform without taking
+/// focus or putting it above the application the user switched to.
+pub(crate) fn restore_library_visibility_without_focus(window: &tauri::WebviewWindow) -> Result<()> {
+    let window = window.clone();
+    dispatch2::run_on_main(move |_main_thread| {
+        let raw = window.ns_window()?;
+        let ns_window = unsafe { (raw as *mut NSWindow).as_ref() }
+            .ok_or_else(|| anyhow::anyhow!("The library window is unavailable."))?;
+        ns_window.orderBack(None);
+        Ok(())
+    })
+}
+
 thread_local! {
     // A regular NSWindow cannot join another application's native full-screen
     // Space. An invisible NSPanel parent gives the existing Tao window that

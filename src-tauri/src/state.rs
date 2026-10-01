@@ -65,6 +65,11 @@ pub struct AppState {
 pub(crate) struct CaptureScheduleGate(std::sync::Arc<std::sync::atomic::AtomicBool>);
 
 impl CaptureScheduleGate {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
     pub(crate) fn try_begin(&self) -> Option<CaptureSchedulePermit> {
         self.0
             .compare_exchange(
@@ -94,6 +99,11 @@ impl Drop for CaptureSchedulePermit {
 pub(crate) struct CaptureStartGate(std::sync::atomic::AtomicBool);
 
 impl CaptureStartGate {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
     /// Allows only one native display freeze to be in flight. Windows Graphics
     /// Capture can pump another shortcut event before its first frame arrives;
     /// a second `start_capture` must fail fast instead of waiting on a mutex

@@ -58,6 +58,11 @@ The tray and explicit recording commands provide controls without relying on
 portal window exclusion. Linux video viewers expose playback and GIF conversion;
 the macOS/Windows video editor and export controls stay unavailable.
 
+On macOS, Show in Dock is a persisted application preference, enabled by
+default. It selects regular or accessory activation policy at startup and
+when changed in Settings. Library and capture activation respect that choice;
+the tray and global shortcut remain available when the Dock icon is hidden.
+
 ## Capture flow
 
 1. The native global shortcut asks Rust to start a capture session and records

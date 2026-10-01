@@ -30,7 +30,7 @@ export const testAsset = {
   duration: null,
 };
 
-export function createLibraryHarness(apiOverrides = {}, componentSource = null) {
+export function createLibraryHarness(apiOverrides = {}, componentSource = null, environment = {}) {
   let active;
   const listeners = new Map();
   const events = new Map();
@@ -110,6 +110,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
         listAssets: async () => [testAsset],
         listPendingRecordings: async () => [],
         getRecordingSaveJobs: async () => [],
+        getDockVisibility: async () => ({ supported: true, visible: true }),
         getShortcutStatus: async () => ({ status: "enabled", label: "shortcut" }),
         ...apiOverrides,
       },
@@ -134,10 +135,10 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null) 
   const componentCode = componentSource == null ? compiled : ts.transpileModule(componentSource, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, jsx: ts.JsxEmit.React, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
-  new Function("require", "module", "exports", "window", "document", "requestAnimationFrame", "cancelAnimationFrame", componentCode)((name) => {
+  new Function("require", "module", "exports", "window", "document", "requestAnimationFrame", "cancelAnimationFrame", "navigator", componentCode)((name) => {
     if (!(name in modules)) throw new Error(`Unexpected import: ${name}`);
     return modules[name];
-  }, module, module.exports, window, { ...window, body: null, querySelector: () => null }, () => 1, () => {});
+  }, module, module.exports, window, { ...window, body: null, querySelector: () => null }, () => 1, () => {}, environment.navigator ?? { userAgent: "Macintosh" });
 
   return {
     window,

@@ -91,6 +91,10 @@ application or a durable product decision.
   — original-region QR markers, automatic saving of selected codes and direct opening.
 - [`adr/0065-recording-save-status-and-file-copy.md`](adr/0065-recording-save-status-and-file-copy.md)
   — visible background recording saves and native file copying from the library and viewer.
+- [`adr/0066-persistent-macos-dock-visibility.md`](adr/0066-persistent-macos-dock-visibility.md)
+  — an immediate macOS Dock switch remembered across launches.
+- [`adr/0067-bounded-local-qr-recovery.md`](adr/0067-bounded-local-qr-recovery.md)
+  — bounded overlapping scans recover codes beyond full-image decoder limits.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags
