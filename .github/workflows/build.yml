@@ -141,6 +141,7 @@ jobs:
           node-version: 22
       - name: Install Linux build and desktop-test dependencies
         run: |
+          sudo sed -i 's|://azure\.archive\.ubuntu\.com/ubuntu|://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -274,6 +275,7 @@ jobs:
           mkdir -p "$KIRI_LINUX_WAYLAND_QA_DIR"
           dpkg-deb --info "${packages[0]}" > "$KIRI_LINUX_WAYLAND_QA_DIR/package-info.txt"
           sha256sum "${packages[0]}" > "$KIRI_LINUX_WAYLAND_QA_DIR/package-sha256.txt"
+          sudo sed -i 's|://azure\.archive\.ubuntu\.com/ubuntu|://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             "${packages[0]}" \
@@ -329,6 +331,7 @@ jobs:
         run: |
           packages=("${{ runner.temp }}/kiri-linux-deb/"*.deb)
           test "${#packages[@]}" -eq 1
+          sudo sed -i 's|://azure\.archive\.ubuntu\.com/ubuntu|://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends "${packages[0]}" \
             xvfb openbox xdotool xclip x11-utils dbus-x11 python3-tk python3-pil \
