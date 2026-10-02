@@ -209,6 +209,15 @@ fn serve_connection(
         )?;
         return Ok(());
     };
+    let content_type = if path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("mov"))
+    {
+        "video/quicktime"
+    } else {
+        "video/mp4"
+    };
     let mut file = std::fs::File::open(path)?;
     let total = file.metadata()?.len();
     let decision = parse_media_range(request.range.as_deref(), total);
@@ -232,7 +241,7 @@ fn serve_connection(
         .origin
         .map(|origin| format!("Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\n"))
         .unwrap_or_default();
-    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: video/mp4\r\nContent-Length: {length}\r\n{range_header}{cors}Accept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n")?;
+    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {length}\r\n{range_header}{cors}Accept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n")?;
     if request.head {
         return Ok(());
     }
@@ -281,8 +290,12 @@ mod tests {
     }
 
     fn response(extra: &str, method: &str) -> Vec<u8> {
+        response_for_extension(extra, method, "mp4")
+    }
+
+    fn response_for_extension(extra: &str, method: &str, extension: &str) -> Vec<u8> {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("video.mp4");
+        let path = directory.path().join(format!("video.{extension}"));
         std::fs::write(&path, b"0123456789").unwrap();
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
         let authority = listener.local_addr().unwrap().to_string();
@@ -307,6 +320,20 @@ mod tests {
         client.read_to_end(&mut response).unwrap();
         worker.join().unwrap();
         response
+    }
+
+    #[test]
+    fn playback_content_type_matches_preserved_mov_and_mp4_containers() {
+        for extension in ["mov", "MOV"] {
+            for (extra, method) in [("", "GET"), ("", "HEAD"), ("Range: bytes=0-3\r\n", "GET")] {
+                let bytes = response_for_extension(extra, method, extension);
+                let response = String::from_utf8(bytes).unwrap();
+                assert!(response.contains("Content-Type: video/quicktime\r\n"));
+            }
+        }
+        assert!(String::from_utf8(response("", "GET"))
+            .unwrap()
+            .contains("Content-Type: video/mp4\r\n"));
     }
 
     #[test]
