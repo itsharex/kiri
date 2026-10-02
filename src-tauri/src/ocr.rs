@@ -57,16 +57,21 @@ pub fn recognize_text(png: &[u8]) -> Result<String> {
         }
     }
     let text = lines.join("\n");
-    if text.trim().is_empty() {
-        Err(anyhow!("No Text Found"))
-    } else {
-        Ok(text)
-    }
+    // A successful recognition with no characters is a normal empty result.
+    Ok(text)
 }
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::make_macos_text_request;
+
+    #[test]
+    fn blank_image_is_a_successful_empty_local_result() {
+        let image = image::RgbaImage::from_pixel(320, 180, image::Rgba([255, 255, 255, 255]));
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        assert!(super::recognize_text(&png.into_inner()).unwrap().trim().is_empty());
+    }
 
     #[test]
     fn macos_request_uses_automatic_language_detection() {
@@ -121,11 +126,8 @@ pub fn recognize_text(png: &[u8]) -> Result<String> {
         lines.push(line.Text().map_err(|error| anyhow!("{error}"))?.to_string());
     }
     let text = lines.join("\n");
-    if text.trim().is_empty() {
-        Err(anyhow!("No Text Found"))
-    } else {
-        Ok(text)
-    }
+    // A successful recognition with no characters is a normal empty result.
+    Ok(text)
 }
 
 #[cfg(all(test, windows))]
@@ -198,11 +200,7 @@ pub fn recognize_text(png: &[u8]) -> Result<String> {
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    if text.is_empty() {
-        Err(anyhow!("No Text Found"))
-    } else {
-        Ok(text)
-    }
+    Ok(text)
 }
 
 #[cfg(test)]

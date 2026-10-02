@@ -81,6 +81,21 @@ pub fn hide_window_for_capture(window: &tauri::WebviewWindow) -> Result<()> {
     Ok(())
 }
 
+/// Focus the mapped GTK window synchronously. Tao's queued show/focus pair
+/// can try to focus a still-hidden window, leaving Escape in the source app.
+pub fn show_recording_countdown(window: &tauri::WebviewWindow) -> Result<()> {
+    if !gtk::is_initialized_main_thread() {
+        return Err(anyhow!("The countdown must be shown on the GTK main thread."));
+    }
+    let native = window.gtk_window()?;
+    native.set_accept_focus(true);
+    native.set_focus_on_map(true);
+    native.show_all();
+    native.present();
+    native.display().sync();
+    Ok(())
+}
+
 /// Clipboard commands may run in an IPC worker as well as on the GTK thread.
 /// Never move GTK objects between threads or acquire the main context on a
 /// worker: an unowned main context can otherwise run an invocation there.
@@ -359,8 +374,12 @@ pub fn show_window_without_activation(app: &tauri::AppHandle, label: &str) {
     let label = label.to_owned();
     if let Err(error) = on_gtk_main_thread(move || {
         if let Some(window) = app.get_webview_window(&label) {
-            window.gtk_window()?.set_focus_on_map(false);
-            window.show()?;
+            let native = window.gtk_window()?;
+            native.set_focus_on_map(false);
+            // Complete mapping before the subsequent external-app activation.
+            // A queued show could otherwise win focus after that request.
+            native.show_all();
+            native.display().sync();
         }
         Ok(())
     }) {

@@ -82,3 +82,16 @@ test("an arrow survives when only its minimum-size head enters the crop", () => 
   const result = cropAnnotationDocument(document, { x: 76, y: 113, width: 20, height: 2 });
   assert.equal(result.document.marks.length, 1);
 });
+
+test("cropping through only a text background edge retains its editable mark", () => {
+  const document = documentWithMarks();
+  const text = {kind: "text", id: 22, text: "edge", rect: {x: 220, y: 106, width: 80, height: 26},
+    color: "white", background: "dark", fontSize: 18};
+  document.marks = [text];
+  const selection = { x: 0, y: 0, width: 218.5, height: 360 };
+  const result = cropAnnotationDocument(document, selection);
+  assert.equal(result.document.marks.length, 1);
+  assert.deepEqual(result.document.marks[0], text);
+  const transparent = cropAnnotationDocument({...document, marks: [{...text, background: "transparent"}]}, selection);
+  assert.equal(transparent.document.marks.length, 0);
+});

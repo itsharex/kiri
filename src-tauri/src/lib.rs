@@ -26,6 +26,7 @@ mod ocr_commands;
 mod ocr_controller;
 mod platform;
 mod protocol;
+mod media_playback;
 mod record;
 mod remote_ocr;
 mod shortcut_settings;
@@ -121,6 +122,8 @@ pub fn run() {
             let options = state::load_recording_options(app.handle());
             *state.saved_recording_options.lock().unwrap() = options;
             app.manage(state);
+            #[cfg(target_os = "linux")]
+            app.manage(media_playback::MediaPlaybackServer::start(app.handle())?);
             app.manage(shortcut_settings::CaptureBinding::new(
                 shortcut_settings::load(app.handle()),
             ));
@@ -206,6 +209,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            media_playback::get_media_playback_origin,
             commands::list_assets,
             commands::get_asset,
             commands::get_library_status,
@@ -308,6 +312,10 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if matches!(&event, tauri::RunEvent::Exit) {
+                #[cfg(target_os = "linux")]
+                if let Some(server) = app.try_state::<media_playback::MediaPlaybackServer>() {
+                    server.stop();
+                }
                 log::info!("[app] process exiting");
             }
             #[cfg(target_os = "macos")]

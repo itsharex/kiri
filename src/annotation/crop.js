@@ -76,7 +76,10 @@ function markBounds(mark) {
         Math.max(mark.width * 4, 12) + mark.width / 2,
       );
     case "text":
-      return normalizedRect(mark.rect);
+      return mark.background === "dark"
+        ? { x: mark.rect.x - 5, y: mark.rect.y - 3,
+            width: mark.rect.width + 10, height: mark.rect.height + 6 }
+        : normalizedRect(mark.rect);
   }
 }
 

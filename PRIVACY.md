@@ -48,6 +48,13 @@ download or execute FFmpeg or another third-party media binary. Screenshots,
 recordings, filenames, library metadata, credentials, and media bytes remain on
 the device during these operations.
 
+Linux video playback uses a temporary HTTP endpoint bound only to
+`127.0.0.1`, with a random port and a random token renewed on each application
+start. This lets WebKitGTK play local library videos without an external server.
+It serves only those video bytes to the local player, exposes no general file or
+application API, and stops when Kiri exits. It does not send media or metadata to
+another device or website.
+
 ## Manual update checks
 
 Kiri does not check for application updates in the background. When the user

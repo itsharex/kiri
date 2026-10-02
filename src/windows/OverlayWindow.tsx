@@ -550,7 +550,8 @@ export function OverlayWindow() {
       }
       // QR content is selectable, and its buttons keep their native keyboard
       // behavior. Annotation shortcuts must not intercept this reading phase.
-      if (phaseRef.current === "qr-result") return;
+      if (phaseRef.current === "qr-result" || phaseRef.current === "ocr-result") return;
+      if (e.defaultPrevented) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -572,6 +573,9 @@ export function OverlayWindow() {
           void recognizePreparedLocal();
           return;
         }
+        // Outside consent, focused controls retain their native activation.
+        // Consent always keeps Return as an explicit local recognition action.
+        if (e.target instanceof Element && e.target.closest("button, a, select, input")) return;
         if (ph === "annotating") {
           void complete();
           return;
@@ -1119,14 +1123,12 @@ export function OverlayWindow() {
           top={DEFAULT_HINT_TOP}
         />
       )}
-      {phase === "selecting" && selection && !drag && (
+      {phase === "selecting" && mode !== "screenshot" && selection && !drag && (
         <HintLabel
           text={
-            mode === "screenshot"
-              ? t("Drag handles to resize · Drag inside to move")
-              : mode === "record"
-                ? t("Adjust the region · Recording settings below")
-                : t("Release to recognize text")
+            mode === "record"
+              ? t("Adjust the region · Recording settings below")
+              : t("Release to recognize text")
           }
           top={DEFAULT_HINT_TOP}
         />
@@ -1485,6 +1487,7 @@ function OcrPanel(props: {
           overflow: "auto",
           font: "450 13px/1.48 var(--kiri-font-ui)",
           userSelect: "text",
+          WebkitUserSelect: "text",
           whiteSpace: "pre-wrap",
           border: "1px solid rgba(255,255,255,0.24)",
           boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.08)",
@@ -2059,6 +2062,8 @@ function Toolbar(props: ToolbarProps) {
                   onPointerLeave={() => {
                     if (tool === "text") onTextFontEnd?.();
                   }}
+                  onKeyUp={() => { if (tool === "text") onTextFontEnd?.(); }}
+                  onBlur={() => { if (tool === "text") onTextFontEnd?.(); }}
                 />
                 <span className="kiri-toolbar-value">{slider.value}</span>
               </div>

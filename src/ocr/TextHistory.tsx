@@ -63,6 +63,9 @@ export function OcrDialog({ asset, onClose }: { asset: AssetDto; onClose(): void
     return () => element?.close();
   }, []);
   useEffect(() => {
+    if (asset.ocrText != null) setResult({ text: asset.ocrText, saved: true, asset });
+  }, [asset]);
+  useEffect(() => {
     if (asset.ocrText != null) return;
     let current = true;
     setError(null);

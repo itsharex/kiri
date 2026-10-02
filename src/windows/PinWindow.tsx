@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { mediaUrl, onAssetContentChanged } from "../lib/ipc";
+import { mediaUrl, onAssetContentChanged, onPinOnTop } from "../lib/ipc";
 import { t } from "../i18n";
 import "./pin-window.css";
 
@@ -24,6 +24,22 @@ export function PinWindow({ id }: { id: string }) {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
+  }, []);
+  useEffect(() => {
+    let disposed = false;
+    let nativeEvents = 0;
+    let unlisten: (() => void) | undefined;
+    void onPinOnTop(() => { nativeEvents += 1; setOnTop(true); }).then(stop => {
+      if (disposed) stop();
+      else {
+        unlisten = stop;
+        const generation = nativeEvents;
+        void getCurrentWindow().isAlwaysOnTop().then(value => {
+          if (!disposed && nativeEvents === generation) setOnTop(value);
+        });
+      }
+    }).catch(() => {});
+    return () => { disposed = true; unlisten?.(); };
   }, []);
   const toggleTop = async () => {
     if (busy) return;

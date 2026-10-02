@@ -333,6 +333,52 @@ const savingVideo = {
 };
 const saveCards = (tree) => nodes(tree).filter((node) => node?.type?.name === "RecordingSaveCard");
 
+test("tag filtering merges case variants and toggles the same matching category", async () => {
+  const harness = createLibraryHarness({ listAssets: async () => [
+    { ...testAsset, id: "one", tags: ["QA"] },
+    { ...testAsset, id: "two", tags: ["qa"] },
+  ] });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  const filter = () => nodes(library.render()).find(node => node?.type?.name === "FilterBar");
+  assert.deepEqual(filter().props.allTags, ["QA"]);
+  filter().props.onToggleTag("QA");
+  assert.equal(filter().props.tagFilter, "QA");
+  filter().props.onToggleTag("qa");
+  assert.equal(filter().props.tagFilter, null);
+  library.unmount();
+});
+
+test("removing the last use of a selected tag clears its invisible filter", async () => {
+  let assets = [{ ...testAsset, tags: ["Temporary"] }];
+  const harness = createLibraryHarness({ listAssets: async () => assets });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  const filter = () => nodes(library.render()).find(node => node?.type?.name === "FilterBar");
+  filter().props.onToggleTag("Temporary");
+  assets = [{ ...testAsset, tags: [] }];
+  harness.emit("libraryChanged"); await settleRequests();
+  assert.equal(filter().props.tagFilter, null);
+  assert.deepEqual(filter().props.allTags, []);
+  assert.equal(nodes(library.render()).includes("No captures match this filter"), false);
+  library.unmount();
+});
+
+test("a search with no matches keeps the selected tag visible and removable", async () => {
+  const harness = createLibraryHarness({ listAssets: async (query) => query ? [] : [{ ...testAsset, tags: ["QA"] }] });
+  const library = harness.mount("LibraryWindow", {});
+  library.render(); await settleRequests();
+  const filter = () => nodes(library.render()).find(node => node?.type?.name === "FilterBar");
+  filter().props.onToggleTag("QA");
+  nodes(library.render()).find(node => node?.props?.placeholder === "Search captures").props.onChange({ target: { value: "missing" } });
+  library.render(); await settleRequests();
+  assert.equal(filter().props.tagFilter, "QA");
+  assert.deepEqual(filter().props.allTags, ["QA"]);
+  filter().props.onToggleTag("qa");
+  assert.equal(filter().props.tagFilter, null);
+  library.unmount();
+});
+
 test("opening the library restores saving cards and filters them by output kind", async () => {
   const savingGif = { ...savingVideo, id: "saving-gif", kind: "gif" };
   const harness = createLibraryHarness({ listAssets: async () => [], getRecordingSaveJobs: async () => [savingVideo, savingGif] });

@@ -1,9 +1,7 @@
 //! Import user-selected local media into an isolated normalized snapshot.
 use crate::core::asset::CaptureKind;
-#[cfg(windows)]
-use anyhow::Context;
-use anyhow::{bail, Result};
-use image::ImageDecoder;
+use anyhow::{bail, Context, Result};
+use image::{ImageDecoder, ImageEncoder};
 use std::io::Read;
 use std::path::Path;
 
@@ -83,10 +81,19 @@ pub fn prepare(path: &Path) -> Result<PreparedMedia> {
     reader.limits(limits);
     let mut decoder = reader.into_decoder()?;
     let orientation = decoder.orientation()?;
+    let profile = decoder.icc_profile()?;
+    let color_managed = profile.is_some();
     let mut image = image::DynamicImage::from_decoder(decoder)?;
     image.apply_orientation(orientation);
+    if let Some(profile) = profile {
+        image = convert_to_srgb(image, &profile)?;
+    }
     let file = tempfile::Builder::new().suffix(".png").tempfile()?;
-    image.save_with_format(file.path(), image::ImageFormat::Png)?;
+    let mut encoder = image::codecs::png::PngEncoder::new(file.as_file());
+    if color_managed {
+        encoder.set_icc_profile(moxcms::ColorProfile::new_srgb().encode()?)?;
+    }
+    image.write_with_encoder(encoder)?;
     Ok(PreparedMedia {
         file,
         kind: CaptureKind::Image,
@@ -94,6 +101,133 @@ pub fn prepare(path: &Path) -> Result<PreparedMedia> {
         width: i64::from(image.width()),
         height: i64::from(image.height()),
         duration: None,
+    })
+}
+
+fn convert_to_srgb(image: image::DynamicImage, profile: &[u8]) -> Result<image::DynamicImage> {
+    use image::DynamicImage::*;
+    use moxcms::{ColorProfile, DataColorSpace, Layout, ParsingOptions, TransformOptions};
+    let source = ColorProfile::new_from_slice_with_options(
+        profile,
+        ParsingOptions {
+            max_profile_size: 4 * 1024 * 1024,
+            max_allowed_clut_size: 4 * 1024 * 1024,
+            max_allowed_trc_size: 40_000,
+        },
+    )
+    .context("Unsupported image color profile")?;
+    let expected = if image.color().has_color() {
+        DataColorSpace::Rgb
+    } else {
+        DataColorSpace::Gray
+    };
+    // Some JPEG decoders already turn CMYK into RGB. Its CMYK profile cannot
+    // describe those decoded samples; reject it rather than silently mislabel.
+    if source.color_space != expected {
+        bail!("Unsupported image color profile");
+    }
+    let target = ColorProfile::new_srgb();
+    // Normalize once at the import boundary. Canvas and later clean-source
+    // crops then share sRGB samples even when subsequent PNG writes omit ICC.
+    // Keep alpha and 16-bit precision, and cap each output allocation at the
+    // same bound used by the image reader.
+    macro_rules! convert {
+        ($buffer:expr, $input:expr, $output:expr, $pixel:ty, $variant:ident, $method:ident) => {{
+            let buffer = $buffer;
+            let (width, height) = buffer.dimensions();
+            let output_bytes = u64::from(width)
+                * u64::from(height)
+                * $output.channels() as u64
+                * std::mem::size_of::<<$pixel as image::Pixel>::Subpixel>() as u64;
+            if output_bytes > 128 * 1024 * 1024 {
+                bail!("Image exceeds the color conversion size limit");
+            }
+            let transform = source
+                .$method($input, &target, $output, TransformOptions::default())
+                .context("Unsupported image color profile")?;
+            let mut output = image::ImageBuffer::<$pixel, Vec<_>>::new(width, height);
+            for (input, output) in buffer
+                .as_raw()
+                .chunks_exact(width as usize * $input.channels())
+                .zip(
+                    output
+                        .as_mut()
+                        .chunks_exact_mut(width as usize * $output.channels()),
+                )
+            {
+                transform
+                    .transform(input, output)
+                    .context("Image color conversion failed")?;
+            }
+            $variant(output)
+        }};
+    }
+    Ok(match image {
+        ImageRgb8(buffer) => convert!(
+            buffer,
+            Layout::Rgb,
+            Layout::Rgb,
+            image::Rgb<u8>,
+            ImageRgb8,
+            create_transform_8bit
+        ),
+        ImageRgba8(buffer) => convert!(
+            buffer,
+            Layout::Rgba,
+            Layout::Rgba,
+            image::Rgba<u8>,
+            ImageRgba8,
+            create_transform_8bit
+        ),
+        ImageLuma8(buffer) => convert!(
+            buffer,
+            Layout::Gray,
+            Layout::Rgb,
+            image::Rgb<u8>,
+            ImageRgb8,
+            create_transform_8bit
+        ),
+        ImageLumaA8(buffer) => convert!(
+            buffer,
+            Layout::GrayAlpha,
+            Layout::Rgba,
+            image::Rgba<u8>,
+            ImageRgba8,
+            create_transform_8bit
+        ),
+        ImageRgb16(buffer) => convert!(
+            buffer,
+            Layout::Rgb,
+            Layout::Rgb,
+            image::Rgb<u16>,
+            ImageRgb16,
+            create_transform_16bit
+        ),
+        ImageRgba16(buffer) => convert!(
+            buffer,
+            Layout::Rgba,
+            Layout::Rgba,
+            image::Rgba<u16>,
+            ImageRgba16,
+            create_transform_16bit
+        ),
+        ImageLuma16(buffer) => convert!(
+            buffer,
+            Layout::Gray,
+            Layout::Rgb,
+            image::Rgb<u16>,
+            ImageRgb16,
+            create_transform_16bit
+        ),
+        ImageLumaA16(buffer) => convert!(
+            buffer,
+            Layout::GrayAlpha,
+            Layout::Rgba,
+            image::Rgba<u16>,
+            ImageRgba16,
+            create_transform_16bit
+        ),
+        _ => bail!("Unsupported image color profile"),
     })
 }
 #[cfg(target_os = "macos")]
@@ -163,6 +297,104 @@ mod tests {
         assert_eq!(imported.extension, "png");
         assert!(image::open(imported.file.path()).is_ok());
         assert_eq!(before, std::fs::read(path).unwrap());
+    }
+    #[test]
+    fn png_and_jpeg_imports_convert_adobe_rgb_to_srgb_without_changing_sources() {
+        let profile = include_bytes!("../tests/fixtures/import/adobe-rgb-test.icc");
+        let dir = tempfile::tempdir().unwrap();
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(30, 20, |x, _| {
+            image::Rgb(if x < 15 {
+                [180, 60, 40]
+            } else {
+                [90, 160, 120]
+            })
+        }));
+        for extension in ["png", "jpg"] {
+            let source = dir.path().join(format!("photo.{extension}"));
+            let file = std::fs::File::create(&source).unwrap();
+            if extension == "png" {
+                let mut encoder = image::codecs::png::PngEncoder::new(file);
+                encoder.set_icc_profile(profile.to_vec()).unwrap();
+                image.write_with_encoder(encoder).unwrap();
+            } else {
+                let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(file, 100);
+                encoder.set_icc_profile(profile.to_vec()).unwrap();
+                image.write_with_encoder(encoder).unwrap();
+            }
+            let before = std::fs::read(&source).unwrap();
+            let imported = prepare(&source).unwrap();
+            let mut decoder = image::ImageReader::open(imported.file.path())
+                .unwrap()
+                .with_guessed_format()
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            let output_profile = decoder.icc_profile().unwrap().unwrap();
+            assert_ne!(output_profile.as_slice(), profile.as_slice());
+            assert_eq!(
+                moxcms::ColorProfile::new_from_slice(&output_profile)
+                    .unwrap()
+                    .color_space,
+                moxcms::DataColorSpace::Rgb
+            );
+            let normalized = image::DynamicImage::from_decoder(decoder)
+                .unwrap()
+                .to_rgb8();
+            // Independent Little CMS sRGB reference; JPEG rounding may differ
+            // slightly, so compare solid centers within three channel units.
+            for (x, reference) in [(5, [208u8, 57, 34]), (25, [0u8, 161, 119])] {
+                let converted = normalized.get_pixel(x, 10);
+                assert!(
+                    converted
+                        .0
+                        .iter()
+                        .zip(reference)
+                        .all(|(a, b)| a.abs_diff(b) <= 3),
+                    "{extension}: {converted:?} must match {reference:?}"
+                );
+            }
+            assert_eq!(before, std::fs::read(&source).unwrap());
+        }
+    }
+    #[test]
+    fn icc_conversion_retains_transparency_and_sixteen_bit_precision() {
+        let profile = include_bytes!("../tests/fixtures/import/adobe-rgb-test.icc");
+        let original = image::DynamicImage::ImageRgba16(image::ImageBuffer::from_pixel(
+            8,
+            5,
+            image::Rgba([180 * 257, 60 * 257, 40 * 257, 0x1234]),
+        ));
+        let converted = convert_to_srgb(original, profile).unwrap();
+        let image::DynamicImage::ImageRgba16(converted) = converted else {
+            panic!("16-bit input must retain its precision");
+        };
+        assert!(converted.pixels().all(|pixel| pixel[3] == 0x1234));
+        assert!(converted.get_pixel(0, 0)[0] > 200 * 257);
+        assert!(convert_to_srgb(image::DynamicImage::new_rgb8(1, 1), b"bad profile").is_err());
+        let mut oversized = profile.to_vec();
+        oversized.resize(4 * 1024 * 1024, 0);
+        assert!(convert_to_srgb(image::DynamicImage::new_rgb8(1, 1), &oversized).is_err());
+        let mut mismatched = profile.to_vec();
+        mismatched[16..20].copy_from_slice(b"CMYK");
+        assert!(convert_to_srgb(image::DynamicImage::new_rgb8(1, 1), &mismatched).is_err());
+    }
+    #[test]
+    fn gray_icc_conversion_expands_to_srgb_without_changing_alpha() {
+        let profile = moxcms::ColorProfile::new_gray_with_gamma(1.0)
+            .encode()
+            .unwrap();
+        let original = image::DynamicImage::ImageLumaA8(image::GrayAlphaImage::from_pixel(
+            2,
+            3,
+            image::LumaA([128, 37]),
+        ));
+        let converted = convert_to_srgb(original, &profile).unwrap().to_rgba8();
+        for pixel in converted.pixels() {
+            assert_eq!(pixel[3], 37);
+            assert!(pixel.0[..3]
+                .iter()
+                .all(|channel| channel.abs_diff(188) <= 2));
+        }
     }
     #[test]
     fn directories_and_disguised_files_are_rejected() {

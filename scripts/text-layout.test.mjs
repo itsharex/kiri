@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   fitTextEditorFrame,
   layoutTextLines,
+  textLineRuns,
+  textEditorInsets,
 } from "../src/annotation/text-layout.js";
 
 const measureText = (text) => text.length * 10;
@@ -55,4 +57,25 @@ test("inline text padding stays usable when a low-resolution video is enlarged",
  const scaled=fitTextEditorFrame({...options,fontSize:9,maxWidth:150,boundsWidth:320,boundsHeight:180,measureText:value=>value.length*4.5,uiScale:.5});
  assert.ok(Math.abs(scaled.width*2-normal.width)<=1);
  assert.ok(Math.abs(scaled.height*2-normal.height)<=1);
+});
+
+test("tab-separated columns share explicit eight-space stops in editor and export", () => {
+  const first = textLineRuns("A\tB\tC", measureText);
+  const second = textLineRuns("AA\tBB\tCC", measureText);
+  assert.deepEqual(first.runs.map(run => run.x), [0, 80, 160]);
+  assert.deepEqual(second.runs.map(run => run.x), [0, 80, 160]);
+  assert.deepEqual(layoutTextLines("A\tB\tC\nAA\tBB\tCC", 200, measureText), ["A\tB\tC", "AA\tBB\tCC"]);
+  const frame = fitTextEditorFrame({ text: "AA\tBB\tCC", fontSize: 18,
+    x: 0, y: 0, maxWidth: 400, boundsWidth: 400, boundsHeight: 100, measureText });
+  assert.ok(frame.width - 2 * textEditorInsets().x >= second.width);
+});
+
+test("plain single-line text has enough content width after textarea border and padding", () => {
+  const text = "padding padding padding padding";
+  const frame = fitTextEditorFrame({text, fontSize: 18, x: 0, y: 0, maxWidth: 500,
+    boundsWidth: 500, boundsHeight: 100, measureText});
+  const contentWidth = frame.width - 2 * textEditorInsets().x;
+  assert.ok(contentWidth > measureText(text), "leave rounding room for native glyph layout");
+  assert.equal(layoutTextLines(text, contentWidth, measureText).length, 1);
+  assert.equal(frame.height - 2 * textEditorInsets().y, 23);
 });

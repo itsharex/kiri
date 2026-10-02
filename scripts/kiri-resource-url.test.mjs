@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 
-import { kiriResourceUrl } from "../src/lib/kiri-resource-url.js";
+import { kiriResourceUrl, configureVideoPlaybackOrigin, videoResourceUrl, videoResourceCrossOrigin } from "../src/lib/kiri-resource-url.js";
 
 let calls;
 
 beforeEach(() => {
+  configureVideoPlaybackOrigin(null);
   calls = [];
   globalThis.window = {
     __TAURI_INTERNALS__: {
@@ -15,6 +16,25 @@ beforeEach(() => {
       },
     },
   };
+});
+
+test("Linux video bridge is limited to the IPC-provided numeric loopback capability", () => {
+  const id = "00000000-0000-4000-8000-000000000000";
+  const origin = "http://127.0.0.1:45321/0123456789abcdef0123456789abcdef/media";
+  assert.equal(videoResourceUrl(id), `http://kiri.localhost/${encodeURIComponent(`media/${id}`)}`);
+  configureVideoPlaybackOrigin(origin);
+  assert.equal(videoResourceUrl(id), `${origin}/${id}`);
+  assert.equal(videoResourceCrossOrigin(videoResourceUrl(id)), undefined);
+  for (const source of [`kiri://media/${id}`, `http://kiri.localhost/media/${id}`, `http://127.0.0.1:45321/public.mp4`, `https://example.org/video.mp4`]) {
+    assert.equal(videoResourceCrossOrigin(source), "anonymous");
+  }
+  assert.equal(kiriResourceUrl("media", [id]), `http://kiri.localhost/${encodeURIComponent(`media/${id}`)}`);
+  for (const invalid of [origin.replace("127.0.0.1", "localhost"), origin.replace("127.0.0.1", "evil.example"), origin.replace("45321", "65536"), `${origin}?file=/etc/passwd`, origin.replace("0123456789abcdef0123456789abcdef", "guessable")]) {
+    assert.throws(() => configureVideoPlaybackOrigin(invalid), TypeError);
+  }
+  assert.throws(() => videoResourceUrl("../private"), TypeError);
+  configureVideoPlaybackOrigin(null);
+  assert.equal(videoResourceUrl(id), `http://kiri.localhost/${encodeURIComponent(`media/${id}`)}`);
 });
 
 afterEach(() => {

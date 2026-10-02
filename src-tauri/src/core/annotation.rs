@@ -140,6 +140,35 @@ impl AnnotationAppearance {
     }
 }
 
+/// Only changed fields are written so independent windows cannot replace
+/// another window's last-used styling with a stale complete snapshot.
+#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AnnotationAppearancePatch {
+    pub color_preset: Option<AnnotationColor>,
+    pub text_background_style: Option<TextBackground>,
+    pub mosaic_intensity: Option<MosaicIntensity>,
+    pub mosaic_style: Option<MosaicStyle>,
+    pub pen_width: Option<u16>,
+    pub shape_width: Option<u16>,
+    pub text_font_size: Option<u16>,
+    pub mosaic_brush_diameter: Option<u16>,
+}
+
+impl AnnotationAppearancePatch {
+    pub fn apply(self, mut saved: AnnotationAppearance) -> AnnotationAppearance {
+        if let Some(value) = self.color_preset { saved.color_preset = value; }
+        if let Some(value) = self.text_background_style { saved.text_background_style = value; }
+        if let Some(value) = self.mosaic_intensity { saved.mosaic_intensity = value; }
+        if let Some(value) = self.mosaic_style { saved.mosaic_style = value; }
+        if let Some(value) = self.pen_width { saved.pen_width = value; }
+        if let Some(value) = self.shape_width { saved.shape_width = value; }
+        if let Some(value) = self.text_font_size { saved.text_font_size = value; }
+        if let Some(value) = self.mosaic_brush_diameter { saved.mosaic_brush_diameter = value; }
+        saved.normalized()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -506,6 +535,19 @@ mod tests {
         let mut wrong_ratio = document;
         wrong_ratio.canvas.width = 120.0;
         assert!(wrong_ratio.validate_for_image_pixels(200, 160).is_err());
+    }
+
+    #[test]
+    fn appearance_patches_merge_against_latest_shared_preferences() {
+        let defaults = AnnotationAppearance::default();
+        let width: AnnotationAppearancePatch = serde_json::from_str(r#"{"penWidth":24}"#).unwrap();
+        let color: AnnotationAppearancePatch = serde_json::from_str(r#"{"colorPreset":"blue"}"#).unwrap();
+        let merged = color.apply(width.apply(defaults));
+        assert_eq!(merged.pen_width, 24);
+        assert_eq!(merged.color_preset, AnnotationColor::Blue);
+        assert_eq!(merged.shape_width, defaults.shape_width);
+        assert_eq!(AnnotationAppearancePatch { text_font_size: Some(999), ..Default::default() }.apply(merged).text_font_size, 64);
+        assert!(serde_json::from_str::<AnnotationAppearancePatch>(r#"{"activeTool":"pen"}"#).is_err());
     }
 
     #[test]

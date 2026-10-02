@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createLibraryHarness, deferred, nodes, settleRequests, testAsset } from "./helpers/library-render-harness.mjs";
+import * as viewerState from "../src/windows/viewer-state.js";
 
 const source = 'import React from "react";\n' + readFileSync(new URL("../src/ocr/TextHistory.tsx", import.meta.url), "utf8");
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,6 +68,42 @@ test("OCR dialog starts once and reads saved text without recognizing again", as
   component.unmount(); pending.resolve({ text: "complete", saved: true, asset: record("new", "complete") }); await settleRequests();
   const saved = harness.mount("OcrDialog", { asset: record("saved", "already recognized"), onClose() {} });
   saved.render(); assert.equal(calls, 1); saved.unmount();
+});
+
+test("an already open OCR dialog uses refreshed saved corrections", async () => {
+  const harness = createLibraryHarness({ recognizeAssetLocal: () => { throw new Error("saved text must not be recognized again"); } }, source);
+  const component = harness.mount("OcrDialog", { asset: record("saved", "first version"), onClose() {} });
+  const reader = (tree) => nodes(tree).find(node => node?.type?.name === "TextReader");
+  assert.equal(reader(component.render()).props.text, "first version");
+  const updated = record("saved", "second version");
+  assert.equal(reader(component.render({ asset: updated, onClose() {} })).props.text, "second version");
+  const restored = record("saved", "original version");
+  assert.equal(reader(component.render({ asset: restored, onClose() {} })).props.text, "original version");
+  component.unmount();
+});
+
+test("an existing source viewer refreshes OCR metadata after saved asset changes", async () => {
+  let asset = record("saved", "first version");
+  const viewerSource = 'import React from "react";\n' + readFileSync(new URL("../src/windows/ViewerWindow.tsx", import.meta.url), "utf8");
+  const harness = createLibraryHarness({
+    getAsset: async () => asset,
+    platformCapabilities: async () => ({ videoEditing: false }),
+  }, viewerSource, { modules: {
+    "@tauri-apps/api/window": { getCurrentWindow: () => ({ close: async () => {} }) },
+    "./VideoTrimPlayer": { VideoTrimPlayer: "video-player" },
+    "./viewer-state.js": viewerState,
+  } });
+  const viewer = harness.mount("ViewerWindow", { id: asset.id });
+  viewer.render(); await settleRequests();
+  button(viewer.render(), "Read Text").props.onClick();
+  const dialog = () => nodes(viewer.render()).find(node => node?.type === "ocr-dialog");
+  assert.equal(dialog().props.asset.ocrText, "first version");
+  for (const text of ["second version", "third version"]) {
+    asset = record("saved", text);
+    harness.emit("assetContentChanged", asset.id); await settleRequests();
+    assert.equal(dialog().props.asset.ocrText, text);
+  }
+  viewer.unmount();
 });
 
 test("load failures are not presented as empty history", async () => {

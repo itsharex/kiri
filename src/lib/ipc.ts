@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AnnotationDocumentV1, AppearanceSettings } from "../annotation/model";
 import type { CropPixels } from "../annotation/crop.js";
-import { kiriResourceUrl } from "./kiri-resource-url.js";
+import { kiriResourceUrl, videoResourceUrl } from "./kiri-resource-url.js";
 import type {VideoProject,VideoProjectSnapshot} from "../windows/video-project";
 
 // ---------------------------------------------------------------------------
@@ -375,8 +375,8 @@ export const api = {
   pasteClipboardImage: () => invoke<AssetDto>("paste_clipboard_image"),
   getAnnotationAppearance: () =>
     invoke<AppearanceSettings>("get_annotation_appearance"),
-  setAnnotationAppearance: (appearance: AppearanceSettings) =>
-    invoke<void>("set_annotation_appearance", { appearance }),
+  setAnnotationAppearance: (appearance: Partial<AppearanceSettings>) =>
+    invoke<AppearanceSettings>("set_annotation_appearance", { appearance }),
 
   saveFileDialog: (defaultName: string) =>
     invoke<string | null>("save_file_dialog", { defaultName }),
@@ -443,6 +443,14 @@ export function onAssetContentChanged(handler: (assetId: string) => void): Promi
   return listen<string>("asset-content-changed", (event) => handler(event.payload));
 }
 
+export function onAnnotationAppearanceChanged(handler: (appearance: AppearanceSettings) => void): Promise<UnlistenFn> {
+  return listen<AppearanceSettings>("annotation-appearance-changed", event => handler(event.payload));
+}
+
+export function onPinOnTop(handler: () => void): Promise<UnlistenFn> {
+  return listen("pin-on-top", handler);
+}
+
 export function onEditorRecognizeQr(handler: () => void): Promise<UnlistenFn> {
   return listen("editor-recognize-qr", handler);
 }
@@ -459,6 +467,6 @@ export function onRecordingSaveJobs(
   return listen<RecordingSaveJob[]>("recording-save-jobs", (event) => handler(event.payload));
 }
 
-export function mediaUrl(id: string): string {
-  return kiriResourceUrl("media", [id]);
+export function mediaUrl(id: string, video = false): string {
+  return video ? videoResourceUrl(id) : kiriResourceUrl("media", [id]);
 }

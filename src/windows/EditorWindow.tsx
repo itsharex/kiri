@@ -24,10 +24,8 @@ import { useAnnotationAppearance } from "../annotation/useAnnotationAppearance";
 import AnnotationCanvas, { type AnnotationCanvasHandle } from "../annotation/AnnotationCanvas";
 import { CropOverlay } from "../annotation/CropOverlay";
 import {
-  cropAnnotationDocument,
   fullCropRect,
   isFullCrop,
-  type CropPixels,
 } from "../annotation/crop.js";
 import { resolveInitialEditorDocument } from "../annotation/editor-document.js";
 import { AnnotationInteractionLock } from "../annotation/interaction-lock.js";
@@ -410,19 +408,10 @@ export function EditorWindow(props: { id: string }) {
         setActionError("The screenshot changed. Close and reopen the editor.");
         return;
       }
-      const result = await canvasRef.current?.exportResult();
+      const result = await canvasRef.current?.exportResult(cropSelection ?? undefined);
       if (!result) {
         setActionError(failureMessage);
         return;
-      }
-      let outputPng = result.png;
-      let outputDocument = result.document;
-      let cropPixels: CropPixels | null = null;
-      if (cropSelection && !isFullCrop(result.document, cropSelection)) {
-        const cropped = cropAnnotationDocument(result.document, cropSelection);
-        outputPng = await cropPng(result.png, cropped.cropPixels);
-        outputDocument = cropped.document;
-        cropPixels = cropped.cropPixels;
       }
       const saveToken = action === "saveAs"
         ? await api.saveFileDialog(`kiri-${props.id}.png`)
@@ -430,9 +419,9 @@ export function EditorWindow(props: { id: string }) {
       // Cancelling Save As must be a true no-op: do not replace the library
       // asset when the system file picker returns no one-time authorization.
       if (action === "saveAs" && saveToken === null) return;
-      const update = await api.updateAsset(props.id, outputPng, outputDocument, {
+      const update = await api.updateAsset(props.id, result.png, result.document, {
         action,
-        cropPixels,
+        cropPixels: result.cropPixels,
         saveToken,
         revisionSha256,
       });
@@ -483,6 +472,7 @@ export function EditorWindow(props: { id: string }) {
       <div
         style={{
           height: 58,
+          flexShrink: 0,
           display: "flex",
           alignItems: "center",
           gap: 4,
@@ -577,6 +567,12 @@ export function EditorWindow(props: { id: string }) {
                 if (tool === "text") canvasRef.current?.endTextFontSizeAdjustment();
               }}
               onPointerLeave={() => {
+                if (tool === "text") canvasRef.current?.endTextFontSizeAdjustment();
+              }}
+              onKeyUp={() => {
+                if (tool === "text") canvasRef.current?.endTextFontSizeAdjustment();
+              }}
+              onBlur={() => {
                 if (tool === "text") canvasRef.current?.endTextFontSizeAdjustment();
               }}
               style={{ width: 90, accentColor: "#fff" }}
@@ -704,7 +700,7 @@ export function EditorWindow(props: { id: string }) {
       )}
 
       {/* Canvas area */}
-      <div ref={containerRef} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "#141414", position: "relative" }}>
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: "#141414", position: "relative" }}>
         {imageSize && document && (
           <div style={{ position: "relative", width: viewSize.width, height: viewSize.height,
             backgroundImage: qrActive && image ? `url("${image.src}")` : undefined,
@@ -759,38 +755,6 @@ export function EditorWindow(props: { id: string }) {
 function sameRect(left: Rect, right: Rect): boolean {
   return left.x === right.x && left.y === right.y &&
     left.width === right.width && left.height === right.height;
-}
-
-async function cropPng(png: Uint8Array, crop: CropPixels): Promise<Uint8Array> {
-  const url = URL.createObjectURL(new Blob([png.slice().buffer], { type: "image/png" }));
-  const image = new Image();
-  try {
-    image.src = url;
-    await image.decode();
-    const canvas = document.createElement("canvas");
-    canvas.width = crop.width;
-    canvas.height = crop.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("crop canvas unavailable");
-    context.drawImage(
-      image,
-      crop.x,
-      crop.y,
-      crop.width,
-      crop.height,
-      0,
-      0,
-      crop.width,
-      crop.height,
-    );
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-    canvas.width = 0;
-    canvas.height = 0;
-    if (!blob) throw new Error("crop export failed");
-    return new Uint8Array(await blob.arrayBuffer());
-  } finally {
-    URL.revokeObjectURL(url);
-  }
 }
 
 function EditorToolButton(props: {

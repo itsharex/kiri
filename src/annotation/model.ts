@@ -5,6 +5,7 @@
 import type { Point, Rect } from "./geom";
 import {
   distanceToSegment,
+  handlePoint,
   maxX,
   maxY,
   minX,
@@ -468,6 +469,28 @@ export function moveEndpointMark(
 ): AnnotationMark {
   if (mark.kind !== "line" && mark.kind !== "arrow") return mark;
   return isStart ? { ...mark, start: point } : { ...mark, end: point };
+}
+
+/** A handle follows the pointer delta, preserving the initial grab offset. */
+export function dragAnnotationHandle(
+  mark: AnnotationMark,
+  handle: string,
+  delta: Point,
+  bounds: Rect,
+): AnnotationMark {
+  if (Math.hypot(delta.x, delta.y) < 1) return mark;
+  if (mark.kind === "line" || mark.kind === "arrow") {
+    const original = handle === "start" ? mark.start : mark.end;
+    return moveEndpointMark(mark, handle === "start", {
+      x: original.x + delta.x,
+      y: original.y + delta.y,
+    });
+  }
+  const original = handlePoint(handle as Parameters<typeof handlePoint>[0], selectionBounds(mark));
+  return resizeAnnotationMark(mark, handle, {
+    x: original.x + delta.x,
+    y: original.y + delta.y,
+  }, bounds);
 }
 
 /** Selection bounds used for the outline (spec §6.4). */

@@ -38,6 +38,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null, 
     left.every((value, index) => Object.is(value, right[index]));
   const React = {
     lazy: () => () => null,
+    forwardRef: (render) => (props) => render(props, props.ref),
     createElement(type, props, ...children) {
       const node = { type, props: { ...props, children } };
       environment.attachRef?.(node);
@@ -80,6 +81,15 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null, 
     },
     useLayoutEffect(create, deps) {
       React.useEffect(create, deps);
+    },
+    useImperativeHandle(ref, create, deps) {
+      React.useEffect(() => {
+        if (ref) ref.current = create();
+        return () => { if (ref) ref.current = null; };
+      }, deps);
+    },
+    useId() {
+      return React.useState(() => `test-id-${active.cursor}`)[0];
     },
   };
   const window = {
@@ -145,7 +155,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null, 
   new Function("require", "module", "exports", "window", "document", "requestAnimationFrame", "cancelAnimationFrame", "navigator", ...Object.keys(globals), componentCode)((name) => {
     if (!(name in modules)) throw new Error(`Unexpected import: ${name}`);
     return modules[name];
-  }, module, module.exports, window, { ...window, body: null, querySelector: () => null }, () => 1, () => {}, environment.navigator ?? { userAgent: "Macintosh" }, ...Object.values(globals));
+  }, module, module.exports, window, { ...window, body: null, querySelector: () => null, ...environment.document }, () => 1, () => {}, environment.navigator ?? { userAgent: "Macintosh" }, ...Object.values(globals));
 
   return {
     window,

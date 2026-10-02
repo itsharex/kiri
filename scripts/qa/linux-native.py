@@ -721,6 +721,103 @@ try:
         raise RuntimeError("Capture, OCR, or video library changed after restarting the installed app")
     screenshot("library-reopened.png")
     report["checks"].append("saved screenshot, OCR history, and recording persist after restarting the installed app")
+
+    def video_card():
+        label = video.get("title") or video["filename"]
+        for node in accessible_nodes():
+            if node.get_name() != label or not node.get_state_set().contains(Atspi.StateType.SHOWING):
+                continue
+            bounds = node.get_component_iface().get_extents(Atspi.CoordType.SCREEN)
+            if bounds.width > 150 and bounds.height > 100:
+                return bounds
+        return None
+
+    bounds = wait_for("saved video card", video_card)
+    command("xdotool", "mousemove", "--sync", str(bounds.x + bounds.width // 2),
+            str(bounds.y + bounds.height // 3), "click", "1")
+
+    def playback_position():
+        for node in accessible_nodes():
+            if (node.get_name() == "Playback position"
+                    and node.get_state_set().contains(Atspi.StateType.SHOWING)
+                    and node.get_state_set().contains(Atspi.StateType.ENABLED)):
+                value = node.get_value_iface()
+                if value.get_maximum_value() > 1:
+                    return node, value.get_current_value(), value.get_maximum_value()
+        return None
+
+    wait_for("WebKitGTK decodes the saved video metadata", playback_position)
+    if visible_control("Play"):
+        click_control("Play")
+    wait_for_control("Pause")
+    before = playback_position()[1]
+    wait_for("real WebKitGTK video playhead advances", lambda:
+             (position := playback_position()) and position[1] > before + 0.25)
+    click_control("Pause")
+    node, position, duration = playback_position()
+    bounds = node.get_component_iface().get_extents(Atspi.CoordType.SCREEN)
+    target = duration * 0.8
+    command("xdotool", "mousemove", "--sync", str(bounds.x + int(bounds.width * 0.8)),
+            str(bounds.y + bounds.height // 2), "click", "1")
+    wait_for("native video seek updates the playhead", lambda:
+             (position := playback_position()) and abs(position[1] - target) < duration * 0.1)
+    # A controlled range value alone is insufficient: require the native
+    # decoder to resume and advance after seeking, without replacing the viewer
+    # with its onError state. This exercises a new HTTP byte-range read too.
+    click_control("Play")
+    wait_for_control("Pause")
+    wait_for("WebKitGTK decodes and plays after seek", lambda:
+             (position := playback_position()) and position[1] > target + 0.25)
+    click_control("Pause")
+    screenshot("video-playback-and-seek.png")
+    report["video_playback"] = {"metadata_duration": duration, "seek_target": target,
+                                "seek_result": playback_position()[1], "native_webkitgtk": True}
+    report["checks"].append("WebKitGTK video viewer loads metadata, advances real playback, pauses and seeks through local HTTP media delivery")
+    click_control("Close · Esc")
+
+    # The library remains visible behind the source: restoring it after capture
+    # must not map it later and steal the source application's keyboard focus.
+    fixture.request("show")
+    source_window = command("xdotool", "search", "--onlyvisible", "--name",
+                            "^Kiri Linux QA public pattern$").stdout.split()[-1]
+    command("xdotool", "windowactivate", "--sync", source_window)
+    before_focus = command("xdotool", "getactivewindow").stdout.strip()
+    if before_focus != source_window:
+        raise RuntimeError("The focus-restore control must start from the external fixture")
+    open_capture()
+    drag_region((220, 240, 900, 620))
+    click_control("Done — Copy to clipboard · Return")
+    wait_for("capture with background library closes", lambda: overlay() is None)
+    wait_for("focus returns to the source with background library", lambda:
+             command("xdotool", "getactivewindow").stdout.strip() == source_window)
+    pause(0.5)
+    after_focus = command("xdotool", "getactivewindow").stdout.strip()
+    if after_focus != source_window:
+        raise RuntimeError("The restored library stole source focus after screenshot completion")
+    report["capture_focus_with_library"] = {"before": before_focus, "after": after_focus}
+    report["checks"].append("screenshot returns focus to the external source while restoring the previously visible library without activation")
+
+    wait_for_feedback_to_close()
+    open_capture()
+    click_control("Record")
+    drag_region(recording_region)
+    countdown, _ = wait_for_control("3-second countdown")
+    if not countdown.get_state_set().contains(Atspi.StateType.CHECKED):
+        click_control("3-second countdown")
+    before_countdown = assets()
+    staged_before = recording_files(".kiri-media-*.mp4")
+    click_control("Start Recording")
+    wait_for_control("Cancel Countdown")
+    focused = command("xdotool", "getactivewindow").stdout.strip()
+    if focused != overlay():
+        raise RuntimeError("Visible recording countdown did not own native keyboard focus")
+    screenshot("countdown-focused-before-escape.png")
+    command("xdotool", "key", "--clearmodifiers", "Escape")
+    wait_for("Escape cancels the visible countdown", lambda: overlay() is None)
+    pause(3.5)
+    if assets() != before_countdown or recording_files(".kiri-media-*.mp4") != staged_before:
+        raise RuntimeError("Cancelled countdown started recording or imported an asset")
+    report["checks"].append("visible countdown takes native keyboard focus; Escape cancels without a later recorder or saved asset")
     report["success"] = True
 except Exception as error:
     report["error"] = str(error)
