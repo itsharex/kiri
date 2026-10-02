@@ -12,7 +12,7 @@ use tauri::{
 };
 
 use crate::capture::current as capture_backend;
-use crate::core::annotation::{AnnotationAppearance, AnnotationDocument, AnnotationPixelSize};
+use crate::core::annotation::{AnnotationAppearance, AnnotationAppearancePatch, AnnotationDocument, AnnotationPixelSize};
 use crate::core::asset::{CaptureAsset, CaptureKind};
 use crate::core::geometry::Rect;
 use crate::core::library::{AssetLibraryError, EditorAnnotationState};
@@ -471,6 +471,19 @@ pub fn open_asset(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+fn restore_editor_window(window: &WebviewWindow) -> Result<(), String> {
+    window.show().and_then(|_| window.unminimize()).and_then(|_| window.set_focus())
+        .map_err(|error| format!("The screenshot window could not be restored: {error}"))
+}
+
+fn restore_pinned_window(window: &WebviewWindow) -> Result<(), String> {
+    window.set_always_on_top(true)
+        .map_err(|error| format!("The screenshot could not be pinned: {error}"))?;
+    // Tell a reused WebView to reflect its restored native pin state.
+    let _ = window.emit_to(window.label(), "pin-on-top", ());
+    restore_editor_window(window)
+}
+
 #[tauri::command]
 pub async fn pin_asset(window: WebviewWindow, app: AppHandle, id: String) -> Result<(), String> {
     if window.label() != "library" { return Err("Only the library can pin a screenshot.".into()); }
@@ -489,7 +502,7 @@ pub async fn pin_asset(window: WebviewWindow, app: AppHandle, id: String) -> Res
     };
     let label = format!("pin-{}", asset.id.to_string().to_lowercase());
     if let Some(window) = app.get_webview_window(&label) {
-        let _ = window.show(); let _ = window.set_focus();
+        restore_pinned_window(&window)?;
         return Ok(());
     }
     let aspect = if asset.pixel_width > 0 && asset.pixel_height > 0 {
@@ -499,7 +512,7 @@ pub async fn pin_asset(window: WebviewWindow, app: AppHandle, id: String) -> Res
     let asset_id = asset.id;
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(window) = app.get_webview_window(&label) {
-            let _ = window.show(); let _ = window.set_focus(); return Ok(());
+            restore_pinned_window(&window)?; return Ok(());
         }
         WebviewWindowBuilder::new(&app, label,
             WebviewUrl::App(format!("index.html?window=pin&id={asset_id}").into()))
@@ -535,8 +548,7 @@ pub fn open_editor(app: AppHandle, id: String, recognize_qr: Option<bool>) -> Re
 
     let label = format!("editor-{}", asset.id.to_string().to_lowercase());
     if let Some(window) = app.get_webview_window(&label) {
-        let _ = window.show();
-        let _ = window.set_focus();
+        restore_editor_window(&window)?;
         if recognize_qr {
             queue_editor_qr(&window, &app)?;
         }
@@ -550,8 +562,10 @@ pub fn open_editor(app: AppHandle, id: String, recognize_qr: Option<bool>) -> Re
             // See open_asset: secondary WebViews must not be constructed from
             // the synchronous IPC handler on Windows.
             if let Some(window) = app.get_webview_window(&label) {
-                let _ = window.show();
-                let _ = window.set_focus();
+                if let Err(error) = restore_editor_window(&window) {
+                    log::error!("[editor] window restore failed asset_id={asset_id}: {error}");
+                    return;
+                }
                 if recognize_qr {
                     if let Err(error) = queue_editor_qr(&window, &app) {
                         log::error!("[editor] QR request failed asset_id={asset_id}: {error}");
@@ -2124,7 +2138,12 @@ fn restore_capture_origin(
 ) {
     for label in hidden_windows {
         if let Some(window) = app.get_webview_window(label) {
+            #[cfg(target_os = "linux")]
+            platform::linux::show_window_without_activation(app, label);
+            #[cfg(not(target_os = "linux"))]
             let _ = window.show();
+            #[cfg(target_os = "linux")]
+            let _ = window;
         }
     }
 
@@ -3590,8 +3609,10 @@ pub async fn start_recording_flow(
     #[cfg(not(target_os = "linux"))]
     present_recording_ui()?;
 
-    // Restore focus to the source application (mirrors AppModel.onRecord).
-    if !was_kiri_frontmost {
+    // Linux defers source restoration until its countdown has been hidden.
+    // Other platforms retain their existing recording-control focus policy.
+    let restore_origin_now = !cfg!(target_os = "linux") || !options.uses_countdown;
+    if restore_origin_now && !was_kiri_frontmost {
         if let Some(pid) = return_pid {
             platform::activate_application(pid);
         }
@@ -3699,8 +3720,15 @@ pub async fn recording_countdown_ready(
         &window,
         platform::TransientWindowRole::RecordingCountdown,
     );
-    window.show().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    linux_run_on_main(&app, move || {
+        platform::linux::show_recording_countdown(&window).map_err(|error| error.to_string())
+    })?;
+    #[cfg(not(target_os = "linux"))]
+    {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -4301,6 +4329,21 @@ pub async fn begin_recording(app: AppHandle, session_id: Option<uuid::Uuid>) -> 
             return Err(error);
         }
         return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Countdown owns Escape until it has been hidden. Restoring the source
+        // during countdown creation can race its ready/focus command.
+        let (was_kiri_frontmost, return_pid) = {
+            let state = app.state::<AppState>();
+            let recording = state.recording.lock().unwrap();
+            (recording.was_kiri_frontmost, recording.return_pid)
+        };
+        if !was_kiri_frontmost {
+            if let Some(pid) = return_pid {
+                platform::activate_application(pid);
+            }
+        }
     }
     if configuration.options.highlights_clicks {
         // The click monitor needs the Input Monitoring permission; install
@@ -6008,15 +6051,17 @@ pub fn get_annotation_appearance(app: AppHandle) -> Result<AnnotationAppearance,
 #[tauri::command]
 pub fn set_annotation_appearance(
     app: AppHandle,
-    appearance: AnnotationAppearance,
-) -> Result<(), String> {
-    let normalized = appearance.normalized();
+    appearance: AnnotationAppearancePatch,
+) -> Result<AnnotationAppearance, String> {
     let state = app.state::<AppState>();
     let mut saved = state.saved_annotation_appearance.lock().unwrap();
+    let normalized = appearance.apply(*saved);
     crate::state::save_annotation_appearance(&app, &normalized)
         .map_err(|_| "The annotation preferences could not be saved.".to_string())?;
     *saved = normalized;
-    Ok(())
+    // Emit while holding the preference lock so updates retain write order.
+    let _ = app.emit("annotation-appearance-changed", normalized);
+    Ok(normalized)
 }
 
 #[tauri::command]

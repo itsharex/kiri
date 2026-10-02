@@ -260,7 +260,24 @@ fn recover_local_codes(
                 y + (u64::from(row) * u64::from(tile_height) / u64::from(local_height)) as u32,
             )
         });
-        let candidates = identify(decoder, local_width, local_height, &tile)
+        // Dense grouping and low contrast can occur together. The whole-image
+        // contrast pass may exhaust Quirc's finder limit before reaching this
+        // tile, so retain the same fixed threshold retries in each local view.
+        // View area remains bounded above; retries reuse one binary buffer.
+        let mut local_codes = identify(decoder, local_width, local_height, &tile);
+        let mut binary = vec![0; tile.len()];
+        for threshold in [64, 128, 192] {
+            for (pixel, value) in binary.iter_mut().zip(tile.iter()) {
+                *pixel = if *value < threshold { 0 } else { 255 };
+            }
+            merge_codes(
+                &mut local_codes,
+                identify(decoder, local_width, local_height, &binary),
+                local_width,
+                local_height,
+            );
+        }
+        let candidates = local_codes
             .into_iter()
             // Whole-image passes keep damaged, locatable codes. Local crops
             // are only a decoding recovery: cut-off neighbors must not add
@@ -586,6 +603,42 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn dense_montages_recover_low_contrast_codes_after_the_global_finder_limit() {
+        let mut canvas = public_montage(4, 3, 608, 460, 148);
+        // Use the third row's third code: the preceding high-contrast finders
+        // fill Quirc's fixed cap before the global 192 threshold reaches it.
+        let (x, y) = (
+            2 * 608 / 4 + (608 / 4 - 148) / 2,
+            2 * 460 / 3 + (460 / 3 - 148) / 2,
+        );
+        for row in y..y + 148 {
+            for column in x..x + 148 {
+                let value = canvas.get_pixel_mut(column, row);
+                value[0] = if value[0] < 128 { 160 } else { 220 };
+            }
+        }
+        let mut png = std::io::Cursor::new(Vec::new());
+        canvas.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let (_, _, codes) = decode(png.get_ref()).unwrap();
+        assert_eq!(codes.len(), 12);
+        assert!(codes
+            .iter()
+            .all(|code| code.text.as_deref() == Some("https://example.org/kiri-safe")));
+        let center = [(x as f64 + 74.0) / 608.0, (y as f64 + 74.0) / 460.0];
+        assert_eq!(
+            codes
+                .iter()
+                .filter(|code| {
+                    let x = code.corners.iter().map(|point| point[0]).sum::<f64>() / 4.0;
+                    let y = code.corners.iter().map(|point| point[1]).sum::<f64>() / 4.0;
+                    (x - center[0]).abs() * 608.0 <= 3.0 && (y - center[1]).abs() * 460.0 <= 3.0
+                })
+                .count(),
+            1
+        );
     }
 
     #[test]

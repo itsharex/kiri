@@ -11,7 +11,7 @@ import type {
 import { COLOR_HEX, MOSAIC_VIEW_BLOCK_SIZE, arrowHeadPoints, selectionBounds } from "./model";
 import type { Point, Rect } from "./geom";
 import { inset, intersection, maxX, maxY, minX, minY, standardized } from "./geom";
-import { layoutTextLines } from "./text-layout.js";
+import { layoutTextLines, textLineRuns } from "./text-layout.js";
 import {blurCanvas} from "./canvas-blur";
 
 const FONT_STACK =
@@ -258,7 +258,9 @@ function wrapText(
   const lineHeight = fontSize * 1.25;
   const lines = layoutTextLines(text, maxWidth, (value) => ctx.measureText(value).width);
   for (const [index, line] of lines.entries()) {
-    if (line) ctx.fillText(line, x, y + index * lineHeight);
+    for (const run of textLineRuns(line, (value) => ctx.measureText(value).width).runs) {
+      ctx.fillText(run.text, x + run.x, y + index * lineHeight);
+    }
   }
 }
 
@@ -396,10 +398,11 @@ export function renderAll(
   if(options.chromeOnly){
     ctx.clearRect(0,0,region.width,region.height);
   }else{
-  ctx.fillStyle = "#141414";
   if (r.exporting) {
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // PNG exports retain the source alpha unless an annotation covers it.
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   } else {
+    ctx.fillStyle = "#141414";
     ctx.fillRect(0, 0, region.width, region.height);
   }
 

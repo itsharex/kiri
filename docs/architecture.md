@@ -177,8 +177,8 @@ baseline and its close warning even after exporting successfully.
 
 The capture overlay and editor load one validated native preference for the
 last-used annotation color, visual widths, text background and size, and
-mosaic style, strength, and diameter. Changes are debounced and shared across
-windows through the app config directory. The active tool, selection, crop,
+mosaic style, strength, and diameter. Changes are debounced as field-level patches, merged under the native preference
+lock, and broadcast to open windows. The active tool, selection, crop,
 and document content are never persisted as appearance preferences.
 
 ## Managed library flow
@@ -373,7 +373,11 @@ loading the window cannot lose the starting state or its cancel action.
 Windows uses Media Foundation plus the bundled Rust GIF encoder for MP4
 recording, recovery validation, thumbnails, and MP4-to-GIF conversion. macOS
 uses AVFoundation and ImageIO for the same boundary, including pause-segment
-merging. Linux uses system GStreamer plugins for PipeWire ScreenCast capture,
+merging. Linux WebKitGTK video playback uses a process-scoped loopback HTTP capability
+with bounded streaming and validated asset IDs/ranges (ADR 0069), because its
+media decoder rejects custom `kiri` URIs. Images keep the private protocol.
+
+Linux uses system GStreamer plugins for PipeWire ScreenCast capture,
 H.264 MP4 encoding, thumbnails, and GIF export. No platform downloads or
 executes FFmpeg; library browsing and thumbnail generation are local and
 offline.

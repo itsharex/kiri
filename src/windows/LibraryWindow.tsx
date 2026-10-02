@@ -370,12 +370,19 @@ export function LibraryWindow() {
         return;
       }
 
+      const searchQuery = queryRef.current.trim();
       const [list, pending] = await Promise.all([
-        api.listAssets(queryRef.current.trim(), showingTrashRef.current),
+        api.listAssets(searchQuery, showingTrashRef.current),
         api.listPendingRecordings().catch(() => []),
       ]);
       if (generation !== refreshGenerationRef.current) return;
       setAssets(list);
+      // Only an unsearched snapshot proves a tag no longer exists. A search
+      // can temporarily hide tagged assets without removing their category.
+      if (!searchQuery) {
+        setTagFilter((current) => current && !list.some((asset) =>
+          asset.tags.some((tag) => tag.toLowerCase() === current.toLowerCase())) ? null : current);
+      }
       setPendingRecordingCount(pending.length);
       setAssetAvailability({});
       // Commit completion and the refreshed real assets together. A removed
@@ -483,14 +490,18 @@ export function LibraryWindow() {
     alignContent: "start",
   };
 
-  // All tags in the current view, for the tag filter bar.
+  // Filtering is case-insensitive, so present one chip per matching category.
+  // Keep the selected chip visible while searching even if no result has it.
   const allTags = useMemo(() => {
-    const set = new Set<string>();
+    const tags = new Map<string, string>();
+    if (tagFilter) tags.set(tagFilter.toLowerCase(), tagFilter);
     for (const asset of assets) {
-      for (const tag of asset.tags) set.add(tag);
+      for (const tag of asset.tags) {
+        if (!tags.has(tag.toLowerCase())) tags.set(tag.toLowerCase(), tag);
+      }
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [assets]);
+    return [...tags.values()].sort((a, b) => a.localeCompare(b));
+  }, [assets, tagFilter]);
 
   const hasActiveFilter =
     query.trim().length > 0 || kindFilter !== "all" || favoritesOnly || tagFilter !== null;
@@ -976,7 +987,7 @@ export function LibraryWindow() {
               allTags={allTags}
               onChangeKind={setKindFilter}
               onToggleFavorites={() => setFavoritesOnly((value) => !value)}
-              onToggleTag={(tag) => setTagFilter((current) => (current === tag ? null : tag))}
+              onToggleTag={(tag) => setTagFilter((current) => (current?.toLowerCase() === tag.toLowerCase() ? null : tag))}
             />
             {showingTrash && assets.length > 0 && (
               <button
@@ -1799,7 +1810,7 @@ function AssetCard(props: {
           <div style={{ position: "relative", width: "100%", height: "100%" }}>
             <video
               key={`${asset.id}:${thumbnailRevision}:${previewRetry}`}
-              src={mediaUrl(asset.id)}
+              src={mediaUrl(asset.id, true)}
               muted
               playsInline
               preload="metadata"

@@ -12,6 +12,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use ashpd::desktop::screencast::{CursorMode, Screencast, SourceType};
 use ashpd::desktop::PersistMode;
 use gstreamer::prelude::*;
+use gstreamer_pbutils::prelude::*;
 use gstreamer_video::prelude::*;
 
 use crate::capture::DisplayIdentity;
@@ -21,7 +22,7 @@ use crate::record::{AudioChunkReceiver, EncoderConfig};
 
 #[path = "linux_media_timing.rs"]
 mod timing;
-use timing::{queue_has_room, FrameTimeline};
+use timing::{queue_has_room, CaptureStartupGate, FrameTimeline};
 
 const INPUT_POLL: Duration = Duration::from_millis(25);
 const PORTAL_START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -388,6 +389,8 @@ fn pump_capture_frames(
         .set_state(gstreamer::State::Playing)
         .context("Could not start Linux screen capture")?;
     let mut first_frame_at = None::<Instant>;
+    let mut startup_gate = CaptureStartupGate::new();
+    let capture_started = Instant::now();
     let mut frame_schedule = FrameTimeline::new(RecordingPolicy::FRAMES_PER_SECOND);
     let first_frame_deadline = Instant::now() + Duration::from_secs(15);
     let mut dropped = 0u64;
@@ -411,6 +414,16 @@ fn pump_capture_frames(
             bail!("The shared display size changed or differs from the screenshot; recording was stopped to avoid capturing the wrong region.");
         }
         let now = Instant::now();
+        // Unmapping a GTK window and XSync do not wait for a compositor or an
+        // uncovered application to repaint. Drain initial snapshots before
+        // establishing the output clock, including resume and direct GIF.
+        let source_time = sample
+            .buffer()
+            .and_then(|buffer| buffer.pts())
+            .map(|pts| Duration::from_nanos(pts.nseconds()));
+        if !startup_gate.accept(now.duration_since(capture_started), source_time) {
+            continue;
+        }
         if first_frame_at
             .is_some_and(|origin| frame_schedule.advance(now.duration_since(origin)).is_none())
         {
@@ -770,12 +783,29 @@ pub fn probe_video(video: &Path) -> Option<(i64, i64, Option<f64>)> {
     let info = discover(video).ok()?;
     let streams = info.video_streams();
     let stream = streams.first()?;
+    let orientation = stream.tags().and_then(|tags| {
+        tags.get::<gstreamer::tags::ImageOrientation>()
+            .map(|value| value.get().to_owned())
+    });
+    let (width, height) =
+        display_dimensions(stream.width(), stream.height(), orientation.as_deref());
     Some((
-        i64::from(stream.width()),
-        i64::from(stream.height()),
+        i64::from(width),
+        i64::from(height),
         info.duration()
             .map(|time| time.nseconds() as f64 / 1_000_000_000.0),
     ))
+}
+
+fn display_dimensions(width: u32, height: u32, orientation: Option<&str>) -> (u32, u32) {
+    if matches!(
+        orientation,
+        Some("rotate-90" | "rotate-270" | "flip-rotate-90" | "flip-rotate-270")
+    ) {
+        (height, width)
+    } else {
+        (width, height)
+    }
 }
 
 fn discover(video: &Path) -> Result<gstreamer_pbutils::DiscovererInfo> {
@@ -876,7 +906,7 @@ fn decode_pipeline(
         .unwrap_or_default();
     let pipeline = pipeline(
         &format!(
-            "filesrc name=input ! decodebin ! videoconvert ! videoscale ! \
+            "filesrc name=input ! decodebin ! videoconvert ! videoflip video-direction=auto ! videoscale ! \
          video/x-raw,format=RGBA,width={width},height={height} ! {rate}\
          appsink name=sink max-buffers=1 drop=false sync=false"
         ),
@@ -1026,6 +1056,93 @@ fn scale_long_edge(width: u32, height: u32, max_long_edge: u32) -> (u32, u32) {
 mod tests {
     use super::*;
     use image::AnimationDecoder;
+
+    #[test]
+    fn display_dimensions_apply_all_rotated_orientation_tags() {
+        for orientation in [
+            "rotate-90",
+            "rotate-270",
+            "flip-rotate-90",
+            "flip-rotate-270",
+        ] {
+            assert_eq!(display_dimensions(320, 200, Some(orientation)), (200, 320));
+        }
+        for orientation in [
+            None,
+            Some("rotate-0"),
+            Some("rotate-180"),
+            Some("flip-rotate-0"),
+            Some("unknown"),
+        ] {
+            assert_eq!(display_dimensions(320, 200, orientation), (320, 200));
+        }
+    }
+
+    #[test]
+    fn native_rotation_metadata_changes_thumbnail_and_gif_display_orientation() {
+        let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "rotation");
+        let original = temp.path().join("original.mp4");
+        let rotated = temp.path().join("rotated.mp4");
+        let encoder = PreparedEncoder::new(&config(), &original).unwrap();
+        let mut pixels = solid_frame([0, 0, 255, 255]);
+        for y in 24..48 {
+            for x in 0..64 {
+                pixels[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4].copy_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        encoder
+            .push(pixels, Duration::ZERO, Duration::from_secs(1))
+            .unwrap();
+        encoder.appsrc.end_of_stream().unwrap();
+        wait_for_eos(&encoder.bus, FINALIZE_TIMEOUT, "Rotation fixture encoding").unwrap();
+        let PreparedEncoder {
+            pipeline, output, ..
+        } = encoder;
+        drop(pipeline);
+        output.persist_noclobber(&original).unwrap();
+
+        // Write the standard quarter-turn track-header display matrix directly;
+        // keep compressed samples identical without a media helper executable.
+        let mut bytes = std::fs::read(&original).unwrap();
+        let tkhd = bytes.windows(4).position(|part| part == b"tkhd").unwrap();
+        let payload = tkhd + 4;
+        let matrix = payload + if bytes[payload] == 1 { 52 } else { 40 };
+        for (index, value) in [0i32, 65536, 0, -65536, 0, 0, 0, 0, 1 << 30]
+            .into_iter()
+            .enumerate()
+        {
+            bytes[matrix + index * 4..matrix + index * 4 + 4].copy_from_slice(&value.to_be_bytes());
+        }
+        std::fs::write(&rotated, bytes).unwrap();
+        assert_eq!(probe_video(&original).unwrap().0, 64);
+        let metadata = probe_video(&rotated).unwrap();
+        assert_eq!((metadata.0, metadata.1), (48, 64));
+        let thumbnail = video_first_frame_png(&rotated, 64).unwrap();
+        std::fs::write(temp.path().join("rotated-first-frame.png"), &thumbnail).unwrap();
+        let thumbnail = image::load_from_memory(&thumbnail).unwrap().to_rgb8();
+        assert_eq!(thumbnail.dimensions(), (48, 64));
+        // Rotation changes a horizontal colour division to a vertical one.
+        let left = thumbnail.get_pixel(8, 32).0;
+        let right = thumbnail.get_pixel(40, 32).0;
+        assert!((i16::from(left[0]) - i16::from(right[0])).abs() > 200);
+        assert_eq!(thumbnail.get_pixel(8, 8).0, thumbnail.get_pixel(8, 56).0);
+        let (gif, width, height, duration) = export_gif(&rotated, 64, 12).unwrap();
+        assert_eq!((width, height), (48, 64));
+        assert!((duration.unwrap() - 1.0).abs() < 0.02);
+        let gif_target = temp.path().join("rotated.gif");
+        std::fs::rename(gif, &gif_target).unwrap();
+        let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(
+            std::fs::File::open(gif_target).unwrap(),
+        ))
+        .unwrap();
+        let frames = decoder.into_frames().collect_frames().unwrap();
+        assert_eq!(frames.len(), 12);
+        assert_eq!(frames[0].buffer().dimensions(), (48, 64));
+        let left = frames[0].buffer().get_pixel(8, 32).0;
+        let right = frames[0].buffer().get_pixel(40, 32).0;
+        assert!((i16::from(left[0]) - i16::from(right[0])).abs() > 200);
+    }
 
     /// Copy only this test's isolated fixtures before TempDir drops, including
     /// during an assertion panic. A failed native check must leave evidence.

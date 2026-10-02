@@ -22,9 +22,8 @@ import {
   applyAnnotationAppearance,
   annotationTextForCommit,
   changeMosaicShape,
+  dragAnnotationHandle,
   markIndexAt,
-  moveEndpointMark,
-  resizeAnnotationMark,
   selectionBounds,
   translateMark,
   type AnnotationMark,
@@ -41,7 +40,8 @@ import {
   parseAnnotationDocument,
   viewPointToDocument,
 } from "./project.js";
-import { fitTextEditorFrame } from "./text-layout.js";
+import { fitTextEditorFrame, layoutTextLines, textEditorInsets, TEXT_TAB_SIZE } from "./text-layout.js";
+import { cropAnnotationDocument, isFullCrop, type CropPixels } from "./crop.js";
 import { t } from "../i18n";
 
 export interface AnnotationCanvasHandle {
@@ -57,7 +57,7 @@ export interface AnnotationCanvasHandle {
   updateSelectionAppearance(patch: Partial<AppearanceSettings>, transient?: boolean): void;
   finishAppearanceAdjustment(): void;
   setMosaicShape(shape: MosaicShape): void;
-  exportResult(): Promise<AnnotationExportResult | null>;
+  exportResult(cropSelection?: Rect): Promise<AnnotationExportResult | null>;
   /**
    * Live text font-size adjustment (spec §6.6): begin records the selected
    * text mark, set applies a preview (no history), end commits one history
@@ -71,6 +71,7 @@ export interface AnnotationCanvasHandle {
 export interface AnnotationExportResult {
   png: Uint8Array;
   document: AnnotationDocumentV1;
+  cropPixels: CropPixels | null;
 }
 
 interface Props {
@@ -139,8 +140,8 @@ type Interaction =
   | { kind: "none" }
   | { kind: "draw"; tool: Tool; start: Point; points: Point[] }
   | { kind: "move"; index: number; original: AnnotationMark; start: Point }
-  | { kind: "resize"; index: number; original: AnnotationMark; handle: string }
-  | { kind: "endpoint"; index: number; original: AnnotationMark; isStart: boolean };
+  | { kind: "resize"; index: number; original: AnnotationMark; handle: string; start: Point }
+  | { kind: "endpoint"; index: number; original: AnnotationMark; isStart: boolean; start: Point };
 
 const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
   function AnnotationCanvas(
@@ -302,9 +303,10 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
 
     useEffect(()=>{
       const text=editing?annotationTextForCommit(editing.text):null;
+      const insets=textEditorInsets(editing?.uiScale);
       const mark:AnnotationMark|null=editing&&text!==null?{kind:"text",id:editing.id,text,
-        rect:{x:editing.rect.x+8*editing.uiScale,y:editing.rect.y+5*editing.uiScale,
-          width:Math.max(1,editing.rect.width-16*editing.uiScale),height:Math.max(1,editing.rect.height-10*editing.uiScale)},
+        rect:{x:editing.rect.x+insets.x,y:editing.rect.y+insets.y,
+          width:Math.max(1,editing.rect.width-2*insets.x),height:Math.max(1,editing.rect.height-2*insets.y)},
         color:editing.color,background:editing.background,fontSize:editing.fontSize}:null;
       onTextDraftChange?.(mark,editing?.index!=null?marks[editing.index]?.id??null:null,!!editing);
     },[editing,marks,onTextDraftChange]);
@@ -423,11 +425,12 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       publishHistory();
       const text = annotationTextForCommit(current.text);
       const frame = current.rect;
+      const insets = textEditorInsets(current.uiScale);
       const textRect: Rect = {
-        x: frame.x + 8*current.uiScale,
-        y: frame.y + 5*current.uiScale,
-        width: Math.max(1, frame.width - 16*current.uiScale),
-        height: Math.max(1, frame.height - 10*current.uiScale),
+        x: frame.x + insets.x,
+        y: frame.y + insets.y,
+        width: Math.max(1, frame.width - 2*insets.x),
+        height: Math.max(1, frame.height - 2*insets.y),
       };
       if (text === null) {
         if (current.index !== null) {
@@ -479,11 +482,12 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
     const editText=useCallback((index:number)=>{
       const mark=history.elements[index];if(!mark||mark.kind!=="text")return;
       const uiScale=hitTestScale.radial;
-      const width=Math.max(1,Math.min(mark.rect.width+16*uiScale,documentSize.width));
-      const height=Math.max(1,Math.min(mark.rect.height+10*uiScale,documentSize.height));
-      const next:EditingState={id:mark.id,index,text:mark.text,uiScale,rect:{x:Math.min(Math.max(0,mark.rect.x-8*uiScale),Math.max(0,documentSize.width-width)),
-        y:Math.min(Math.max(0,mark.rect.y-5*uiScale),Math.max(0,documentSize.height-height)),width,height},
-        maxWidth:Math.max(width,documentSize.width-Math.max(0,mark.rect.x-8*uiScale)),color:mark.color,background:mark.background,fontSize:mark.fontSize};
+      const insets=textEditorInsets(uiScale);
+      const width=Math.max(1,Math.min(mark.rect.width+2*insets.x,documentSize.width));
+      const height=Math.max(1,Math.min(mark.rect.height+2*insets.y,documentSize.height));
+      const next:EditingState={id:mark.id,index,text:mark.text,uiScale,rect:{x:Math.min(Math.max(0,mark.rect.x-insets.x),Math.max(0,documentSize.width-width)),
+        y:Math.min(Math.max(0,mark.rect.y-insets.y),Math.max(0,documentSize.height-height)),width,height},
+        maxWidth:Math.max(width,documentSize.width-Math.max(0,mark.rect.x-insets.x)),color:mark.color,background:mark.background,fontSize:mark.fontSize};
       editingRef.current=next;setEditing(next);selectMark(index);publishHistory();
     },[history,documentSize.width,documentSize.height,selectMark,publishHistory,hitTestScale.radial]);
 
@@ -631,9 +635,10 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
               index,
               original: mark,
               isStart: handleInteraction === "start",
+              start: p,
             };
           } else if (handleInteraction) {
-            interactionRef.current = { kind: "resize", index, original: mark, handle: handleInteraction };
+            interactionRef.current = { kind: "resize", index, original: mark, handle: handleInteraction, start: p };
           } else {
             interactionRef.current = { kind: "move", index, original: mark, start: p };
             // Spec §6.3: closedHand while dragging.
@@ -803,7 +808,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         }
         if (interaction.kind === "resize") {
           setDraft(
-            resizeAnnotationMark(interaction.original, interaction.handle, p, {
+            dragAnnotationHandle(interaction.original, interaction.handle, { x: p.x-interaction.start.x, y: p.y-interaction.start.y }, {
               x: 0,
               y: 0,
               width: documentSize.width,
@@ -813,7 +818,8 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           return;
         }
         if (interaction.kind === "endpoint") {
-          setDraft(moveEndpointMark(interaction.original, interaction.isStart, p));
+          setDraft(dragAnnotationHandle(interaction.original, interaction.isStart ? "start" : "end",
+            { x: p.x-interaction.start.x, y: p.y-interaction.start.y }, {x:0,y:0,width:documentSize.width,height:documentSize.height}));
         }
       },
       [toPoint, documentSize.height, documentSize.width, history, hitTestScale],
@@ -901,15 +907,14 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         ) {
           const bounds={x:0,y:0,width:documentSize.width,height:documentSize.height};
           const preview=interaction.kind==="move"?translateMark(interaction.original,{x:p.x-interaction.start.x,y:p.y-interaction.start.y},bounds):
-            interaction.kind==="resize"?resizeAnnotationMark(interaction.original,interaction.handle,p,bounds):moveEndpointMark(interaction.original,interaction.isStart,p);
+            dragAnnotationHandle(interaction.original,interaction.kind==="resize"?interaction.handle:interaction.isStart?"start":"end",
+              {x:p.x-interaction.start.x,y:p.y-interaction.start.y},bounds);
           // Spec §6.3: only commit a drag when it actually changed the
           // mark (≥1pt of movement) — a click without movement must not
           // write a no-op history entry.
           const changed =
-            interaction.kind === "move"
-              ? Math.hypot(p.x - interaction.start.x, p.y - interaction.start.y) >= 1
-              : preview !== null &&
-                JSON.stringify(preview) !== JSON.stringify(interaction.original);
+            Math.hypot(p.x - interaction.start.x, p.y - interaction.start.y) >= 1 &&
+            preview !== null && JSON.stringify(preview) !== JSON.stringify(interaction.original);
           if (preview && changed) {
             history.replace(interaction.index, preview);
             syncMarks();
@@ -991,6 +996,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
     const endFontAdjustRef = useRef<() => void>(() => {});
     beginFontAdjustRef.current = () => {
       if (interactionsDisabled()) return;
+      if (fontAdjustRef.current) return;
       commitText();
       const index = selectedIndexRef.current;
       const mark = index !== null ? history.elements[index] : undefined;
@@ -1002,11 +1008,26 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
     };
     setFontLiveRef.current = (value: number) => {
       if (interactionsDisabled()) return;
+      // Range inputs also change through keyboard and accessibility actions.
+      if (!fontAdjustRef.current) beginFontAdjustRef.current();
       const adjust = fontAdjustRef.current;
       if (!adjust) return;
       const mark = history.elements[adjust.index];
       if (!mark || mark.kind !== "text") return;
-      const updated: AnnotationMark = { ...mark, fontSize: value };
+      const updated = applyAnnotationAppearance(adjust.original, { textFontSize: value });
+      if (updated.kind !== "text") return;
+      const context = canvasRef.current?.getContext("2d");
+      if (context) {
+        context.save();
+        context.font = textFont(value);
+        const lines = layoutTextLines(updated.text, updated.rect.width,
+          text => context.measureText(text).width);
+        context.restore();
+        // Older saves may have kept the pre-resize height. Derive it from
+        // the same wrapping and line spacing as rendering instead of scaling
+        // an already stale box into another stale box.
+        updated.rect.height = Math.max(1, Math.ceil(lines.length * value * 1.25));
+      }
       // Preview: swap the element without recording history.
       const before = history.elements.slice();
       before[adjust.index] = updated;
@@ -1020,7 +1041,8 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       fontAdjustRef.current = null;
       if (!adjust) return;
       const mark = history.elements[adjust.index];
-      if (mark && mark.kind === "text" && mark.fontSize !== adjust.original.fontSize) {
+      if (mark && mark.kind === "text" &&
+          JSON.stringify(mark) !== JSON.stringify(adjust.original)) {
         history.commitOverwrite(adjust.index, adjust.original);
         syncMarks();
       }
@@ -1030,7 +1052,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       finishFontAdjustment();
     };
 
-    const exportResult = useCallback(async (): Promise<AnnotationExportResult | null> => {
+    const exportResult = useCallback(async (cropSelection?: Rect): Promise<AnnotationExportResult | null> => {
       const img = imageRef.current;
       if (!img) return null;
       if (!img.complete) {
@@ -1088,6 +1110,25 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       const exportScaleX = project.sourcePixels.width / documentSize.width;
       const exportScaleY = project.sourcePixels.height / documentSize.height;
 
+      let cropPixels: CropPixels | null = null;
+      let exportSource: CanvasImageSource = sourceImage;
+      let croppedSource: HTMLCanvasElement | null = null;
+      if (cropSelection && !isFullCrop(project, cropSelection)) {
+        const cropped = cropAnnotationDocument(project, cropSelection);
+        cropPixels = cropped.cropPixels;
+        project = cropped.document;
+        // Re-render from exactly the clean source that Rust will persist.
+        // Mosaic sampling at the cropped edge must match a later reopen.
+        croppedSource = document.createElement("canvas");
+        croppedSource.width = cropPixels.width;
+        croppedSource.height = cropPixels.height;
+        const sourceContext = croppedSource.getContext("2d");
+        if (!sourceContext) return null;
+        sourceContext.drawImage(sourceImage, sourceCrop.x+cropPixels.x, sourceCrop.y+cropPixels.y,
+          cropPixels.width, cropPixels.height, 0, 0, cropPixels.width, cropPixels.height);
+        exportSource = croppedSource;
+      }
+
       const out = document.createElement("canvas");
       out.width = project.sourcePixels.width;
       out.height = project.sourcePixels.height;
@@ -1099,14 +1140,14 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       }
       const context: RenderContext = {
         ctx,
-        sourceImage,
-        sourceWidth: sourceImage.naturalWidth,
-        sourceHeight: sourceImage.naturalHeight,
-        sourceOffset: {
+        sourceImage: exportSource,
+        sourceWidth: croppedSource?.width ?? sourceImage.naturalWidth,
+        sourceHeight: croppedSource?.height ?? sourceImage.naturalHeight,
+        sourceOffset: croppedSource ? { x: 0, y: 0 } : {
           x: sourceCrop.x / exportScaleX,
           y: sourceCrop.y / exportScaleY,
         },
-        regionSize: { x: 0, y: 0, width: documentSize.width, height: documentSize.height },
+        regionSize: { x: 0, y: 0, ...project.canvas },
         scaleX: exportScaleX,
         scaleY: exportScaleY,
         viewScaleX: 1,
@@ -1114,6 +1155,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         exporting: true,
       };
       renderAll(context, project.marks, {});
+      if (croppedSource) { croppedSource.width = 0; croppedSource.height = 0; }
       const blob = await new Promise<Blob | null>((resolve) =>
         out.toBlob(resolve, "image/png"),
       );
@@ -1127,7 +1169,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       // waiting for a later garbage-collection cycle.
       out.width = 0;
       out.height = 0;
-      return { png, document: project };
+      return { png, document: project, cropPixels };
     }, [
       commitText,
       displaySize,
@@ -1175,7 +1217,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           const mark=history.elements[index];if(!mark||mark.kind!=="mosaic")return;
           const next=changeMosaicShape(mark,shape);if(next!==mark){history.replace(index,next);syncMarks();}
         },
-        exportResult: () => exportResult(),
+        exportResult: (cropSelection) => exportResult(cropSelection),
         beginTextFontSizeAdjustment: () => beginFontAdjustRef.current(),
         setTextFontSizeLive: (value: number) => setFontLiveRef.current(value),
         endTextFontSizeAdjustment: () => endFontAdjustRef.current(),
@@ -1376,6 +1418,7 @@ function TextEditor(props: {
         resize: "none",
         overflow: "hidden",
         whiteSpace: "pre-wrap",
+        tabSize: TEXT_TAB_SIZE,
         wordBreak: "break-word",
         lineHeight: 1.25,
         pointerEvents: "auto",

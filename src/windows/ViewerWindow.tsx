@@ -289,7 +289,7 @@ export function ViewerWindow(props: { id: string }) {
         <VideoTrimPlayer
           key={`${props.id}:${mediaRevision}`}
           id={props.id}
-          src={mediaUrl(props.id)}
+          src={mediaUrl(props.id, true)}
           editable={videoEditing && state.kind === "ready" && !state.asset.trashedAt}
           previewActions={copyButton}
           onEditingChange={setVideoEditorOpen}

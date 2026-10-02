@@ -1,68 +1,66 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../lib/ipc";
+import { api, onAnnotationAppearanceChanged } from "../lib/ipc";
 import { DEFAULT_APPEARANCE, type AppearanceSettings } from "./model";
+import { AppearanceUpdates } from "./appearance-updates.js";
 
 const SAVE_DELAY_MS = 180;
 
-/**
- * Shares last-used annotation styling across independent Tauri windows.
- * Updates are debounced while sliders move and flushed when a window closes.
- */
-export function useAnnotationAppearance(): [
-  AppearanceSettings,
-  (next: AppearanceSettings) => void,
-] {
+/** Shares styling without overwriting unrelated cross-window edits. */
+export function useAnnotationAppearance(): [AppearanceSettings, (next: AppearanceSettings) => void] {
+  const updates = useRef(new AppearanceUpdates(DEFAULT_APPEARANCE));
   const [appearance, setAppearanceState] = useState(DEFAULT_APPEARANCE);
   const [loaded, setLoaded] = useState(false);
   const loadedRef = useRef(false);
-  const dirtyRef = useRef(false);
-  const latestRef = useRef(DEFAULT_APPEARANCE);
-
+  const activeRef = useRef(false);
+  const publish = useCallback(() => setAppearanceState(updates.current.current), []);
   const setAppearance = useCallback((next: AppearanceSettings) => {
-    latestRef.current = next;
-    dirtyRef.current = true;
-    setAppearanceState(next);
-  }, []);
+    updates.current.update(next, appearance);
+    publish();
+  }, [appearance, publish]);
 
   useEffect(() => {
+    activeRef.current = true;
     let disposed = false;
-    void api.getAnnotationAppearance()
-      .then((saved) => {
-        if (disposed) return;
-        if (!dirtyRef.current) {
-          latestRef.current = saved;
-          setAppearanceState(saved);
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const stop = await onAnnotationAppearanceChanged(saved => {
+          if (!disposed) { updates.current.receive(saved); publish(); }
+        });
+        if (disposed) { stop(); return; }
+        unlisten = stop;
+        const events = updates.current.events;
+        const saved = await api.getAnnotationAppearance();
+        if (!disposed && updates.current.events === events) {
+          updates.current.receive(saved);
+          publish();
         }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (disposed) return;
-        loadedRef.current = true;
-        setLoaded(true);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, []);
+      } catch { /* Retain local styling when preferences are unavailable. */ }
+      if (!disposed) { loadedRef.current = true; setLoaded(true); }
+    })();
+    return () => { disposed = true; activeRef.current = false; unlisten?.(); };
+  }, [publish]);
+
+  const savePending = useCallback(async function save() {
+    const patch = updates.current.beginSave();
+    if (!patch) return;
+    try {
+      const saved = await api.setAnnotationAppearance(patch);
+      updates.current.finishSave(saved);
+      if (activeRef.current) publish();
+      // Closing preserves serial order even when a slider changed in flight.
+      else if (updates.current.hasPending) void save();
+    } catch { updates.current.failSave(); }
+  }, [publish]);
 
   useEffect(() => {
-    if (!loaded || !dirtyRef.current) return;
-    const pending = appearance;
-    const timer = window.setTimeout(() => {
-      void api.setAnnotationAppearance(pending)
-        .then(() => {
-          if (latestRef.current === pending) dirtyRef.current = false;
-        })
-        .catch(() => {});
-    }, SAVE_DELAY_MS);
+    if (!loaded || !updates.current.hasPending || updates.current.inFlight) return;
+    const timer = window.setTimeout(() => { void savePending(); }, SAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [appearance, loaded]);
+  }, [appearance, loaded, savePending]);
 
   useEffect(() => () => {
-    if (loadedRef.current && dirtyRef.current) {
-      void api.setAnnotationAppearance(latestRef.current).catch(() => {});
-    }
-  }, []);
-
+    if (loadedRef.current && updates.current.hasPending) void savePending();
+  }, [savePending]);
   return [appearance, setAppearance];
 }

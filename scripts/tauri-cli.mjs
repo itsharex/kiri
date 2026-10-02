@@ -28,6 +28,24 @@ export function tauriTarget(args) {
   return undefined;
 }
 
+export function tauriConfigurationArguments(args, platform = process.platform) {
+  const command = tauriCommand(args);
+  const target = tauriTarget(args);
+  if (!(command === "dev" || command === "build")
+      || (target ? !target.includes("-linux-") : platform !== "linux")) {
+    return args;
+  }
+  const separator = args.indexOf("--");
+  const optionEnd = separator === -1 ? args.length : separator;
+  const options = args.slice(0, optionEnd);
+  if (options.some(argument => argument === "--config" || argument.startsWith("--config=")
+      || argument.startsWith("-c"))) return args;
+  // The Linux media CSP is part of both development and packaged behavior.
+  // Insert before the runner separator and preserve any explicit config.
+  return [...options, "--config", path.join(repositoryRoot, "src-tauri", "tauri.linux.conf.json"),
+    ...args.slice(optionEnd)];
+}
+
 export function parseRustcHost(output) {
   const match = output.match(/^host:\s*(\S+)\s*$/m);
   if (!match) {
@@ -117,7 +135,7 @@ export function main(args = process.argv.slice(2)) {
       scriptsDir,
     );
   }
-  runTauri(args, environment);
+  runTauri(tauriConfigurationArguments(args), environment);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {

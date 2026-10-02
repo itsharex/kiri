@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import "./styles/design-system.css";
 import { onLanguageChange, setLanguage } from "./i18n";
+import { configureVideoPlaybackOrigin } from "./lib/kiri-resource-url.js";
 
 const OverlayWindow = React.lazy(() =>
   import("./windows/OverlayWindow").then((module) => ({ default: module.OverlayWindow })),
@@ -126,6 +127,7 @@ function App() {
   }
 }
 
+function render() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <React.Suspense fallback={null}>
@@ -133,3 +135,16 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </React.Suspense>
   </React.StrictMode>,
 );
+}
+
+const { kind } = resolveWindow();
+if (kind === "library" || kind === "viewer" || kind === "toast") {
+  // Only Linux returns an HTTP capability. Resolve it before any video mounts
+  // so WebKitGTK never attempts to decode an unsupported custom URI first.
+  void invoke<string | null>("get_media_playback_origin")
+    .then(configureVideoPlaybackOrigin)
+    .catch(() => {})
+    .finally(render);
+} else {
+  render();
+}

@@ -13,6 +13,8 @@ application or a durable product decision.
 
 - [`qa/issue-21-windows/README.md`](qa/issue-21-windows/README.md) — native
   Windows multi-display screenshot acceptance and remaining hardware limits.
+- [`qa/issue-82-retest.md`](qa/issue-82-retest.md) — verified repair scope and
+  the numbered editor, OCR, QR and Linux desktop retest checklist.
 - [`architecture.md`](architecture.md) — runtime structure, data boundaries,
   and platform responsibilities.
 - [`../AGENTS.md`](../AGENTS.md) — product contract and repository rules.
@@ -97,6 +99,9 @@ application or a durable product decision.
   — bounded overlapping scans recover codes beyond full-image decoder limits.
 - [`adr/0068-qr-markers-in-saved-image-editor.md`](adr/0068-qr-markers-in-saved-image-editor.md)
   — saved-image recognition uses the original editor surface and preserves drafts.
+
+- [`adr/0069-image-fidelity-and-linux-media-playback.md`](adr/0069-image-fidelity-and-linux-media-playback.md)
+  — transparent PNG editing, color conversion, shared styling and bounded Linux playback.
 
 Completed implementation plans and the former Swift migration specifications
 are intentionally not kept in the working tree. Git history and release tags

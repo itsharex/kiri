@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::commands::{asset_dto, AssetDto};
 use crate::core::asset::CaptureKind;
-use crate::state::emit_library_changed;
+use crate::state::{emit_asset_content_changed, emit_library_changed};
 use serde::Serialize;
 use std::io::Read;
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -629,6 +629,7 @@ pub fn update_ocr_history_text(
         .map_err(|error| error.to_string())?;
     drop(context);
     emit_library_changed(&app);
+    emit_asset_content_changed(&app, &id);
     Ok(asset_dto(&asset))
 }
 

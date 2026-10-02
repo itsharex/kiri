@@ -13,6 +13,7 @@ import "./video-trim.css";
 import {VideoOutputEffectTracks} from "./VideoOutputEffectTracks";
 import {ChoiceSelect} from "../components/ChoiceSelect";
 import {VideoPlaybackControls} from "./VideoPlaybackControls";
+import {videoResourceCrossOrigin} from "../lib/kiri-resource-url.js";
 import {VideoTimeInput} from "./VideoTimeInput";
 import {VideoExportPanel} from "./VideoExportPanel";
 import {VideoCloseGuard} from "./VideoCloseGuard";
@@ -613,7 +614,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
     <div className="kiri-video-workspace">
       <div ref={stage} className="kiri-video-stage">
         <div className="kiri-video-surface" onPointerDownCapture={selectPictureObject} style={{width:fitted.width,height:fitted.height}}>
-          <video ref={video} src={props.src} crossOrigin="anonymous" controls={false} playsInline autoPlay preload="metadata"
+          <video ref={video} src={props.src} crossOrigin={videoResourceCrossOrigin(props.src)} controls={false} playsInline autoPlay preload="metadata"
             // Keep the decoder's presentation surface live for paused WebKit seeks;
             // the opaque edited canvas above it owns the visible picture.
             style={{pointerEvents:editing?"none":"auto"}}

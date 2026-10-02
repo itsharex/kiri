@@ -24,6 +24,14 @@ ImageIO; Windows uses Media Foundation and Windows imaging components. These
 operations do not download or execute a third-party media binary, and media
 bytes remain on the device.
 
+Linux video playback has a process-scoped loopback HTTP capability. It binds
+only to `127.0.0.1`, uses a random port and 128-bit token, validates Host and any
+supplied Origin, and resolves canonical IDs only to active video assets. Only
+GET/HEAD are accepted. Headers, byte ranges, buffers and concurrency are bounded;
+there are no mutations or arbitrary filesystem routes. The media-only CSP
+exception does not permit general WebView network requests. The endpoint stops
+at application exit.
+
 Application updates use Tauri's signed updater with a fixed HTTPS manifest and
 an embedded public key. Checks, downloads, and installation are separate
 user-initiated actions. A downloaded archive must pass signature verification

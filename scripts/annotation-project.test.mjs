@@ -487,3 +487,63 @@ test("pen and text resize handles preserve editable content and remain in the ca
     }
   }
 });
+
+test("handle clicks and sub-point jitter keep geometry and the next meaningful undo intact", async () => {
+  const { dragAnnotationHandle, translateMark, AnnotationHistory } = await loadAnnotationModel();
+  const bounds = {x: 0, y: 0, width: 640, height: 360};
+  for (const mark of ALL_MARKS) {
+    const handle = mark.kind === "line" || mark.kind === "arrow" ? "start" : "top";
+    assert.equal(dragAnnotationHandle(mark, handle, {x: 0, y: 0}, bounds), mark);
+    assert.equal(dragAnnotationHandle(mark, handle, {x: .3, y: .4}, bounds), mark);
+  }
+  const original = ALL_MARKS[1];
+  const moved = translateMark(original, {x: 20, y: 10}, bounds);
+  const history = new AnnotationHistory([original]);
+  history.replace(0, moved);
+  const clicked = dragAnnotationHandle(moved, "top", {x: 0, y: 0}, bounds);
+  if (clicked !== moved) history.replace(0, clicked);
+  history.undo();
+  assert.deepEqual(history.elements, [original]);
+  const resized = dragAnnotationHandle(moved, "top", {x: 0, y: -5}, bounds);
+  assert.equal(resized.rect.y, moved.rect.y - 5);
+  assert.equal(resized.rect.height, moved.rect.height + 5);
+});
+
+test("larger text styling expands both selection and hit bounds with the visible text", async () => {
+  const { applyAnnotationAppearance, markIndexAt, selectionBounds } = await loadAnnotationModel();
+  const text = ALL_MARKS[4];
+  const larger = applyAnnotationAppearance(text, {textFontSize: 48});
+  const bounds = selectionBounds(larger);
+  assert.equal(bounds.height, text.rect.height * 48 / text.fontSize);
+  const lowerLine = {x: text.rect.x + 10, y: text.rect.y + text.rect.height + 20};
+  assert.equal(markIndexAt([text], lowerLine), null);
+  assert.equal(markIndexAt([larger], lowerLine), 0);
+});
+
+test("PNG exports clear their background instead of flattening source alpha onto dark gray", async () => {
+  const { renderAll } = await loadAnnotationRender();
+  const calls = [];
+  const ctx = {canvas: {width: 4, height: 2},
+    clearRect: (...args) => calls.push(["clear", ...args]),
+    fillRect: (...args) => calls.push(["fill", ...args]),
+    drawImage: (...args) => calls.push(["source", ...args]),
+  };
+  const sourceImage = {name: "transparent RGBA source"};
+  renderAll({ctx, sourceImage, sourceWidth: 4, sourceHeight: 2,
+    sourceOffset: {x: 0, y: 0}, regionSize: {x: 0, y: 0, width: 4, height: 2},
+    scaleX: 1, scaleY: 1, viewScaleX: 1, viewScaleY: 1, exporting: true}, []);
+  assert.deepEqual(calls.map(call => call[0]), ["clear", "source"]);
+  assert.equal(calls[1][1], sourceImage);
+});
+
+test("text rendering places tab-separated columns at the same explicit stops", async () => {
+  const { drawMark } = await loadAnnotationRender();
+  const calls = [];
+  const ctx = {save(){}, restore(){}, scale(){}, measureText: text => ({width: text.length * 10}),
+    fillText: (...args) => calls.push(args)};
+  const text = {...ALL_MARKS[4], text: "A\tB\tC\nAA\tBB\tCC", rect: {x: 10, y: 20, width: 200, height: 60}};
+  drawMark(text, {exporting: true, scaleX: 1, scaleY: 1}, ctx);
+  assert.deepEqual(calls.map(call => call.slice(0, 2)), [
+    ["A", 10], ["B", 90], ["C", 170], ["AA", 10], ["BB", 90], ["CC", 170],
+  ]);
+});

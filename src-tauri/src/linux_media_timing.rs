@@ -2,6 +2,38 @@
 
 use std::time::Duration;
 
+/// Initial samples can still contain a just-unmapped overlay. Drain live
+/// source frames for a short compositor repaint interval, require multiple
+/// source samples, and reject queued samples with an earlier PTS. Output PTS
+/// zero belongs to the first accepted frame, never a held warmup image.
+#[derive(Debug)]
+pub(super) struct CaptureStartupGate {
+    samples: usize,
+    open: bool,
+}
+
+impl CaptureStartupGate {
+    const REPAINT_INTERVAL: Duration = Duration::from_millis(150);
+
+    pub(super) fn new() -> Self {
+        Self {
+            samples: 0,
+            open: false,
+        }
+    }
+
+    pub(super) fn accept(&mut self, elapsed: Duration, source_time: Option<Duration>) -> bool {
+        if self.open {
+            return true;
+        }
+        self.samples = self.samples.saturating_add(1);
+        self.open = self.samples >= 3
+            && elapsed >= Self::REPAINT_INTERVAL
+            && source_time.is_none_or(|pts| pts >= Self::REPAINT_INTERVAL);
+        self.open
+    }
+}
+
 /// Presentation timestamps use a monotonic clock, never the number of frames
 /// delivered by a variable-rate screen source. Keep one pending image until
 /// its successor (or stop) gives it an exact duration.
@@ -56,6 +88,37 @@ pub(super) fn queue_has_room(queued_bytes: u64, frame_bytes: u64, capacity: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_drains_early_and_stale_samples_before_accepting_live_frame() {
+        let mut gate = CaptureStartupGate::new();
+        for millis in [0, 33, 67, 100, 133] {
+            assert!(!gate.accept(
+                Duration::from_millis(millis),
+                Some(Duration::from_millis(millis))
+            ));
+        }
+        assert!(!gate.accept(Duration::from_millis(160), Some(Duration::from_millis(100))));
+        assert!(gate.accept(Duration::from_millis(167), Some(Duration::from_millis(167))));
+        // The downstream timeline starts from this frame; warmup is not held
+        // at PTS zero or included in the duration when stop follows quickly.
+        let timeline = FrameTimeline::new(30);
+        assert_eq!(
+            timeline.finish(Duration::from_millis(20)),
+            (Duration::ZERO, Duration::from_millis(20))
+        );
+    }
+
+    #[test]
+    fn startup_requires_fresh_samples_and_each_resume_gets_its_own_gate() {
+        let mut gate = CaptureStartupGate::new();
+        assert!(!gate.accept(Duration::from_secs(1), None));
+        assert!(!gate.accept(Duration::from_secs(1), None));
+        assert!(gate.accept(Duration::from_secs(1), None));
+        let mut resumed = CaptureStartupGate::new();
+        assert!(!resumed.accept(Duration::ZERO, Some(Duration::ZERO)));
+        assert!(!resumed.accept(Duration::from_millis(40), Some(Duration::from_millis(40))));
+    }
 
     #[test]
     fn static_screen_keeps_its_wall_clock_duration() {

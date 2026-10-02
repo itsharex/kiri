@@ -437,7 +437,7 @@ export function ToastWindow(props: { title?: string; symbol?: string }) {
               <>
                 {visibleCompletion.kind === "video" ? (
                   <video
-                    src={mediaUrl(assetId)}
+                    src={mediaUrl(assetId, true)}
                     muted
                     playsInline
                     preload="metadata"

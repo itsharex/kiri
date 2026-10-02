@@ -7,6 +7,7 @@ import {
   macosDevEnvironment,
   parseRustcHost,
   tauriCommand,
+  tauriConfigurationArguments,
   tauriTarget,
 } from "./tauri-cli.mjs";
 
@@ -14,6 +15,35 @@ test("finds the Tauri subcommand after global flags", () => {
   assert.equal(tauriCommand(["dev", "--no-watch"]), "dev");
   assert.equal(tauriCommand(["--verbose", "dev"]), "dev");
   assert.equal(tauriCommand(["build", "--debug"]), "build");
+});
+
+test("Linux dev and build include the Linux media policy before runner arguments", () => {
+  for (const command of ["dev", "build"]) {
+    const original = [command, "--verbose", "--", "--example-runner-argument"];
+    const configured = tauriConfigurationArguments(original, "linux");
+    assert.deepEqual(configured.slice(0, 3), [command, "--verbose", "--config"]);
+    assert.equal(path.basename(configured[3]), "tauri.linux.conf.json");
+    assert.deepEqual(configured.slice(4), ["--", "--example-runner-argument"]);
+    assert.deepEqual(original, [command, "--verbose", "--", "--example-runner-argument"]);
+  }
+});
+
+test("explicit Linux configs are preserved without duplicate configuration arguments", () => {
+  for (const option of [["--config", "custom.json"], ["--config=custom.json"], ["-c", "custom.json"], ["-c=custom.json"], ["-ccustom.json"]]) {
+    const original = ["dev", ...option];
+    assert.deepEqual(tauriConfigurationArguments(original, "linux"), original);
+  }
+});
+
+test("platform configuration follows the build target and leaves other commands unchanged", () => {
+  for (const platform of ["darwin", "win32"]) {
+    const original = ["dev"];
+    assert.deepEqual(tauriConfigurationArguments(original, platform), original);
+  }
+  assert.deepEqual(tauriConfigurationArguments(["icon"], "linux"), ["icon"]);
+  const windowsTarget = ["build", "--target", "x86_64-pc-windows-msvc"];
+  assert.deepEqual(tauriConfigurationArguments(windowsTarget, "linux"), windowsTarget);
+  assert.equal(tauriConfigurationArguments(["build", "--target=x86_64-unknown-linux-gnu"], "darwin").includes("--config"), true);
 });
 
 test("turns a Rust host triple into Cargo's runner environment key", () => {

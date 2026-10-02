@@ -15,7 +15,7 @@ use crate::state::AppState;
 
 const THUMBNAIL_CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
 const THUMBNAIL_CACHE_MAX_ENTRIES: usize = 256;
-const MEDIA_RANGE_MAX_BYTES: u64 = 1024 * 1024;
+pub(crate) const MEDIA_RANGE_MAX_BYTES: u64 = 1024 * 1024;
 
 pub struct ProtocolStore {
     frozen_capture: Mutex<Option<FrozenCapture>>,
@@ -410,19 +410,19 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct MediaByteRange {
-    start: u64,
-    end: u64,
+pub(crate) struct MediaByteRange {
+    pub(crate) start: u64,
+    pub(crate) end: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MediaRangeDecision {
+pub(crate) enum MediaRangeDecision {
     Full,
     Partial(MediaByteRange),
     Unsatisfiable,
 }
 
-fn parse_media_range(header: Option<&str>, total: u64) -> MediaRangeDecision {
+pub(crate) fn parse_media_range(header: Option<&str>, total: u64) -> MediaRangeDecision {
     let Some(header) = header else {
         return MediaRangeDecision::Full;
     };
