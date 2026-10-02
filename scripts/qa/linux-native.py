@@ -310,8 +310,14 @@ def wait_for_control(label, source=None):
 
 def click_control(label):
     _, bounds = wait_for_control(label)
-    command("xdotool", "mousemove", "--sync", str(bounds.x + bounds.width // 2),
-            str(bounds.y + bounds.height // 2), "click", "1")
+    x, y = bounds.x + bounds.width // 2, bounds.y + bounds.height // 2
+    pointer = dict(line.split("=", 1) for line in command(
+        "xdotool", "getmouselocation", "--shell").stdout.splitlines() if "=" in line)
+    # --sync waits for pointer motion, which never arrives when Play/Pause
+    # toggles under an already stationary pointer. Still inject a real click.
+    if (int(pointer["X"]), int(pointer["Y"])) != (x, y):
+        command("xdotool", "mousemove", "--sync", str(x), str(y))
+    command("xdotool", "click", "1")
     pause(0.2)
 
 
