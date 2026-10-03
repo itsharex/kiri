@@ -95,14 +95,41 @@ class PlanTests(unittest.TestCase):
         self.assertIn("- name: Exercise the installed app on an isolated X11 desktop\n"
                       "        if: needs.plan.outputs.linux_x11 == 'true'", workflow)
 
-    def test_release_tags_full_but_main_push_never_automatically_packages(self):
+    def test_release_tags_package_every_platform_without_linux_desktop_settings(self):
         for event, ref in (("push", "refs/heads/main"), ("pull_request", "refs/pull/1/merge")):
             result = policy.plan(event, ref, {}, ["src-tauri/Cargo.toml"])
             self.assertFalse(any(result[f"package_{target}"] == "true" for target in policy.TARGET_PREFIXES))
         result = policy.plan("push", "refs/tags/v1.6.7", {}, [])
-        self.assertEqual(result["profile"], "full")
-        self.assertTrue(all(value == "true" for key, value in result.items() if key not in {"profile", "x11_recheck"}))
-        self.assertEqual(result["x11_recheck"], "false")
+        self.assertEqual(result["profile"], "release")
+        for key in ("renderer", "native_linux", "native_windows", "native_macos",
+                    "package_linux", "package_windows", "package_macos"):
+            self.assertEqual(result[key], "true")
+        for key in ("linux_x11", "wayland", "x11_recheck"):
+            self.assertEqual(result[key], "false")
+
+    def test_manual_release_matches_tag_and_full_retains_desktop_acceptance(self):
+        manual = policy.plan("workflow_dispatch", "refs/heads/qa", {"profile": "release"}, [])
+        tagged = policy.plan("push", "refs/tags/v1.6.9", {}, [])
+        self.assertEqual(manual, tagged)
+        full = policy.plan("workflow_dispatch", "refs/heads/qa", {"profile": "full"}, [])
+        self.assertEqual(full, {**tagged, "profile": "full", "linux_x11": "true", "wayland": "true"})
+        with self.assertRaises(ValueError):
+            policy.plan("workflow_dispatch", "refs/heads/qa",
+                        {"profile": "release", "linux_candidate_run_id": "1"}, [])
+
+    def test_release_quality_gate_keeps_all_selected_checks_required(self):
+        flags = policy.plan("push", "refs/tags/v1.6.9", {}, [])
+        required = ("fast-checks", "countdown-ui", "test-rust", "build-linux", "build-windows", "build-macos")
+        needs = {"plan": {"result": "success", "outputs": flags},
+                 **{key: {"result": "success"} for key in required},
+                 **{key: {"result": "skipped"} for key in ("test-linux-wayland", "recheck-linux-x11")}}
+        self.assertEqual(policy.check_results(needs), [])
+        for key in required:
+            for result in ("failure", "cancelled", "skipped"):
+                with self.subTest(job=key, result=result):
+                    self.assertIn(key, policy.check_results({**needs, key: {"result": result}}))
+        self.assertIn("test-linux-wayland", policy.check_results(
+            {**needs, "test-linux-wayland": {"result": "success"}}))
 
     def test_unknown_diff_and_quick_do_not_disable_native_checks(self):
         for event, paths in (("pull_request", None), ("workflow_dispatch", [])):

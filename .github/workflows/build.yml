@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: 'Checks, package-only Linux, one acceptance platform, or full verification'
+        description: 'Checks, release packages, one acceptance platform, or full verification'
         type: choice
         required: true
         default: quick
-        options: [quick, linux, linux-package, windows, macos, full, recheck-linux, recheck-linux-x11]
+        options: [quick, linux, linux-package, windows, macos, release, full, recheck-linux, recheck-linux-x11]
       linux_candidate_run_id:
         description: 'Completed build run containing the Linux candidate to recheck'
         required: false
