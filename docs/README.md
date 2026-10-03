@@ -145,3 +145,7 @@ development.
 - [ADR 0060: Image text editing and unsaved close](adr/0060-image-text-editing-and-close.md)
 - [ADR 0061: Local QR recognition and favorites](adr/0061-local-qr-recognition-and-favorites.md)
 - [ADR 0062: Merge QR results across contrast thresholds](adr/0062-qr-multi-contrast-results.md)
+- [ADR 0070: File size on library asset cards](adr/0070-library-asset-file-size.md)
+
+- [ADR 0071: Library navigation and floating feedback](adr/0071-library-navigation-and-floating-feedback.md)
+- [ADR 0072: Live annotation transform preview](adr/0072-live-annotation-transform-preview.md)

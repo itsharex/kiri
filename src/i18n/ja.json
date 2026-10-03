@@ -655,5 +655,12 @@
   "The library changed during QR recognition.": "読み取り中にライブラリが変更されました。もう一度読み取ってください。",
   "Could not save this QR code.": "このQRコードを保存できません。",
   "Could not open this link.": "このリンクを開けません。",
-  "Invalid QR favorite.": "このQRコードは利用できません。"
+  "Invalid QR favorite.": "このQRコードは利用できません。",
+  "File Size": "ファイルサイズ",
+  "B": "B",
+  "KB": "KB",
+  "MB": "MB",
+  "GB": "GB",
+  "TB": "TB",
+  "Imported %d files.": "%d 件のファイルを読み込みました。"
 }

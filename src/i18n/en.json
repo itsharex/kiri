@@ -655,5 +655,12 @@
   "The library changed during QR recognition.": "The library changed during QR recognition.",
   "Could not save this QR code.": "Could not save this QR code.",
   "Could not open this link.": "Could not open this link.",
-  "Invalid QR favorite.": "Invalid QR favorite."
+  "Invalid QR favorite.": "Invalid QR favorite.",
+  "File Size": "File Size",
+  "B": "B",
+  "KB": "KB",
+  "MB": "MB",
+  "GB": "GB",
+  "TB": "TB",
+  "Imported %d files.": "Imported %d files."
 }
