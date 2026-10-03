@@ -1,82 +1,77 @@
 <div align="center">
   <img src="src-tauri/icons/128x128.png" width="112" alt="Kiri app icon">
   <h1>Kiri</h1>
-  <p>Screenshots, text recognition, screen recording, and video editing for macOS and Windows.</p>
+  <p>Screenshots, text recognition, and screen recording. Your captures stay local.</p>
   <p>
     <a href="https://kiri.yuxino.cn">Website</a>
     · <a href="README_ZH.md">简体中文</a>
-    · <a href="README.md">English</a>
+    · <strong>English</strong>
+  </p>
+  <p>
+    <a href="https://github.com/yuxino/kiri/releases/latest"><img src="https://img.shields.io/github/v/release/yuxino/kiri?style=flat&amp;logo=github&amp;logoColor=white" alt="Latest release"></a>
+    <a href="https://github.com/yuxino/kiri/actions/workflows/build.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/yuxino/kiri/build.yml?style=flat&amp;logo=githubactions&amp;logoColor=white&amp;branch=main&amp;event=push&amp;label=CI" alt="CI status on main"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/yuxino/kiri?style=flat&amp;logo=opensourceinitiative&amp;logoColor=white" alt="MIT license"></a>
+  </p>
+  <p>
+    <a href="https://github.com/yuxino/kiri/releases/latest"><img src="https://img.shields.io/badge/macOS-14%2B-555?style=flat&amp;logo=apple&amp;logoColor=white" alt="macOS 14+"></a>
+    <a href="https://github.com/yuxino/kiri/releases/latest"><img src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat&amp;logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTF2MTFIMHptMTMgMGgxMXYxMUgxM3pNMCAxM2gxMXYxMUgwem0xMyAwaDExdjExSDEzeiIvPjwvc3ZnPg%3D%3D&amp;logoColor=white" alt="Windows x64"></a>
+    <a href="docs/linux.md"><img src="https://img.shields.io/badge/Linux-Ubuntu%2024.04-FCC624?style=flat&amp;logo=linux&amp;logoColor=white" alt="Linux"></a>
   </p>
 </div>
 
-Kiri supports macOS and Windows. Press `⇧⌘A` on macOS or `Shift+Ctrl+A` on Windows, then select a window or region to capture, annotate, recognize text, or record. Screenshots are copied to the clipboard; screenshots, MP4 recordings, and GIFs are saved in the local library.
+Kiri is a local-first capture tool for **macOS, Windows, and Linux**.
 
-<!-- project-demo-v1 -->
-<h2 align="center">Demo</h2>
+## What you can do
 
-https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
+- **Capture and annotate** a window or region. Crop, draw, add text or mosaic, reopen saved screenshots to edit them, or pin a screenshot as a floating reference.
+- **Copy text** with local OCR. Correct saved results in Text History and restore the original recognition when needed.
+- **Read QR codes** from a capture or saved screenshot, open links, and keep results in QR Favorites. Standard square WeChat QR codes are supported; circular Mini Program codes are not.
+- **Record** a region as MP4 or silent GIF. MP4 can include system audio and microphone; Linux uses PulseAudio or PipeWire. Click highlights are available on macOS and Windows.
+- **Edit videos**: trim and reorder clips from one source video on all three platforms and export a separate MP4 with source audio. Speed changes, annotations, and privacy masks are available on macOS and Windows.
+- **Local library**: import files or paste images, search, tag, favorite, export selections, and recover deleted captures from Trash.
 
-<p align="center">See screenshot annotation, text recognition, recording, and the library in use. A 4K demo with English narration and captions.</p>
-<p align="center"><a href="https://kiri.yuxino.cn/#demo">Watch in English</a> · <a href="https://kiri.yuxino.cn/zh/#demo">观看中文版</a> · <a href="docs/demos/full-tour-4k.json">Recording details</a></p>
-<!-- /project-demo-v1 -->
+## Download
 
-## Features
+**[Download the latest release →](https://github.com/yuxino/kiri/releases/latest)**
 
-- **Screenshots**: select a window or region, then crop, draw, add text, or cover details with mosaic. Screenshots go to the clipboard and local library. Reopen new captures to edit their annotations. Keep a pending crop while annotating; canceling it keeps your marks. Save As exports a copy without saving library edits.
-- **Text recognition**: copy text from the screen or a saved screenshot. OCR runs locally by default; optional remote OCR asks before each upload. Text History lets you search results and revisit the source image.
-- **Recording**: save a region as MP4 or a silent GIF, with optional system audio, microphone, pointer, and click highlights. Click the countdown ring or press Esc to cancel before recording. A five-second microphone check shows the input device and level without saving audio.
-- **Video editing**: cut and reorder parts of one video, change clip speed, add timed annotations or image stickers, and hide details with privacy masks. Edits save locally so you can reopen the source and continue. Export creates a separate MP4 and can be cancelled before the final save. See the [video editing guide](docs/video-editing.md) for controls, quality settings, and platform limits.
-- **Import media**: add local PNG, JPEG, WebP, MP4, or MOV files to the same editors. Imports preserve the original files. You can import up to 32 files at once; images are limited to 32 MB and 8192 pixels per edge, subject to decoder memory limits, and videos to 8 GB.
-- **Local library**: find captures by name or tag, add favorites, rename files, and recover items from Trash. Move the library to another local folder or external drive in Settings.
+| Platform | Install |
+| --- | --- |
+| macOS 14+ · Apple silicon & Intel | Open the Universal `.dmg` and drag Kiri to Applications. |
+| Windows 11 · x64 | Run the `.exe` installer, or extract the Portable ZIP and run `kiri.exe`. |
+| Ubuntu 24.04 · x64 · GNOME / X11 | Download the `.deb`, then run `sudo apt install ./kiri_VERSION_amd64.deb` with its actual filename. |
 
-Video projects use one source file at a time; importing several videos does not combine them. On Windows, clip-speed changes also change audio pitch, and video effects require a source without rotation metadata. Kiri recordings meet that requirement.
+macOS needs **Screen & System Audio Recording** permission; click highlights also need **Input Monitoring**, and microphone recording requires macOS 15+. The app is not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**. Windows packages are not Authenticode-signed, so SmartScreen may warn.
 
-## Download and install
+**Linux:** Wayland capture supports one connected display. MP4 recording supports system audio and microphone through the local PulseAudio or PipeWire audio service. Click highlights remain unavailable. Saved videos support basic cuts and MP4 export; advanced video effects are unavailable. See the [Linux guide](docs/linux.md) for setup and recording controls.
 
-This README describes the current source. For features in a published version, check its release notes. macOS Universal and Windows x64 installers are listed on [GitHub Releases](https://github.com/yuxino/kiri/releases).
+**Updates:** macOS and Windows installer builds use **Settings → About → Check for Updates**. Linux and Windows Portable users download a new package from Releases. Portable settings and captures stay in the Windows user profile.
 
-Starting with v1.4.9, Settings can manually check, download, and install signature-verified updates. Every step requires an explicit click; Kiri does not check in the background or install silently. v1.4.8 and older builds need one manual installation of v1.4.9 or newer from Releases before in-app updates become available.
+**macOS Dock:** Settings → Show in Dock controls the Dock icon immediately and remembers your choice. The tray and capture shortcut remain available when it is hidden.
 
-Use **Settings → About → Check for Updates** for routine updates. Download progress shows bytes and, when available, a percentage, followed by signature verification. On Windows, **Install and Restart** closes Kiri briefly and reopens it after the passive update; you do not need to uninstall the existing NSIS version. On macOS, choose restart after installation. Running a downloaded installer manually may instead show maintenance options.
+## Start capturing
 
-- **macOS 14+**: download the Universal `.dmg` for Apple silicon and Intel, then drag `Kiri.app` to Applications. Capture requires **Screen & System Audio Recording**; **Input Monitoring** is needed only for click highlights. Microphone recording requires macOS 15+.
-- **Windows 11 (x64)**: an x64 installer is available. See the [roadmap](ROADMAP.md) for the remaining full capture-flow device acceptance. Run the `.exe` installer; screen capture needs no extra system permission, and microphone access follows Windows privacy settings. The installer is not Authenticode-signed, so SmartScreen may warn.
+Press **⇧⌘A** on macOS or **Shift+Ctrl+A** on Windows / Linux X11, then select a window or drag a region. On Wayland, use the Capture button or bind `kiri --capture` in desktop settings. Supporting desktops also offer **Settings → General → Wayland Desktop Shortcuts** for desktop-approved Capture, Pause/Resume, and Stop bindings. Ubuntu 24.04 / GNOME 46 retains the command fallback.
 
-For Windows without installation, download `Kiri-<version>-Windows-x64-Portable.zip`, extract it, and run `kiri.exe`. This is an extract-and-run build: Kiri still keeps its library and settings in your Windows user profile, so moving the ZIP does not move that data. The portable build opens Releases for manual ZIP updates; its in-app NSIS installer update is unavailable.
+Choose Screenshot, Record, or OCR. The screenshot toolbar also offers Recognize QR Codes. **Enter** confirms a screenshot; **Esc** cancels capture. Screenshots go to your clipboard and local library. You can change the capture shortcut in Settings on macOS, Windows, and X11.
 
-The Windows installer follows your system language (English, Simplified Chinese or Japanese). Installation, update and uninstall messages are localized; you can choose Kiri's interface language separately in Settings. Its half-body Kiri artwork and shared presentation are maintained in [desktop-installer](https://github.com/yuxino/desktop-installer).
+On macOS, if you change display layout, resolution, or scale after selecting a region, start a new capture before recording. If recording is paused, stop and save it first.
 
-macOS releases use the project's maintained local self-signed identity, not Developer ID signing or Apple notarization. If the first launch is blocked, Control-click `Kiri.app` and choose **Open**, or select **Open Anyway** in System Settings → Privacy & Security.
+While typing an annotation, Ctrl/Cmd+Z undoes text and Shift+Enter adds a line. Esc leaves the text edit first; a second Esc cancels capture. Closing an edited saved image offers Save, Discard, or Keep editing when changes are unsaved.
+
+On GNOME Wayland, if the first capture shows no permission dialog, open Kiri's Library and choose **Request Access** in the error banner. Allow screenshot access in GNOME's dialog, then retry Capture. Kiri discards the authorization image. See the [Linux guide](docs/linux.md).
 
 ## Privacy
 
-Captures, local OCR, and encoding stay on your computer by default. Remote OCR is optional; API keys stay in macOS Keychain or Windows Credential Manager, and every request requires an explicit **Send** or **Retry** action.
+Captures and media processing stay local. Remote OCR is optional and asks before each upload. Editable screenshots retain an original image locally, including pixels covered by annotations. Read the [privacy policy](PRIVACY.md).
 
-Re-editable screenshots keep an unannotated source locally, which may still contain pixels hidden by mosaic or shapes. Saving a crop also removes out-of-frame pixels. macOS uses AVFoundation and ImageIO for MP4 recording, merging, thumbnails, and GIF creation; Windows uses Media Foundation and system imaging components. Neither platform downloads FFmpeg, and media processing remains local.
+## Development & docs
 
-## Run from source
+See [Contributing](CONTRIBUTING.md) to run from source, the [video editing guide](docs/video-editing.md), and the [documentation index](docs/README.md). [Report a bug](https://github.com/yuxino/kiri/issues) · [Roadmap](ROADMAP.md) · [Security](SECURITY.md).
 
-Requires Rust 1.88+, Node.js 20.19+ (or 22.12+), and pnpm. macOS requires Xcode Command Line Tools; Windows requires the MSVC C++ build tools.
+## Thanks
 
-```bash
-git clone https://github.com/yuxino/kiri.git
-cd kiri
-pnpm install
-pnpm tauri dev
-pnpm tauri build --no-bundle
-```
+Thanks to [@kerwin2046](https://github.com/kerwin2046) for the initial Linux support ([#20](https://github.com/yuxino/kiri/pull/20)), [@LLLin000](https://github.com/LLLin000) for the Windows text-scaling fix ([#61](https://github.com/yuxino/kiri/pull/61)), and everyone who [reported issues](https://github.com/yuxino/kiri/issues) or [contributed PRs](https://github.com/yuxino/kiri/graphs/contributors).
 
-macOS development builds also require a stable signing identity. Run and build through the Tauri commands; a plain `cargo build` executable does not contain the frontend assets.
-
-## Shortcuts
-
-- **⇧⌘A** (macOS) / **Shift+Ctrl+A** (Windows): open Kiri
-- **Esc**: cancel capture; stop while recording
-- **Return**: confirm a screenshot
-- **C**: crop in the screenshot editor
-- **⌘F** (macOS) / **Ctrl+F** (Windows): search the library
-- **⌘Z / ⇧⌘Z** (macOS) / **Ctrl+Z / Shift+Ctrl+Z** (Windows): undo / redo
-
-See [PRIVACY.md](PRIVACY.md), [ROADMAP.md](ROADMAP.md), [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the [documentation index](docs/README.md).
+Thanks also to the people in [V2EX](https://www.v2ex.com/), [LINUX DO](https://linux.do/), [Appinn](https://www.appinn.com/), and [NodeLoc](https://www.nodeloc.com/) who tried Kiri, shared feedback, or told others about it.
 
 [MIT](LICENSE) © 2026 yuxino

@@ -28,7 +28,7 @@ Kiri 不会在后台检查应用更新。只有你在设置页明确点击「检
 
 ## 本地 OCR
 
-Kiri 默认使用 macOS Vision 或 Windows.Media.Ocr 进行本地文字识别。它不需要 API Key 或网络连接，图片像素不会离开设备。
+Kiri 默认使用 macOS Vision、Windows.Media.Ocr 或 Linux 系统 Tesseract 进行本地文字识别。它不需要 API Key 或网络连接，图片像素不会离开设备。
 
 ## 文字历史
 

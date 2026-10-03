@@ -20,9 +20,9 @@ authorization; unrestricted filesystem paths are not exposed to the WebView.
 
 Recording, paused-segment merging, video thumbnails, and explicit GIF
 conversion use operating-system media frameworks. macOS uses AVFoundation and
-ImageIO; Windows uses Media Foundation and Windows imaging components. These
-operations do not download or execute a third-party media binary, and media
-bytes remain on the device.
+ImageIO; Windows uses Media Foundation and Windows imaging components; Linux
+uses system-installed GStreamer plugins. These operations do not download or
+execute a third-party media binary, and media bytes remain on the device.
 
 Linux video playback has a process-scoped loopback HTTP capability. It binds
 only to `127.0.0.1`, uses a random port and 128-bit token, validates Host and any
@@ -44,6 +44,7 @@ image size, and sends it only after the user activates a visible Send or Retry
 action. Return uses local OCR for that image. Failed requests are never retried,
 rerouted, or uploaded through a fallback provider automatically.
 
-Remote OCR API keys are write-only inputs stored in macOS Keychain or Windows
-Credential Manager. They must not appear in profile JSON, IPC responses, logs,
-screenshots, crash reports, fixtures, or environment-variable fallbacks.
+Remote OCR API keys are write-only inputs stored in macOS Keychain, Windows
+Credential Manager, or Linux Secret Service. They must not appear in profile
+JSON, IPC responses, logs, screenshots, crash reports, fixtures, or
+environment-variable fallbacks.

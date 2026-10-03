@@ -74,9 +74,9 @@ account identifier.
 
 ## Local OCR
 
-Local OCR is enabled by default and uses macOS Vision or Windows.Media.Ocr. It
-does not require an API key or network connection, and image pixels do not
-leave the device.
+Local OCR is enabled by default and uses macOS Vision, Windows.Media.Ocr, or
+system Tesseract on Linux. It does not require an API key or network connection,
+and image pixels do not leave the device.
 
 ## Text History
 
