@@ -687,6 +687,53 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       ],
     );
 
+    // Native font metrics can change wrapping after even a uniform scale.
+    // Use the same layout as rendering for preview, hit bounds and persistence.
+    const fitTextBounds = useCallback((mark: AnnotationMark, handle?: string,
+      original: AnnotationMark = mark): AnnotationMark => {
+      if (mark.kind !== "text") return mark;
+      const context = canvasRef.current?.getContext("2d");
+      if (!context) return mark;
+      const measureHeight = (width: number, fontSize: number) => {
+        context.font = textFont(fontSize);
+        const lines = layoutTextLines(mark.text, width, text => context.measureText(text).width);
+        return Math.max(1, Math.ceil(lines.length * fontSize * 1.25));
+      };
+      context.save();
+      let {width} = mark.rect;
+      let {fontSize} = mark;
+      let height = measureHeight(width, fontSize);
+      if (!handle) {
+        context.restore();
+        return {...mark, rect: {...mark.rect, height}};
+      }
+      const left = handle.includes("Left") || handle === "left";
+      const right = handle.includes("Right") || handle === "right";
+      const top = handle.startsWith("top");
+      const bottom = handle.startsWith("bottom");
+      const anchorX = left ? mark.rect.x + width : right ? mark.rect.x : mark.rect.x + width / 2;
+      const anchorY = top ? mark.rect.y + mark.rect.height : bottom ? mark.rect.y : mark.rect.y + mark.rect.height / 2;
+      const room = Math.max(0, top ? anchorY : bottom ? documentSize.height - anchorY :
+        2 * Math.min(anchorY, documentSize.height - anchorY));
+      if (room < 1) { context.restore(); return original; }
+      // A wrap threshold can add lines even when width/font scale together.
+      // Reduce the proposed scale against measured height, preserving its fixed
+      // edge/center. Never accept a frame that extends beyond that anchored room.
+      for (let attempt = 0; height > room && attempt < 12; attempt++) {
+        const factor = Math.min(.99, room / height);
+        width *= factor;
+        fontSize *= factor;
+        height = measureHeight(width, fontSize);
+      }
+      context.restore();
+      if (height > room) return original;
+      return {...mark, fontSize, rect: {
+        x: left ? anchorX - width : right ? anchorX : anchorX - width / 2,
+        y: top ? anchorY - height : bottom ? anchorY : anchorY - height / 2,
+        width, height,
+      }};
+    }, [documentSize.height]);
+
     const onPointerMove = useCallback(
       (e: React.PointerEvent) => {
         if (interactionsDisabled()) return;
@@ -807,14 +854,11 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           return;
         }
         if (interaction.kind === "resize") {
-          setDraft(
-            dragAnnotationHandle(interaction.original, interaction.handle, { x: p.x-interaction.start.x, y: p.y-interaction.start.y }, {
-              x: 0,
-              y: 0,
-              width: documentSize.width,
-              height: documentSize.height,
-            }),
-          );
+          const resized = dragAnnotationHandle(interaction.original, interaction.handle,
+            {x: p.x - interaction.start.x, y: p.y - interaction.start.y},
+            {x: 0, y: 0, width: documentSize.width, height: documentSize.height});
+          setDraft(resized === interaction.original ? resized :
+            fitTextBounds(resized, interaction.handle, interaction.original));
           return;
         }
         if (interaction.kind === "endpoint") {
@@ -822,7 +866,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
             { x: p.x-interaction.start.x, y: p.y-interaction.start.y }, {x:0,y:0,width:documentSize.width,height:documentSize.height}));
         }
       },
-      [toPoint, documentSize.height, documentSize.width, history, hitTestScale],
+      [toPoint, documentSize.height, documentSize.width, history, hitTestScale, fitTextBounds],
     );
 
     const onPointerUp = useCallback(
@@ -906,9 +950,12 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
           interaction.kind === "endpoint"
         ) {
           const bounds={x:0,y:0,width:documentSize.width,height:documentSize.height};
-          const preview=interaction.kind==="move"?translateMark(interaction.original,{x:p.x-interaction.start.x,y:p.y-interaction.start.y},bounds):
+          let preview=interaction.kind==="move"?translateMark(interaction.original,{x:p.x-interaction.start.x,y:p.y-interaction.start.y},bounds):
             dragAnnotationHandle(interaction.original,interaction.kind==="resize"?interaction.handle:interaction.isStart?"start":"end",
               {x:p.x-interaction.start.x,y:p.y-interaction.start.y},bounds);
+          if (interaction.kind === "resize" && preview !== interaction.original) {
+            preview = fitTextBounds(preview, interaction.handle, interaction.original);
+          }
           // Spec §6.3: only commit a drag when it actually changed the
           // mark (≥1pt of movement) — a click without movement must not
           // write a no-op history entry.
@@ -929,7 +976,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         documentSize.width,
         redraw,
         syncMarks,
-        history,appendMark,
+        history,appendMark,fitTextBounds,
       ],
     );
 
@@ -1014,20 +1061,7 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
       if (!adjust) return;
       const mark = history.elements[adjust.index];
       if (!mark || mark.kind !== "text") return;
-      const updated = applyAnnotationAppearance(adjust.original, { textFontSize: value });
-      if (updated.kind !== "text") return;
-      const context = canvasRef.current?.getContext("2d");
-      if (context) {
-        context.save();
-        context.font = textFont(value);
-        const lines = layoutTextLines(updated.text, updated.rect.width,
-          text => context.measureText(text).width);
-        context.restore();
-        // Older saves may have kept the pre-resize height. Derive it from
-        // the same wrapping and line spacing as rendering instead of scaling
-        // an already stale box into another stale box.
-        updated.rect.height = Math.max(1, Math.ceil(lines.length * value * 1.25));
-      }
+      const updated = fitTextBounds(applyAnnotationAppearance(adjust.original, { textFontSize: value }));
       // Preview: swap the element without recording history.
       const before = history.elements.slice();
       before[adjust.index] = updated;

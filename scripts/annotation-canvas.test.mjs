@@ -23,7 +23,7 @@ const rectangle = {kind: "rectangle", id: 2, rect: {x: 100, y: 100, width: 100, 
 const appearance = model.DEFAULT_APPEARANCE;
 
 function annotation(initialDocument, options = {}) {
-  const exports = [], creations = [], ref = {current: null}, changes = [];
+  const exports = [], frames = [], creations = [], ref = {current: null}, changes = [];
   function canvas() {
     const value = {width: 640, height: 360, drawCalls: [],
       getBoundingClientRect: () => ({left: 0, top: 0, width: initialDocument.canvas.width, height: initialDocument.canvas.height}),
@@ -31,7 +31,7 @@ function annotation(initialDocument, options = {}) {
       toBlob(callback) { callback(new Blob([new Uint8Array([1, 2, 3])], {type: "image/png"})); },
     };
     const context = {font: "", setTransform() {}, save() {}, restore() {},
-      measureText(text) { const size = Number(this.font.match(/ ([\d.]+)px/)?.[1] ?? 18); return {width: text.length * size * .4}; },
+      measureText(text) { const size = Number(this.font.match(/ ([\d.]+)px/)?.[1] ?? 18); return {width: options.measureText?.(text, size) ?? text.length * size * .4}; },
       drawImage: (...args) => value.drawCalls.push(args)};
     value.getContext = () => context;
     creations.push(value);
@@ -43,7 +43,8 @@ function annotation(initialDocument, options = {}) {
     modules: {
       "./geom": geom, "./model": model, "./project.js": project, "./crop.js": crop,
       "./text-layout.js": layout, "./text-composition.js": composition,
-      "./render": {textFont: size => `600 ${size}px sans-serif`, renderAll(r, marks) {
+      "./render": {textFont: size => `600 ${size}px sans-serif`, renderAll(r, marks, options) {
+        if (!r.exporting) frames.push(structuredClone(options));
         if (r.exporting) exports.push({source: r.sourceImage, sourceWidth: r.sourceWidth, sourceHeight: r.sourceHeight,
           sourceOffset: r.sourceOffset, regionSize: r.regionSize, scaleX: r.scaleX, scaleY: r.scaleY,
           marks: structuredClone(marks), canvasWidth: r.ctx.canvas?.width});
@@ -58,7 +59,7 @@ function annotation(initialDocument, options = {}) {
     onDocumentChange: marks => changes.push(structuredClone(marks)), ...options};
   const component = harness.mount("default", props);
   component.render();
-  return {component, props, ref, changes, exports, creations, live,
+  return {component, props, ref, changes, exports, frames, creations, live,
     pointer(name, x, y) {
       const node = nodes(component.render()).find(node => node?.type === "canvas");
       node.props[name]({clientX: x, clientY: y, button: 0, pointerId: 1, detail: 1,
@@ -157,3 +158,104 @@ test("a cropped mosaic is exported using the same source bounds and document as 
     assert.deepEqual(reopenedRender[key], firstRender[key], key);
   }
 });
+
+
+for (const handle of ["right", "left", "top", "bottom", "topLeft", "topRight", "bottomLeft", "bottomRight"]) {
+  test(`text ${handle} resize remeasures wrapped preview and saves one fully hittable edit`, async () => {
+    const original = {...text, text: "ALPHA BETA GAMMA DELTA\nONE TWO THREE FOUR FIVE", fontSize: 14,
+      rect: {x: 180, y: 110, width: 130, height: 35}};
+    // Real font hinting is not perfectly proportional. Simulate the smaller
+    // font crossing a wrap threshold to exercise the native regression.
+    const measureText = (value, size) => value.length * size * (size < 14 ? .6 : .4);
+    const h = annotation(documentWith([original]), {selectedMarkId: original.id, measureText});
+    const start = geom.handlePoint(handle, original.rect);
+    const end = {x: start.x + (handle.toLowerCase().includes("left") ? 40 : -40),
+      y: start.y + (handle.startsWith("top") ? 12 : -12)};
+    h.pointer("onPointerDown", start.x, start.y);
+    h.pointer("onPointerMove", end.x, end.y);
+    assert.equal(h.changes.length, 0, "preview must not commit history");
+    const preview = h.frames.at(-1).draft;
+    h.pointer("onPointerUp", end.x, end.y);
+    assert.equal(h.changes.length, 1);
+    const resized = h.changes[0][0];
+    const lines = layout.layoutTextLines(resized.text, resized.rect.width,
+      value => measureText(value, resized.fontSize));
+    assert.ok(lines.length > 2, "the simulated font needs additional wrapped lines");
+    assert.equal(resized.rect.height, Math.ceil(lines.length * resized.fontSize * 1.25));
+    assert.deepEqual(preview, resized, "drag preview and committed bounds agree");
+    const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8);
+    if (handle.startsWith("top")) close(resized.rect.y + resized.rect.height, original.rect.y + original.rect.height);
+    else if (handle.startsWith("bottom")) close(resized.rect.y, original.rect.y);
+    else close(resized.rect.y + resized.rect.height / 2, original.rect.y + original.rect.height / 2);
+    const lastLine = {x: resized.rect.x + 10,
+      y: resized.rect.y + (lines.length - .5) * resized.fontSize * 1.25};
+    assert.equal(model.markIndexAt([resized], lastLine), 0);
+    const saved = await h.ref.current.exportResult();
+    const reopened = annotation(saved.document, {measureText});
+    const savedAgain = await reopened.ref.current.exportResult();
+    assert.deepEqual(savedAgain.document.marks, [resized]);
+    assert.equal(model.markIndexAt(savedAgain.document.marks, lastLine), 0);
+    h.ref.current.undo(); h.component.render();
+    assert.deepEqual(h.changes.at(-1), [original]);
+    h.ref.current.redo(); h.component.render();
+    assert.deepEqual(h.changes.at(-1), [resized]);
+  });
+}
+
+test("a text handle click without motion does not repair bounds or create history", () => {
+  const legacy = {...text, rect: {...text.rect, height: 10}};
+  const h = annotation(documentWith([legacy]), {selectedMarkId: legacy.id});
+  const point = geom.handlePoint("right", legacy.rect);
+  h.pointer("onPointerDown", point.x, point.y);
+  h.pointer("onPointerMove", point.x + .2, point.y);
+  assert.deepEqual(h.frames.at(-1).draft, legacy);
+  h.pointer("onPointerUp", point.x + .2, point.y);
+  assert.equal(h.changes.length, 0);
+});
+
+
+test("resizing an older malformed saved text box repairs all wrapped-line hit bounds", () => {
+  const legacy = {...text, text: "ALPHA BETA GAMMA DELTA\nONE TWO THREE FOUR FIVE", fontSize: 14,
+    rect: {x: 180, y: 110, width: 90, height: 35}};
+  const h = annotation(documentWith([legacy]), {selectedMarkId: legacy.id});
+  const point = geom.handlePoint("right", legacy.rect);
+  h.pointer("onPointerDown", point.x, point.y);
+  h.pointer("onPointerUp", point.x + 20, point.y);
+  const repaired = h.changes.at(-1)[0];
+  const lines = layout.layoutTextLines(repaired.text, repaired.rect.width,
+    value => value.length * repaired.fontSize * .4);
+  assert.ok(lines.length > 2);
+  assert.equal(repaired.rect.height, Math.ceil(lines.length * repaired.fontSize * 1.25));
+  assert.equal(model.markIndexAt([repaired], {x: repaired.rect.x + 5,
+    y: repaired.rect.y + (lines.length - .5) * repaired.fontSize * 1.25}), 0);
+});
+
+
+for (const sample of [
+  {name: "full-height side", handle: "right", fontSize: 120, rect: {x: 180, y: 30, width: 160, height: 300}, dx: -16, dy: 0},
+  {name: "near-top anchored", handle: "top", fontSize: 14, rect: {x: 180, y: 5, width: 20, height: 35}, dx: 0, dy: 4},
+  {name: "near-bottom anchored", handle: "bottom", fontSize: 14, rect: {x: 180, y: 320, width: 20, height: 35}, dx: 0, dy: -4},
+]) {
+  test(`${sample.name} text resize fits measured lines without moving its anchor`, () => {
+    const original = {...text, text: "A B\nC D", fontSize: sample.fontSize, rect: sample.rect};
+    const measureText = (value, size) => value.length * size * (size < sample.fontSize ? .6 : .4);
+    const h = annotation(documentWith([original]), {selectedMarkId: original.id, measureText});
+    const start = geom.handlePoint(sample.handle, original.rect);
+    h.pointer("onPointerDown", start.x, start.y);
+    h.pointer("onPointerMove", start.x + sample.dx, start.y + sample.dy);
+    const preview = h.frames.at(-1).draft;
+    h.pointer("onPointerUp", start.x + sample.dx, start.y + sample.dy);
+    const resized = h.changes.at(-1)[0];
+    assert.deepEqual(preview, resized);
+    const lines = layout.layoutTextLines(resized.text, resized.rect.width,
+      value => measureText(value, resized.fontSize));
+    assert.equal(resized.rect.height, Math.ceil(lines.length * resized.fontSize * 1.25));
+    assert.ok(resized.rect.y >= 0);
+    assert.ok(resized.rect.y + resized.rect.height <= 360);
+    const actual = sample.handle === "top" ? resized.rect.y + resized.rect.height :
+      sample.handle === "bottom" ? resized.rect.y : resized.rect.y + resized.rect.height / 2;
+    const expected = sample.handle === "top" ? original.rect.y + original.rect.height :
+      sample.handle === "bottom" ? original.rect.y : original.rect.y + original.rect.height / 2;
+    assert.ok(Math.abs(actual - expected) < 1e-8);
+  });
+}

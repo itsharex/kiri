@@ -634,8 +634,16 @@ impl InnerWebView {
       .user_content_manager()
       .expect("WebView does not have UserContentManager");
 
+    // The manager belongs to the WebView, so a strong view in this signal
+    // can create a retention cycle. Late messages have no receiver after
+    // disposal; upgrade only for this callback.
+    let webview = webview.downgrade();
+
     // Connect before registering as recommended by the docs
     manager.connect_script_message_received(None, move |_m, msg| {
+      let Some(webview) = webview.upgrade() else {
+        return;
+      };
       #[cfg(feature = "tracing")]
       let _span = tracing::info_span!(parent: None, "wry::ipc::handle").entered();
 

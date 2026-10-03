@@ -56,6 +56,8 @@ def plan(event, ref, inputs, paths):
             selected[f"native_{target}"] = True
     else:
         for path in paths:
+            if path.startswith("scripts/qa/ipc-lifetime/"):
+                selected["native_linux"] = True
             if (path.startswith("src/") or path in {"package.json", "pnpm-lock.yaml", "index.html"}
                     or path.startswith(("vite.config.", "tsconfig"))
                     or (path.startswith("docs/demos/") and path.endswith((".py", ".js", ".html")))):
