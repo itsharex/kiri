@@ -157,7 +157,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             libpipewire-0.3-dev \
-            libasound2-dev \
+            libasound2-dev libpulse-dev \
             libxcb-randr0-dev \
             libgbm-dev \
             libclang-dev \
@@ -166,7 +166,7 @@ jobs:
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-good gstreamer1.0-pulseaudio pulseaudio \
             gstreamer1.0-plugins-bad \
             gstreamer1.0-plugins-ugly \
             gstreamer1.0-libav \
@@ -184,6 +184,10 @@ jobs:
           env -u DISPLAY -u WAYLAND_DISPLAY cargo test --locked --manifest-path scripts/qa/ipc-lifetime/Cargo.toml -- --test-threads=1
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+        env:
+          KIRI_LINUX_MEDIA_QA_DIR: ${{ runner.temp }}/kiri-linux-media-review
+      - name: Verify Linux audio with isolated synthetic Pulse sources
+        run: bash scripts/qa/linux-audio.sh
         env:
           KIRI_LINUX_MEDIA_QA_DIR: ${{ runner.temp }}/kiri-linux-media-review
       - uses: actions/upload-artifact@v7

@@ -18,6 +18,7 @@ use gstreamer_video::prelude::*;
 use crate::capture::DisplayIdentity;
 use crate::core::geometry::Rect;
 use crate::core::policy::RecordingPolicy;
+use crate::linux_audio::RecordingAudio;
 use crate::record::{AudioChunkReceiver, EncoderConfig};
 
 #[path = "linux_media_timing.rs"]
@@ -505,7 +506,7 @@ fn crop_bgra_frame(
 }
 
 // ---------------------------------------------------------------------------
-// GStreamer H.264 → MP4 segment encoder (Linux audio is explicitly unavailable)
+// GStreamer H.264 + optional mixed AAC → MP4 segment encoder
 // ---------------------------------------------------------------------------
 
 pub struct LinuxNativeSegmentEncoder {
@@ -513,6 +514,7 @@ pub struct LinuxNativeSegmentEncoder {
     worker: Option<JoinHandle<Result<()>>>,
     shutdown: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
+    failure: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl LinuxNativeSegmentEncoder {
@@ -523,12 +525,10 @@ impl LinuxNativeSegmentEncoder {
         system_audio_rx: Option<AudioChunkReceiver>,
         microphone_rx: Option<AudioChunkReceiver>,
     ) -> Result<Self> {
-        if config.audio.is_some()
-            || config.mic.is_some()
-            || system_audio_rx.is_some()
-            || microphone_rx.is_some()
-        {
-            bail!("System audio and microphone recording are not supported on Linux yet.");
+        // Linux native sources are part of the mux pipeline so they share its
+        // clock. Cross-platform PCM hand-off channels must not be supplied.
+        if system_audio_rx.is_some() || microphone_rx.is_some() {
+            bail!("Linux audio must use the shared-clock capture pipeline.");
         }
         // Prepare synchronously: missing plugins or an unwritable destination
         // must fail before the UI announces a running recording.
@@ -538,16 +538,24 @@ impl LinuxNativeSegmentEncoder {
         let worker_shutdown = Arc::clone(&shutdown);
         let worker_cancelled = Arc::clone(&cancelled);
         let output = out_path.clone();
+        let failure = Arc::new(std::sync::Mutex::new(None));
+        let worker_failure = failure.clone();
         let worker = std::thread::Builder::new()
             .name("kiri-linux-encoder".into())
             .spawn(move || {
-                encode_bgra_mp4(
+                let result = encode_bgra_mp4(
                     prepared,
                     &output,
                     video_rx,
                     worker_shutdown,
                     worker_cancelled,
-                )
+                );
+                if let Err(error) = &result {
+                    *worker_failure
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.to_string());
+                }
+                result
             })
             .context("Could not start the Linux encoder")?;
         Ok(Self {
@@ -555,7 +563,15 @@ impl LinuxNativeSegmentEncoder {
             worker: Some(worker),
             shutdown,
             cancelled,
+            failure,
         })
+    }
+
+    pub fn unexpected_failure(&self) -> Option<String> {
+        self.failure
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     pub fn finish(mut self) -> Result<PathBuf> {
@@ -591,6 +607,29 @@ impl Drop for LinuxNativeSegmentEncoder {
     }
 }
 
+enum AudioSetup<'a> {
+    Devices(&'a [crate::linux_audio::AudioSource]),
+    #[cfg(test)]
+    Tones(usize),
+}
+
+impl AudioSetup<'_> {
+    fn description(&self) -> String {
+        match self {
+            Self::Devices(sources) => RecordingAudio::description(sources.len(), "appsrc format=time is-live=true do-timestamp=false caps=audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved"),
+            #[cfg(test)]
+            Self::Tones(count) => RecordingAudio::description(*count, "audiotestsrc is-live=true"),
+        }
+    }
+    fn attach(&self, pipeline: &gstreamer::Pipeline) -> Result<RecordingAudio> {
+        match self {
+            Self::Devices(sources) => RecordingAudio::attach(pipeline, sources),
+            #[cfg(test)]
+            Self::Tones(count) => RecordingAudio::observe(pipeline, *count),
+        }
+    }
+}
+
 struct PreparedEncoder {
     pipeline: PipelineGuard,
     appsrc: gstreamer_app::AppSrc,
@@ -601,10 +640,17 @@ struct PreparedEncoder {
     fps: u32,
     frame_bytes: usize,
     queue_bytes: u64,
+    audio: RecordingAudio,
 }
 
 impl PreparedEncoder {
     fn new(config: &EncoderConfig, out_path: &Path) -> Result<Self> {
+        let sources =
+            crate::linux_audio::selected_sources(config.audio.is_some(), config.mic.is_some())?;
+        Self::with_audio(config, out_path, AudioSetup::Devices(&sources))
+    }
+
+    fn with_audio(config: &EncoderConfig, out_path: &Path, setup: AudioSetup<'_>) -> Result<Self> {
         let width = u32::try_from(config.width).context("Invalid encoder width")?;
         let height = u32::try_from(config.height).context("Invalid encoder height")?;
         let bitrate = u32::try_from(config.bitrate).context("Invalid encoder bitrate")?;
@@ -634,9 +680,10 @@ impl PreparedEncoder {
              caps=video/x-raw,format=BGRA,width={width},height={height},framerate={fps}/1 ! \
              videoconvert ! video/x-raw,format=I420 ! \
              x264enc tune=zerolatency speed-preset=superfast bitrate={} key-int-max={} ! \
-             video/x-h264,profile=baseline,stream-format=avc,alignment=au ! mp4mux ! filesink name=output",
+             video/x-h264,profile=baseline,stream-format=avc,alignment=au ! mp4mux name=mux interleave-time=0 ! filesink name=output{}",
                 bitrate / 1000,
                 fps * 2,
+                setup.description(),
             ),
             "H.264 MP4 encoding",
         )?;
@@ -649,10 +696,22 @@ impl PreparedEncoder {
             .map_err(|_| anyhow!("The encoder source has the wrong type."))?;
         appsrc.set_block(false);
         appsrc.set_max_bytes(queue_bytes);
+        let audio = setup.attach(&pipeline)?;
+        if audio.is_enabled() {
+            // libav AAC contributes 1024 priming samples. Preserve them as MP4
+            // decode preroll rather than shifting audible content or its tail.
+            pipeline
+                .by_name("mux")
+                .context("Missing MP4 mux")?
+                .static_pad("audio_0")
+                .context("Missing AAC mux pad")?
+                .set_offset(-(1024 * 1_000_000_000i64 / 48_000));
+        }
+        pipeline.use_clock(Some(&gstreamer::SystemClock::obtain()));
         let bus = pipeline_bus(&pipeline)?;
         pipeline
-            .set_state(gstreamer::State::Playing)
-            .context("Could not start the Linux MP4 encoder")?;
+            .set_state(gstreamer::State::Paused)
+            .context("Could not prepare the Linux MP4 encoder")?;
         check_pipeline(&bus, "Linux MP4 encoding")?;
         Ok(Self {
             pipeline,
@@ -664,6 +723,7 @@ impl PreparedEncoder {
             fps,
             frame_bytes,
             queue_bytes,
+            audio,
         })
     }
 
@@ -691,6 +751,9 @@ impl PreparedEncoder {
     }
 
     fn push(&self, pixels: Vec<u8>, pts: Duration, duration: Duration) -> Result<()> {
+        self.pipeline
+            .set_state(gstreamer::State::Playing)
+            .context("Could not start Linux media capture")?;
         let mut buffer = gstreamer::Buffer::from_mut_slice(pixels);
         let buffer_ref = buffer
             .get_mut()
@@ -711,6 +774,7 @@ fn encode_bgra_mp4(
     shutdown: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
 ) -> Result<()> {
+    let mut native_audio = prepared.audio.prepare_native()?;
     let mut pending = None::<Vec<u8>>;
     let mut origin = None::<Instant>;
     let mut timeline = FrameTimeline::new(prepared.fps);
@@ -719,6 +783,11 @@ fn encode_bgra_mp4(
             bail!("Linux recording was cancelled.");
         }
         check_pipeline(&prepared.bus, "Linux MP4 encoding")?;
+        if let (Some(start), Some(capture)) = (origin, &mut native_audio) {
+            capture.pump(start, None, |index, bytes, pts, duration| {
+                prepared.audio.push(index, bytes, pts, duration)
+            })?;
+        }
         let frame = if shutdown.load(Ordering::Acquire) {
             match video_rx.try_recv() {
                 Ok(frame) => frame,
@@ -727,14 +796,37 @@ fn encode_bgra_mp4(
         } else {
             match video_rx.recv_timeout(INPUT_POLL) {
                 Ok(frame) => frame,
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if prepared.audio.is_enabled() {
+                        if let (Some(start), Some(pixels)) = (origin, pending.as_ref()) {
+                            prepared.audio.check(start)?;
+                            if prepared.has_room() {
+                                if let Some((pts, duration)) = timeline.advance(start.elapsed()) {
+                                    prepared.push(pixels.clone(), pts, duration)?;
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         };
         if frame.len() != prepared.frame_bytes {
             bail!("The Linux capture frame size changed during recording.");
         }
-        let start = *origin.get_or_insert_with(Instant::now);
+        if origin.is_none() {
+            prepared
+                .pipeline
+                .set_state(gstreamer::State::Playing)
+                .context("Could not start Linux media capture")?;
+            origin = Some(Instant::now());
+            if let Some(capture) = &mut native_audio {
+                capture.start()?;
+            }
+        }
+        let start = origin.expect("recording clock");
+        prepared.audio.check(start)?;
         if pending.is_none() {
             pending = Some(frame);
             continue;
@@ -754,6 +846,13 @@ fn encode_bgra_mp4(
     // Capture stop closes the source before finish; measure this boundary
     // before flushing so mux/encoder latency never extends the recording.
     let (pts, duration) = timeline.finish(start.elapsed());
+    if let Some(capture) = &mut native_audio {
+        capture.finish(start, pts + duration, |index, bytes, pts, duration| {
+            prepared.audio.push(index, bytes, pts, duration)
+        })?;
+    }
+    drop(native_audio);
+    prepared.audio.finish()?;
     prepared.wait_for_room()?;
     prepared.push(pending.expect("first video frame"), pts, duration)?;
     prepared
@@ -761,15 +860,18 @@ fn encode_bgra_mp4(
         .end_of_stream()
         .context("Could not finish the Linux encoder input")?;
     wait_for_eos(&prepared.bus, FINALIZE_TIMEOUT, "Linux MP4 encoding")?;
+    prepared.audio.validate()?;
     let PreparedEncoder {
         pipeline,
         output,
         width,
         height,
+        audio,
         ..
     } = prepared;
+    let has_audio = audio.is_enabled();
     drop(pipeline);
-    validate_recording(output.path(), Some((width, height)))?;
+    validate_recording_tracks(output.path(), Some((width, height)), Some(has_audio))?;
     if cancelled.load(Ordering::Acquire) {
         bail!("Linux recording was cancelled.");
     }
@@ -820,6 +922,14 @@ fn discover(video: &Path) -> Result<gstreamer_pbutils::DiscovererInfo> {
 }
 
 fn validate_recording(video: &Path, expected: Option<(u32, u32)>) -> Result<(u32, u32, f64)> {
+    validate_recording_tracks(video, expected, None)
+}
+
+fn validate_recording_tracks(
+    video: &Path,
+    expected: Option<(u32, u32)>,
+    expected_audio: Option<bool>,
+) -> Result<(u32, u32, f64)> {
     use std::io::Read;
     let mut header = [0; 12];
     std::fs::File::open(video)?.read_exact(&mut header)?;
@@ -828,8 +938,25 @@ fn validate_recording(video: &Path, expected: Option<(u32, u32)>) -> Result<(u32
     }
     let info = discover(video)?;
     let streams = info.video_streams();
-    if streams.len() != 1 || !info.audio_streams().is_empty() {
+    let audio = info.audio_streams();
+    if streams.len() != 1
+        || audio.len() > 1
+        || expected_audio.is_some_and(|expected| expected != !audio.is_empty())
+    {
         bail!("The Linux recording contains unexpected media tracks.");
+    }
+    if let Some(audio) = audio.first() {
+        if audio.sample_rate() != 48_000
+            || audio.channels() != 2
+            || !audio.caps().is_some_and(|caps| {
+                caps.structure(0).is_some_and(|structure| {
+                    structure.name() == "audio/mpeg"
+                        && structure.get::<i32>("mpegversion").ok() == Some(4)
+                })
+            })
+        {
+            bail!("The finalized recording has an invalid AAC audio track.");
+        }
     }
     let stream = &streams[0];
     let dimensions = (stream.width(), stream.height());
@@ -852,9 +979,14 @@ pub fn merge_segments(segments: &[PathBuf], out_path: &Path) -> Result<()> {
         bail!("No recording segments to merge.");
     }
     let first = validate_recording(&segments[0], None)?;
+    let has_audio = !discover(&segments[0])?.audio_streams().is_empty();
+    let mut durations = vec![Duration::from_secs_f64(first.2)];
     let mut expected_duration = first.2;
     for segment in &segments[1..] {
-        expected_duration += validate_recording(segment, Some((first.0, first.1)))?.2;
+        let duration =
+            validate_recording_tracks(segment, Some((first.0, first.1)), Some(has_audio))?.2;
+        expected_duration += duration;
+        durations.push(Duration::from_secs_f64(duration));
     }
     let output = staged_output(out_path)?;
     if segments.len() == 1 {
@@ -865,18 +997,73 @@ pub fn merge_segments(segments: &[PathBuf], out_path: &Path) -> Result<()> {
         // held frame; another h264parse would replace its duration with 1/fps.
         // concat adjusts segment running times before the fresh MP4 container.
         let mut description = String::from(
-            "concat name=c adjust-base=true ! video/x-h264,stream-format=avc,alignment=au ! mp4mux ! filesink name=output"
+            "concat name=c adjust-base=true ! identity single-segment=true ! video/x-h264,stream-format=avc,alignment=au ! mp4mux name=mux interleave-time=0 ! filesink name=output"
         );
+        if has_audio {
+            description = description.replace(
+                "concat name=c adjust-base=true",
+                "concat name=c adjust-base=false",
+            );
+            description.push_str(" concat name=ac adjust-base=false ! identity single-segment=true ! audiorate ! audioconvert ! audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved ! avenc_aac bitrate=192000 ! aacparse ! queue max-size-buffers=0 max-size-bytes=262144 max-size-time=0 ! mux.audio_0");
+        }
         for index in 0..segments.len() {
             description.push_str(&format!(
-                " filesrc name=input_{index} ! qtdemux ! video/x-h264,stream-format=avc,alignment=au ! \
-                 queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! c.sink_{index}"
+                " filesrc name=input_{index} ! qtdemux name=demux_{index} demux_{index}.video_0 ! video/x-h264,stream-format=avc,alignment=au ! queue name=video_merge_{index} max-size-buffers=2 max-size-bytes=0 max-size-time=0 ! c.sink_{index}"
             ));
+            if has_audio {
+                description.push_str(&format!(" demux_{index}.audio_0 ! decodebin ! audioconvert ! audioresample ! audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved ! queue name=audio_merge_{index} max-size-buffers=0 max-size-bytes=96000 max-size-time=0 ! ac.sink_{index}"));
+            }
         }
         let pipeline = pipeline(&description, "recording segment merge")?;
+        if has_audio {
+            pipeline
+                .by_name("mux")
+                .context("Missing MP4 mux")?
+                .static_pad("audio_0")
+                .context("Missing AAC mux pad")?
+                .set_offset(-(1024 * 1_000_000_000i64 / 48_000));
+        }
         set_file(&pipeline, "output", output.path())?;
         for (index, segment) in segments.iter().enumerate() {
             set_file(&pipeline, &format!("input_{index}"), segment)?;
+            if has_audio {
+                // Both streams use the same container presentation boundary.
+                // Either AAC rounding or the held video frame can be longer;
+                // normalizing only one concat would accumulate skew at pauses.
+                let duration = clock_time(durations[index]);
+                let base = clock_time(durations[..index].iter().copied().sum());
+                for name in [
+                    format!("audio_merge_{index}"),
+                    format!("video_merge_{index}"),
+                ] {
+                    pipeline
+                        .by_name(&name)
+                        .context("Missing merge queue")?
+                        .static_pad("src")
+                        .context("Missing merge pad")?
+                        .add_probe(gstreamer::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
+                            if let Some(event) = info.event_mut() {
+                                if let gstreamer::EventView::Segment(segment_event) = event.view() {
+                                    if let Some(segment) = segment_event
+                                        .segment()
+                                        .downcast_ref::<gstreamer::ClockTime>()
+                                    {
+                                        let mut segment = segment.clone();
+                                        segment.set_base(base);
+                                        segment.set_stop(
+                                            segment.start().unwrap_or(gstreamer::ClockTime::ZERO)
+                                                + duration,
+                                        );
+                                        *event = gstreamer::event::Segment::builder(&segment)
+                                            .seqnum(event.seqnum())
+                                            .build();
+                                    }
+                                }
+                            }
+                            gstreamer::PadProbeReturn::Ok
+                        });
+                }
+            }
         }
         let bus = pipeline_bus(&pipeline)?;
         pipeline
@@ -885,7 +1072,8 @@ pub fn merge_segments(segments: &[PathBuf], out_path: &Path) -> Result<()> {
         wait_for_eos(&bus, Duration::from_secs(120), "Recording segment merge")?;
         drop(pipeline);
     }
-    let actual = validate_recording(output.path(), Some((first.0, first.1)))?;
+    let actual =
+        validate_recording_tracks(output.path(), Some((first.0, first.1)), Some(has_audio))?;
     if (actual.2 - expected_duration).abs() > 0.1 {
         bail!("The merged recording duration does not match its completed segments.");
     }
@@ -1469,6 +1657,298 @@ mod tests {
         assert!(merge_segments(std::slice::from_ref(&first), &output).is_err());
         assert_eq!(std::fs::read(&output).unwrap(), b"existing destination");
         assert_eq!(std::fs::read(&first).unwrap(), bytes);
+    }
+
+    fn audio_fixture(path: &Path, frequencies: &[f64], millis: u64) {
+        let prepared =
+            PreparedEncoder::with_audio(&config(), path, AudioSetup::Tones(frequencies.len()))
+                .unwrap();
+        for (index, frequency) in frequencies.iter().enumerate() {
+            let source = prepared
+                .pipeline
+                .by_name(&format!("audio_{index}"))
+                .unwrap();
+            source.set_property("freq", *frequency);
+            source.set_property("volume", 0.15f64);
+            source.set_property("samplesperbuffer", 480i32);
+        }
+        let (tx, rx) = mpsc::sync_channel(2);
+        let output = path.to_owned();
+        let worker = std::thread::spawn(move || {
+            encode_bgra_mp4(
+                prepared,
+                &output,
+                rx,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicBool::new(false)),
+            )
+        });
+        tx.send(solid_frame([0, 255, 0, 255])).unwrap();
+        std::thread::sleep(Duration::from_millis(millis));
+        drop(tx);
+        worker.join().unwrap().unwrap();
+    }
+
+    fn decoded_audio(video: &Path) -> Vec<f32> {
+        let pipeline = pipeline("filesrc name=input ! decodebin ! audioconvert ! audioresample ! audio/x-raw,format=F32LE,channels=1,rate=48000 ! appsink name=sink max-buffers=2 drop=false sync=false", "test audio decoding").unwrap();
+        set_file(&pipeline, "input", video).unwrap();
+        let sink = pipeline
+            .by_name("sink")
+            .unwrap()
+            .downcast::<gstreamer_app::AppSink>()
+            .unwrap();
+        let bus = pipeline_bus(&pipeline).unwrap();
+        pipeline.set_state(gstreamer::State::Playing).unwrap();
+        let mut samples = Vec::new();
+        loop {
+            if let Some(sample) = sink.try_pull_sample(gstreamer::ClockTime::from_seconds(5)) {
+                let bytes = sample.buffer().unwrap().map_readable().unwrap();
+                samples.extend(
+                    bytes
+                        .as_slice()
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|chunk| f32::from_le_bytes(*chunk)),
+                );
+            } else {
+                assert!(sink.is_eos(), "Audio decoder stalled");
+                if let Some(message) = bus.pop_filtered(&[gstreamer::MessageType::Error]) {
+                    panic!("{}", message_failure(&message, "audio test"));
+                }
+                break;
+            }
+        }
+        samples
+    }
+
+    fn tone_amplitude(samples: &[f32], frequency: f64) -> f64 {
+        let (sin, cos) =
+            samples
+                .iter()
+                .enumerate()
+                .fold((0.0, 0.0), |(sin, cos), (index, sample)| {
+                    let phase = 2.0 * std::f64::consts::PI * frequency * index as f64 / 48_000.0;
+                    (
+                        sin + f64::from(*sample) * phase.sin(),
+                        cos + f64::from(*sample) * phase.cos(),
+                    )
+                });
+        2.0 * sin.hypot(cos) / samples.len() as f64
+    }
+
+    #[test]
+    fn native_audio_single_and_mixed_tracks_decode_with_both_tones() {
+        let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "audio-tones");
+        for (name, frequencies) in [
+            ("system", vec![440.0]),
+            ("microphone", vec![880.0]),
+            ("mixed", vec![440.0, 880.0]),
+        ] {
+            let path = temp.path().join(format!("{name}.mp4"));
+            audio_fixture(&path, &frequencies, 800);
+            let duration = validate_recording_tracks(&path, Some((64, 48)), Some(true))
+                .unwrap()
+                .2;
+            assert!((duration - 0.8).abs() < 0.1, "{name} duration {duration}");
+            let samples = decoded_audio(&path);
+            assert!((samples.len() as f64 / 48_000.0 - duration).abs() < 0.05);
+            let middle = &samples[4800..samples.len() - 4800];
+            for frequency in frequencies {
+                assert!(
+                    tone_amplitude(middle, frequency) > 0.08,
+                    "missing {frequency}Hz in {name}"
+                );
+            }
+        }
+        let silent = temp.path().join("audio-off.mp4");
+        fixture(&silent, [0, 255, 0, 255], 400);
+        validate_recording_tracks(&silent, Some((64, 48)), Some(false)).unwrap();
+    }
+
+    #[test]
+    fn native_audio_pause_merge_preserves_tones_and_excludes_paused_time() {
+        let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "audio-pause-merge");
+        let first = temp.path().join("first.mp4");
+        let second = temp.path().join("second.mp4");
+        let merged = temp.path().join("merged.mp4");
+        audio_fixture(&first, &[440.0], 700);
+        std::thread::sleep(Duration::from_millis(300));
+        audio_fixture(&second, &[880.0], 900);
+        merge_segments(&[first, second], &merged).unwrap();
+        let duration = validate_recording_tracks(&merged, Some((64, 48)), Some(true))
+            .unwrap()
+            .2;
+        assert!((duration - 1.6).abs() < 0.1, "merged duration {duration}");
+        let samples = decoded_audio(&merged);
+        let early = &samples[4800..24000];
+        let late = &samples[48000..67200];
+        assert!(tone_amplitude(early, 440.0) > 0.08);
+        assert!(tone_amplitude(early, 880.0) < 0.01);
+        assert!(tone_amplitude(late, 880.0) > 0.08);
+        assert!(tone_amplitude(late, 440.0) < 0.01);
+    }
+
+    #[test]
+    fn native_audio_many_pauses_keep_common_boundaries_and_decode_preroll_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "audio-many-pauses");
+        let first = temp.path().join("first.mp4");
+        let second = temp.path().join("second.mp4");
+        audio_fixture(&first, &[440.0], 170);
+        audio_fixture(&second, &[880.0], 210);
+        let durations = [
+            validate_recording(&first, None).unwrap().2,
+            validate_recording(&second, None).unwrap().2,
+        ];
+        let segments = (0..24)
+            .map(|index| {
+                if index % 2 == 0 {
+                    first.clone()
+                } else {
+                    second.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        let merged = temp.path().join("merged.mp4");
+        merge_segments(&segments, &merged).unwrap();
+        let audio = decoded_audio(&merged);
+        let pipeline = pipeline("filesrc name=input ! qtdemux ! video/x-h264 ! appsink name=sink max-buffers=2 drop=false sync=false", "merge boundary inspection").unwrap();
+        set_file(&pipeline, "input", &merged).unwrap();
+        let sink = pipeline
+            .by_name("sink")
+            .unwrap()
+            .downcast::<gstreamer_app::AppSink>()
+            .unwrap();
+        pipeline.set_state(gstreamer::State::Playing).unwrap();
+        let mut boundaries = Vec::new();
+        while let Some(sample) = sink.try_pull_sample(gstreamer::ClockTime::from_seconds(5)) {
+            let buffer = sample.buffer().unwrap();
+            if !buffer.flags().contains(gstreamer::BufferFlags::DELTA_UNIT) {
+                boundaries.push(buffer.pts().unwrap().nseconds() as f64 / 1e9);
+            }
+        }
+        assert!(sink.is_eos());
+        assert_eq!(boundaries.len(), segments.len());
+        let mut expected = 0.0;
+        for (index, boundary) in boundaries.into_iter().enumerate() {
+            assert!(
+                (boundary - expected).abs() < 0.002,
+                "pause {index}: video {boundary}, audio base {expected}"
+            );
+            let from = ((expected + 0.05) * 48_000.0) as usize;
+            let to = ((expected + 0.13) * 48_000.0) as usize;
+            let wanted = if index % 2 == 0 { 440.0 } else { 880.0 };
+            let unwanted = if index % 2 == 0 { 880.0 } else { 440.0 };
+            assert!(
+                tone_amplitude(&audio[from..to], wanted) > 0.06,
+                "wanted tone missing at pause {index}"
+            );
+            assert!(
+                tone_amplitude(&audio[from..to], unwanted) < 0.015,
+                "previous tone leaked at pause {index}"
+            );
+            expected += durations[index % 2];
+        }
+        assert!((audio.len() as f64 / 48_000.0 - expected).abs() < 0.04);
+    }
+
+    #[test]
+    fn native_audio_failure_does_not_publish_a_partial_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("overload.mp4");
+        let prepared = PreparedEncoder::with_audio(&config(), &path, AudioSetup::Tones(1)).unwrap();
+        prepared
+            .pipeline
+            .by_name("audio_queue_0")
+            .unwrap()
+            .emit_by_name::<()>("overrun", &[]);
+        let (tx, rx) = mpsc::sync_channel(2);
+        tx.send(solid_frame([0, 0, 0, 255])).unwrap();
+        drop(tx);
+        assert!(encode_bgra_mp4(
+            prepared,
+            &path,
+            rx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false))
+        )
+        .is_err());
+        assert!(!path.exists());
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    #[ignore = "requires scripts/qa/linux-audio.sh private Pulse server; never uses desktop audio"]
+    fn native_pulse_private_server_captures_verified_sources() {
+        assert_eq!(std::env::var("KIRI_LINUX_PULSE_QA").as_deref(), Ok("1"));
+        let sources = crate::linux_audio::selected_sources(true, true).unwrap();
+        assert_eq!(sources[0].name, "kiri_test_system.monitor");
+        assert_eq!(sources[1].name, "kiri_test_mic");
+        let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "pulse-private-server");
+        for (name, system, microphone, frequencies) in [
+            ("system", true, false, vec![440.0]),
+            ("microphone", false, true, vec![880.0]),
+            ("mixed", true, true, vec![440.0, 880.0]),
+        ] {
+            let path = temp.path().join(format!("{name}.mp4"));
+            let config = EncoderConfig {
+                audio: system.then_some(crate::linux_audio::AUDIO_SPEC),
+                mic: microphone.then_some(crate::linux_audio::AUDIO_SPEC),
+                ..config()
+            };
+            let (tx, rx) = mpsc::sync_channel(2);
+            let encoder =
+                LinuxNativeSegmentEncoder::start(&config, path.clone(), rx, None, None).unwrap();
+            tx.send(solid_frame([255, 0, 0, 255])).unwrap();
+            std::thread::sleep(Duration::from_millis(800));
+            drop(tx);
+            encoder.finish().unwrap();
+            validate_recording_tracks(&path, Some((64, 48)), Some(true)).unwrap();
+            let samples = decoded_audio(&path);
+            for frequency in frequencies {
+                assert!(
+                    tone_amplitude(&samples[9600..samples.len() - 4800], frequency) > 0.05,
+                    "{name} missing {frequency}Hz"
+                );
+            }
+        }
+        let start = Instant::now();
+        let mut peaks = Vec::new();
+        crate::linux_audio::microphone_check(
+            || start.elapsed() < Duration::from_millis(400),
+            |_, peak| {
+                peaks.push(peak);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(peaks.iter().any(|peak| *peak > 0.05));
+    }
+
+    #[test]
+    #[ignore = "60-second native A/V clock acceptance; run explicitly for audio changes"]
+    fn native_audio_long_recording_keeps_shared_clock() {
+        let temp = tempfile::tempdir().unwrap();
+        let _review = ReviewArtifacts::new(temp.path(), "audio-long-clock");
+        let path = temp.path().join("long.mp4");
+        audio_fixture(&path, &[440.0, 880.0], 60_000);
+        let duration = validate_recording_tracks(&path, Some((64, 48)), Some(true))
+            .unwrap()
+            .2;
+        let samples = decoded_audio(&path);
+        assert!((duration - 60.0).abs() < 0.1, "video duration {duration}");
+        assert!((samples.len() as f64 / 48_000.0 - duration).abs() < 0.05);
+        for window in [
+            &samples[48000..96000],
+            &samples[samples.len() - 96000..samples.len() - 48000],
+        ] {
+            assert!(tone_amplitude(window, 440.0) > 0.08);
+            assert!(tone_amplitude(window, 880.0) > 0.08);
+        }
     }
 
     #[test]

@@ -655,5 +655,8 @@
   "The library changed during QR recognition.": "识别过程中图库位置发生变化，请重新识别。",
   "Could not save this QR code.": "无法收藏此二维码。",
   "Could not open this link.": "无法打开此链接。",
-  "Invalid QR favorite.": "此二维码收藏不可用。"
+  "Invalid QR favorite.": "此二维码收藏不可用。",
+  "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.": "Linux 音频不可用。请检查 PulseAudio 或 PipeWire 音频服务及所选声音设备。",
+  "No microphone input is available. Select an unmuted input device in your sound settings.": "没有可用的麦克风输入。请在声音设置中选择未静音的输入设备。",
+  "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "音频录制已停止。请检查声音设备及音频服务，然后重新开始录制。"
 }

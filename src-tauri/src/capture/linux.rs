@@ -22,7 +22,7 @@ use ashpd::desktop::screenshot::Screenshot;
 use ashpd::desktop::ResponseError;
 
 use crate::core::geometry::Rect;
-use crate::record::{AudioChunkSender, AudioSpec};
+use crate::record::AudioChunkSender;
 
 use super::{CapturedDisplay, DisplayIdentity, PlatformRecorder, VideoFrameSender};
 use image::ImageEncoder;
@@ -684,7 +684,11 @@ impl LinuxRecorder {
         system_audio_tx: Option<AudioChunkSender>,
         microphone_tx: Option<AudioChunkSender>,
     ) -> Result<Self> {
-        let _ = (system_audio_tx, microphone_tx);
+        // Audio belongs to the GStreamer mux pipeline so both streams share
+        // its clock; the screen recorder never opens independent audio inputs.
+        if system_audio_tx.is_some() || microphone_tx.is_some() {
+            bail!("Linux audio requires the shared-clock encoding pipeline.");
+        }
         let shows_cursor = options.shows_cursor;
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_for_worker = Arc::clone(&stop_flag);
@@ -725,14 +729,6 @@ impl LinuxRecorder {
             health,
             worker: Some(worker),
         })
-    }
-
-    pub fn system_audio_spec(&self) -> Option<AudioSpec> {
-        None
-    }
-
-    pub fn microphone_spec(&self) -> Option<AudioSpec> {
-        None
     }
 }
 

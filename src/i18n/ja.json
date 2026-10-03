@@ -655,5 +655,8 @@
   "The library changed during QR recognition.": "読み取り中にライブラリが変更されました。もう一度読み取ってください。",
   "Could not save this QR code.": "このQRコードを保存できません。",
   "Could not open this link.": "このリンクを開けません。",
-  "Invalid QR favorite.": "このQRコードは利用できません。"
+  "Invalid QR favorite.": "このQRコードは利用できません。",
+  "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.": "Linux の音声を利用できません。PulseAudio または PipeWire の音声サービスと選択したサウンドデバイスを確認してください。",
+  "No microphone input is available. Select an unmuted input device in your sound settings.": "マイク入力を利用できません。サウンド設定でミュートされていない入力デバイスを選択してください。",
+  "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "音声録音が停止しました。サウンドデバイスと音声サービスを確認してから、新しく録画を開始してください。"
 }

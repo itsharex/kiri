@@ -109,7 +109,8 @@ cover MP4/GIF encoding and merging. Check the candidate's reports for results.
 | Local OCR | System Tesseract with installed `eng`, `chi_sim`, `jpn` data | Real GNOME text/IME workflows; missing models show an error |
 | Remote OCR | Explicit send/retry, Secret Service credentials | Needs a configured profile and an unlocked secret store |
 | Recording | Silent MP4 or GIF, optional pointer, tray/command controls | Portal consent, pause/resume, timing, and control exclusion on real GNOME |
-| Audio and click highlights | Unavailable | No system audio, microphone, microphone check, or click ripple |
+| Audio | Optional system audio, microphone or both in MP4; explicit microphone check | Requires local PulseAudio or PipeWire-Pulse and GStreamer audio plugins; real-device acceptance remains separate |
+| Click highlights | Unavailable | No click ripple |
 | Saved videos | Playback, thumbnails, GIF conversion | System GStreamer codecs required; no video editing/MP4 export UI |
 | Updates | Manual replacement `.deb` | No Linux in-app installation or signed updater feed |
 
@@ -129,10 +130,10 @@ sudo apt install -y \
   build-essential curl wget file pkg-config \
   libxdo-dev libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
   libayatana-appindicator3-dev librsvg2-dev patchelf \
-  libpipewire-0.3-dev libasound2-dev libxcb-randr0-dev libgbm-dev libclang-dev \
+  libpipewire-0.3-dev libasound2-dev libpulse-dev libxcb-randr0-dev libgbm-dev libclang-dev \
   libtesseract-dev libleptonica-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-pulseaudio \
   gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
   gstreamer1.0-libav gstreamer1.0-pipewire \
   tesseract-ocr-eng tesseract-ocr-chi-sim tesseract-ocr-jpn
@@ -248,3 +249,40 @@ pause/resume/stop, GIF conversion, timing, and absence of Kiri controls. Test th
 multi-display rejection explicitly. Use a separate test user and public test
 content; never point QA at an existing capture library. Record outcomes before
 marking those gates complete in the [roadmap](../ROADMAP.md).
+
+## MP4 audio
+
+The recording options offer system sound, microphone, both mixed into one AAC
+track, or no audio. GIF is always silent; choosing GIF does not clear the saved
+MP4 audio choices. Kiri does not open audio devices when both options are off.
+
+Linux needs a running local PulseAudio-compatible audio service (PulseAudio or
+PipeWire-Pulse), the `libpulse0` client library, and the AAC encoder in
+`gstreamer1.0-libav`. These plugins are declared by the `.deb`. ScreenCast
+consent only grants access to the screen; it does not grant microphone access.
+No permissions, audio routes, mute switches or default devices are changed.
+
+System sound records the monitor of the output currently selected in desktop
+sound settings. Microphone records the current unmuted non-monitor input. If
+the default input is itself an output monitor, select a real input before
+recording. Devices are pinned for each segment; disconnecting or rerouting a
+source stops recording with an error rather than silently changing devices.
+Resuming rechecks the current defaults. The five-second microphone check uses
+the same source selection and inspects PCM in memory only.
+
+The default tests inject tones into the real installed GStreamer
+encoder/mixer/muxer and decode the resulting tracks. They do not establish
+physical microphone, speaker, permission, or GNOME desktop acceptance. Run
+`cargo test --locked --manifest-path src-tauri/Cargo.toml native_audio_long_recording_keeps_shared_clock -- --ignored`
+for the additional 60-second shared-clock check. Installed Ubuntu 24.04 GNOME
+X11 and Wayland each still need real-device record/playback, denied access,
+unplug/reconnect, default-device change, cancellation, restart and pause/resume
+checks with the actual sound server. Synthetic input must be reported separately.
+
+For a separate synthetic Pulse integration check on a host that permits private
+Unix sockets, install `pulseaudio` and `gstreamer1.0-pulseaudio`, then run
+`bash scripts/qa/linux-audio.sh`. It creates authenticated temporary sources,
+records them through the real libpulse path, verifies decoded tones and the
+microphone meter, and removes the private server afterward. It never accesses
+the desktop sound devices. CI runs this explicitly; a blocked local socket
+must be reported as unverified rather than bypassed.

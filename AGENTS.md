@@ -44,7 +44,8 @@ Linux. Preserve these decisions:
   adjustable diameter and intensity.
 - Recording is Retina/DPI-scale, high-quality MP4. Kiri's recording controls
   and paused time must not appear in the exported video.
-  Linux recording is silent and hides the floating control panel; use tray
+  Linux MP4 recording can include system audio and microphone through the local
+  PulseAudio/PipeWire audio service and hides the floating control panel; use tray
   actions or `kiri --toggle-recording-pause` / `kiri --stop-recording`. ScreenCast
   consent must select the same display as the frozen screenshot.
 - The optional high-contrast red click ripple is visible live and is also captured.
@@ -103,7 +104,8 @@ Linux. Preserve these decisions:
   the main thread.
 - The recording pipeline is: platform capture (BGRA frames + PCM audio) →
   AVFoundation on macOS or Media Foundation on Windows → H.264/AAC MP4.
-  Linux uses portal ScreenCast/PipeWire and system GStreamer for silent H.264 MP4.
+  Linux uses portal ScreenCast/PipeWire and system GStreamer for H.264 MP4,
+  with optional PulseAudio monitor/input capture mixed into AAC on the same clock.
   macOS pause/resume segments are merged with AVFoundation.
 - `AssetLibrary` is the persistence boundary. It shares the Swift version's
   storage layout (`~/Library/Application Support/kiri` on macOS,

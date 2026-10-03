@@ -10,6 +10,7 @@
         "depends": [
           "libasound2t64 | libasound2",
           "libgbm1",
+          "libpulse0",
           "libxcb1",
           "libxcb-randr0",
           "libxdo3",

@@ -388,11 +388,13 @@ pub fn show_window_without_activation(app: &tauri::AppHandle, label: &str) {
 }
 
 pub fn mic_supported() -> bool {
-    false
+    crate::linux_audio::supported()
 }
 
 pub fn request_microphone_access() -> Result<MicrophoneAccess> {
-    Ok(MicrophoneAccess::Unsupported)
+    // Linux grants are enforced by the sound service when the explicitly
+    // requested check/recording opens its source. This does not change grants.
+    Ok(MicrophoneAccess::Authorized)
 }
 
 pub fn set_window_click_through(app: &tauri::AppHandle, label: &str) {
