@@ -2018,6 +2018,32 @@ mod tests {
         let sources = crate::linux_audio::selected_sources(true, true).unwrap();
         assert_eq!(sources[0].name, "kiri_test_system.monitor");
         assert_eq!(sources[1].name, "kiri_test_mic");
+        // Generator liveness alone is insufficient after server startup or a
+        // deliberate pause: wait for real non-silent PCM on BOTH test routes.
+        // This also verifies the native capture path independently of the mux.
+        {
+            let mut capture = crate::linux_audio::NativeCapture::new(&sources).unwrap();
+            let start = Instant::now();
+            capture.start().unwrap();
+            let mut heard = [false; 2];
+            while !heard.iter().all(|heard| *heard) && start.elapsed() < Duration::from_secs(5) {
+                capture
+                    .pump(start, None, |index, bytes, _, _| {
+                        heard[index] |= bytes
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .any(|chunk| f32::from_le_bytes(*chunk).abs() > 0.05);
+                        Ok(())
+                    })
+                    .unwrap();
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(
+                heard.iter().all(|heard| *heard),
+                "synthetic Pulse generators did not deliver both tones"
+            );
+        }
         let temp = tempfile::tempdir().unwrap();
         let _review = ReviewArtifacts::new(temp.path(), "pulse-private-server");
         for (name, system, microphone, frequencies) in [

@@ -292,7 +292,7 @@ pub struct NativeCapture {
 }
 
 impl NativeCapture {
-    fn new(sources: &[AudioSource]) -> Result<Self> {
+    pub(crate) fn new(sources: &[AudioSource]) -> Result<Self> {
         let first = sources.first().context(AUDIO_UNAVAILABLE)?;
         let mut connection = PulseConnection::new_at(Some(&first.server))?;
         let failed = Rc::new(std::cell::Cell::new(false));
