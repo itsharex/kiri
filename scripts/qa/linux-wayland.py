@@ -214,6 +214,24 @@ def painted_control(name):
     return wait_for(f"stable painted {name} control", ready)
 
 
+def active_control_frame(name):
+    # ModeButton does not expose aria-pressed, and HintLabel's plain div has
+    # an empty AT-SPI name. Verify the real white active-button fill instead
+    # of treating that absent name as a failed application mode switch.
+    bounds = controls(name, enabled=True, role="push button")
+    if bounds is None:
+        return False
+    picture = screenshot("ocr-mode-active.png")
+    patch = picture.crop(pixel_box((bounds.x + 2, bounds.y + 2,
+                                    bounds.x + bounds.width - 2,
+                                    bounds.y + bounds.height - 2))).convert("L")
+    mean = ImageStat.Stat(patch).mean[0]
+    if mean <= 180 or ImageStat.Stat(patch).stddev[0] < 5:
+        return False
+    report["ocr_mode_click"]["active_fill_mean"] = round(mean, 3)
+    return True
+
+
 def pixel_box(bounds):
     return tuple(round(value * args.scale) for value in bounds)
 
@@ -704,8 +722,7 @@ try:
         bounds = painted_control("OCR")
         click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
         screenshot("ocr-after-mode-click.png")
-        wait_for("OCR mode is active", lambda: controls("Drag to choose text to recognize   ·   Esc to cancel"))
-        screenshot("ocr-mode-active.png")
+        wait_for("OCR mode is visibly active", lambda: active_control_frame("OCR"))
         report["ocr_mode_click"]["mode_confirmed"] = True
         drag_region((220, 240, 900, 350))
         click_control("Copy")
