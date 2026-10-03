@@ -214,20 +214,27 @@ def painted_control(name):
     return wait_for(f"stable painted {name} control", ready)
 
 
-def active_control_frame(name):
+def active_control_frame(name, pending_frames):
     # ModeButton does not expose aria-pressed, and HintLabel's plain div has
     # an empty AT-SPI name. Verify the real white active-button fill instead
     # of treating that absent name as a failed application mode switch.
     bounds = controls(name, enabled=True, role="push button")
     if bounds is None:
         return False
-    picture = screenshot("ocr-mode-active.png")
+    if pending_frames:
+        picture = pending_frames.pop()
+    else:
+        sample = sink.emit("try-pull-sample", 250 * Gst.MSECOND)
+        if sample is None:
+            return False
+        picture = sample_image(sample, "ocr-mode-active.png")
     patch = picture.crop(pixel_box((bounds.x + 2, bounds.y + 2,
                                     bounds.x + bounds.width - 2,
                                     bounds.y + bounds.height - 2))).convert("L")
     mean = ImageStat.Stat(patch).mean[0]
     if mean <= 180 or ImageStat.Stat(patch).stddev[0] < 5:
         return False
+    picture.save(output / "ocr-mode-active.png")
     report["ocr_mode_click"]["active_fill_mean"] = round(mean, 3)
     return True
 
@@ -240,6 +247,10 @@ def screenshot(name):
     sample = sink.emit("try-pull-sample", 5 * Gst.SECOND)
     if sample is None:
         raise RuntimeError("Mutter/PipeWire did not provide a desktop frame")
+    return sample_image(sample, name)
+
+
+def sample_image(sample, name):
     structure = sample.get_caps().get_structure(0)
     width, height = structure.get_value("width"), structure.get_value("height")
     buffer = sample.get_buffer()
@@ -721,8 +732,10 @@ try:
         capture()
         bounds = painted_control("OCR")
         click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
-        screenshot("ocr-after-mode-click.png")
-        wait_for("OCR mode is visibly active", lambda: active_control_frame("OCR"))
+        # Mutter can send frames only when the desktop changes. Check this
+        # post-click frame first instead of demanding a second identical frame.
+        pending_frames = [screenshot("ocr-after-mode-click.png")]
+        wait_for("OCR mode is visibly active", lambda: active_control_frame("OCR", pending_frames))
         report["ocr_mode_click"]["mode_confirmed"] = True
         drag_region((220, 240, 900, 350))
         click_control("Copy")
