@@ -686,5 +686,10 @@
   "Could not update desktop shortcuts.": "无法更新桌面快捷键。",
   "Invalid desktop shortcut operation.": "无效的桌面快捷键操作。",
   "Could not open desktop shortcut settings.": "无法打开桌面快捷键设置。",
-  "Could not save desktop shortcut settings.": "无法保存桌面快捷键设置。"
+  "Could not save desktop shortcut settings.": "无法保存桌面快捷键设置。",
+  "Basic editing: trim, delete and reorder clips at original speed.": "基础剪辑：以原速裁剪、删除和重排片段。",
+  "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.": "此剪辑使用了当前平台不支持的功能。已保存的剪辑保持不变，你仍可观看原始视频。",
+  "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.": "Linux 音频不可用。请检查 PulseAudio 或 PipeWire 音频服务及所选声音设备。",
+  "No microphone input is available. Select an unmuted input device in your sound settings.": "没有可用的麦克风输入。请在声音设置中选择未静音的输入设备。",
+  "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "音频录制已停止。请检查声音设备及音频服务，然后重新开始录制。"
 }

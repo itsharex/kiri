@@ -686,5 +686,10 @@
   "Could not update desktop shortcuts.": "デスクトップショートカットを更新できませんでした。",
   "Invalid desktop shortcut operation.": "デスクトップショートカットの操作が無効です。",
   "Could not open desktop shortcut settings.": "デスクトップのショートカット設定を開けませんでした。",
-  "Could not save desktop shortcut settings.": "デスクトップショートカットの設定を保存できませんでした。"
+  "Could not save desktop shortcut settings.": "デスクトップショートカットの設定を保存できませんでした。",
+  "Basic editing: trim, delete and reorder clips at original speed.": "基本編集：元の速度でクリップのトリミング、削除、並べ替えができます。",
+  "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.": "保存された編集には、このプラットフォームで使えない機能が含まれています。編集内容は変更せずに保持されています。元の動画は引き続き再生できます。",
+  "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.": "Linux の音声を利用できません。PulseAudio または PipeWire の音声サービスと選択したサウンドデバイスを確認してください。",
+  "No microphone input is available. Select an unmuted input device in your sound settings.": "マイク入力を利用できません。サウンド設定でミュートされていない入力デバイスを選択してください。",
+  "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "音声録音が停止しました。サウンドデバイスと音声サービスを確認してから、新しく録画を開始してください。"
 }

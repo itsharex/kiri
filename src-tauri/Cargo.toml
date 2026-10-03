@@ -201,6 +201,7 @@ gstreamer = "0.23"
 gstreamer-app = "0.23"
 gstreamer-video = "0.23"
 gstreamer-pbutils = "0.23"
+libpulse-binding = "2.30"
 
 # Keep the shipped Tauri crate self-contained when a contributor has an
 # unrelated Cargo workspace in a parent directory.

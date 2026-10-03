@@ -735,7 +735,24 @@ mod windows_export;
 #[cfg(windows)]
 use windows_export::platform_export;
 
-#[cfg(not(any(target_os = "macos", windows)))]
+#[cfg(target_os = "linux")]
+#[path = "video_export_linux.rs"]
+mod linux_export;
+#[cfg(target_os = "linux")]
+use linux_export::platform_export;
+
+pub fn editing_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        linux_export::available()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        cfg!(any(target_os = "macos", windows))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
 fn platform_export(
     _: &Path,
     _: &Path,

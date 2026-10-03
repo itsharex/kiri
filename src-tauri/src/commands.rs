@@ -3480,9 +3480,7 @@ pub async fn start_recording_flow(
     }
     #[cfg(target_os = "linux")]
     {
-        // Portal ScreenCast audio and global click monitoring are not wired yet.
-        options.captures_system_audio = false;
-        options.captures_microphone = false;
+        // Click monitoring is separate from the shared-clock Linux audio pipeline.
         options.highlights_clicks = false;
     }
     #[cfg(target_os = "macos")]
@@ -3991,13 +3989,11 @@ struct EncoderReceivers {
 
 fn recording_channels(options: RecordingOptions) -> (RecorderSenders, EncoderReceivers) {
     let (video_tx, video_rx) = mpsc::sync_channel(crate::capture::VIDEO_FRAME_QUEUE_CAPACITY);
-    let (audio_tx, audio_rx) = options
-        .captures_system_audio
+    let (audio_tx, audio_rx) = (options.captures_system_audio && !cfg!(target_os = "linux"))
         .then(crate::record::bounded_audio_channel)
         .map(|(tx, rx)| (Some(tx), Some(rx)))
         .unwrap_or((None, None));
-    let (mic_tx, mic_rx) = options
-        .captures_microphone
+    let (mic_tx, mic_rx) = (options.captures_microphone && !cfg!(target_os = "linux"))
         .then(crate::record::bounded_audio_channel)
         .map(|(tx, rx)| (Some(tx), Some(rx)))
         .unwrap_or((None, None));
@@ -4013,6 +4009,21 @@ fn recording_channels(options: RecordingOptions) -> (RecorderSenders, EncoderRec
             microphone: mic_rx,
         },
     )
+}
+
+fn recording_encoder_error_notice(error: &str) -> String {
+    #[cfg(target_os = "linux")]
+    for message in [
+        crate::linux_audio::AUDIO_UNAVAILABLE,
+        crate::linux_audio::MICROPHONE_UNAVAILABLE,
+        crate::linux_audio::AUDIO_RECORDING_FAILED,
+    ] {
+        if error.contains(message) {
+            return message.into();
+        }
+    }
+    let _ = error;
+    "Could not start the video encoder.".into()
 }
 
 fn recording_start_error_notice(error: &str, resuming: bool) -> String {
@@ -4116,8 +4127,10 @@ fn start_recorder(
         .map_err(|e| e.to_string())?;
         Ok(StartedRecorder {
             recorder: Box::new(recorder),
-            system_audio_spec: None,
-            microphone_spec: None,
+            system_audio_spec: configuration.options.captures_system_audio
+                .then_some(crate::linux_audio::AUDIO_SPEC),
+            microphone_spec: configuration.options.captures_microphone
+                .then_some(crate::linux_audio::AUDIO_SPEC),
         })
     }
 }
@@ -4423,7 +4436,7 @@ pub async fn begin_recording(app: AppHandle, session_id: Option<uuid::Uuid>) -> 
             let _ = started.recorder.stop();
             let _ = std::fs::remove_file(&out_path);
             if reset_startup_if_current(&app, startup_token) {
-                emit_error(&app, "Could not start the video encoder.".into(), None);
+                emit_error(&app, recording_encoder_error_notice(&error), None);
                 return Err(error);
             }
             return Ok(());
@@ -4666,7 +4679,7 @@ pub async fn resume_recording(app: AppHandle) -> Result<(), String> {
             log::error!("recording: start_encoder failed: {error}");
             let _ = started.recorder.stop();
             let _ = std::fs::remove_file(out_path);
-            emit_error(&app, "Could not start the video encoder.".into(), None);
+            emit_error(&app, recording_encoder_error_notice(&error), None);
             recover_failed_resume(&app);
             return Err(error);
         }
@@ -4748,8 +4761,10 @@ fn stop_recording_session(
                 || !recording
                     .active
                     .as_ref()
-                    .and_then(|active| active.recorder.as_ref())
-                    .is_some_and(|recorder| recorder.unexpected_failure().is_some())
+                    .is_some_and(|active| {
+                        active.recorder.as_ref().is_some_and(|recorder| recorder.unexpected_failure().is_some())
+                            || active.encoder.as_ref().is_some_and(|encoder| encoder.unexpected_failure().is_some())
+                    })
             {
                 return Ok(());
             }
@@ -4827,10 +4842,14 @@ fn stop_recording_session(
         let mut failure = None;
         let mut final_segments = segments;
         if let Some(mut active) = active {
+            #[cfg(target_os = "linux")]
+            {
+                failure = active.encoder.as_ref().and_then(|encoder| encoder.unexpected_failure());
+            }
             match active.recorder.take() {
                 Some(mut recorder) => {
                     if let Err(error) = recorder.stop() {
-                        failure = Some(error.to_string());
+                        failure.get_or_insert_with(|| error.to_string());
                     }
                 }
                 None if needs_active_segment => {
@@ -4874,7 +4893,20 @@ fn stop_recording_session(
             let message = match recovery {
                 Ok(true) => "Screen recording stopped unexpectedly. Earlier completed sections were saved as a partial recording."
                     .to_string(),
-                Ok(false) => "Could not save the recording.".to_string(),
+                Ok(false) => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        [
+                            crate::linux_audio::AUDIO_UNAVAILABLE,
+                            crate::linux_audio::MICROPHONE_UNAVAILABLE,
+                            crate::linux_audio::AUDIO_RECORDING_FAILED,
+                        ]
+                        .into_iter().find(|message| error.contains(message))
+                        .unwrap_or("Could not save the recording.").to_string()
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    { "Could not save the recording.".to_string() }
+                },
                 Err(recovery_error) => {
                     log::error!("recording: partial recording recovery failed: {recovery_error}");
                     "Could not save the recording. Kiri kept the completed sections so they are not lost."
@@ -5350,13 +5382,21 @@ pub struct PlatformCapabilitiesDto {
     pub microphone: bool,
     pub click_highlights: bool,
     pub video_editing: bool,
+    pub video_speed_editing: bool,
+    pub video_effects_editing: bool,
+    pub video_annotations_editing: bool,
+    pub video_export_presets: bool,
     pub manual_updates: bool,
 }
 
 #[tauri::command]
 pub fn platform_capabilities() -> PlatformCapabilitiesDto {
     PlatformCapabilitiesDto {
-        video_editing: !cfg!(target_os = "linux"),
+        video_editing: crate::video_export::editing_available(),
+        video_speed_editing: cfg!(any(windows, target_os = "macos")),
+        video_effects_editing: cfg!(any(windows, target_os = "macos")),
+        video_annotations_editing: cfg!(any(windows, target_os = "macos")),
+        video_export_presets: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         manual_updates: cfg!(target_os = "linux"),
         #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         recording: true,
@@ -5365,8 +5405,8 @@ pub fn platform_capabilities() -> PlatformCapabilitiesDto {
         local_ocr: true,
         #[cfg(any(windows, target_os = "macos"))]
         system_audio: true,
-        #[cfg(not(any(windows, target_os = "macos")))]
-        system_audio: false,
+        #[cfg(target_os = "linux")]
+        system_audio: crate::linux_audio::supported(),
         microphone: platform::mic_supported(),
         #[cfg(any(windows, target_os = "macos"))]
         click_highlights: true,

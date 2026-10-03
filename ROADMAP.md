@@ -68,7 +68,9 @@ See [Linux setup and acceptance](docs/linux.md) for installation and verificatio
 - [x] X11 frozen capture and window bounds through `xcap`
 - [x] Single-display Wayland capture (`grim` where supported; Screenshot portal on GNOME)
 - [x] Configurable native X11 capture shortcut and explicit Wayland desktop shortcut commands
-- [x] Silent region recording via ScreenCast/PipeWire and system GStreamer, with MP4/GIF output
+- [x] Opt-in GlobalShortcuts Portal backend with truthful current-binding state
+- [ ] Installed supported-desktop Portal shortcut acceptance (#47)
+- [x] Region recording via ScreenCast/PipeWire and system GStreamer, with optional MP4 audio and silent GIF output
 - [x] Recording controls through the tray and commands, without a captured floating panel
 - [x] Offline Tesseract OCR using system English, Simplified Chinese, and Japanese data
 - [x] Secret Service credentials for remote OCR profiles
@@ -78,8 +80,12 @@ See [Linux setup and acceptance](docs/linux.md) for installation and verificatio
 - [ ] Installed Ubuntu X11 acceptance beyond the virtual CI desktop
 - [ ] Wayland multiple displays and fractional-scale acceptance
 - [ ] Window hover outlines on Wayland where the compositor exposes bounds
-- [ ] System audio, microphone, and click-highlight parity
-- [ ] Linux video editing and MP4 export
+- [x] Linux system audio, microphone, mixed AAC recording and explicit microphone-check backend
+- [ ] Installed Ubuntu/GNOME real-device audio acceptance (#73)
+- [ ] Linux click-highlight parity
+- [x] Linux normal-speed cuts/reordering and source-audio-preserving MP4 export backend
+- [ ] Installed Ubuntu/GNOME basic-video-editing acceptance (#74)
+- [ ] Linux advanced video effects, annotations and speed editing
 - [ ] AppImage packaging and desktop acceptance
 - [ ] Signed Linux updater artifacts
 

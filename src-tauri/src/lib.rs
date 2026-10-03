@@ -18,6 +18,8 @@ mod microphone;
 mod macos_media;
 #[cfg(target_os = "linux")]
 mod linux_media;
+#[cfg(target_os = "linux")]
+mod linux_audio;
 mod qr;
 mod qr_commands;
 mod qr_controller;
