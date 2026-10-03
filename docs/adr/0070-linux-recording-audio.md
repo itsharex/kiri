@@ -30,7 +30,9 @@ that session, preserving MP4 preferences.
 
 Each selected source negotiates 48 kHz stereo PCM and verifies a 250 ms / 96 kB
 native maximum. The appsrc and downstream non-leaky queue each have the same
-byte bound. Signed native latency maps sample positions to the common monotonic
+byte bound. The live mixer reserves that same 250 ms latency window, so late
+arrival of correctly timestamped native PCM is not mistaken for silence.
+Signed native latency maps sample positions to the common monotonic
 video clock; `audiorate` smooths corrections within 20 ms. Large timestamp jumps,
 native overflow/holes and stalled sources fail closed. Inputs are mixed and
 encoded into one 192 kb/s libav AAC track; its 1024-sample priming is represented

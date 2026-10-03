@@ -544,7 +544,10 @@ impl RecordingAudio {
         if count == 0 {
             return String::new();
         }
-        let mut description = String::from(" audiomixer name=audio_mix ! audioconvert ! audioresample ! audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved ! avenc_aac bitrate=192000 ! aacparse ! queue max-size-buffers=0 max-size-bytes=262144 max-size-time=250000000 ! mux.audio_0");
+        // appsrc cannot report native hardware/transport latency. Reserve the
+        // same bounded 250ms window as capture, otherwise a live mixer emits
+        // silence before correctly timestamped native PCM reaches its pad.
+        let mut description = String::from(" audiomixer name=audio_mix latency=250000000 ! audioconvert ! audioresample ! audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved ! avenc_aac bitrate=192000 ! aacparse ! queue max-size-buffers=0 max-size-bytes=262144 max-size-time=250000000 ! mux.audio_0");
         for index in 0..count {
             description.push_str(&format!(" {source} name=audio_{index} ! audioconvert ! audioresample ! audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved ! audiorate tolerance=20000000 skip-to-first=true ! queue name=audio_queue_{index} max-size-buffers=0 max-size-bytes=96000 max-size-time=250000000 ! audio_mix."));
         }

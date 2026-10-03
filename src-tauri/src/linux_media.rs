@@ -611,6 +611,8 @@ enum AudioSetup<'a> {
     Devices(&'a [crate::linux_audio::AudioSource]),
     #[cfg(test)]
     Tones(usize),
+    #[cfg(test)]
+    DelayedPcm,
 }
 
 impl AudioSetup<'_> {
@@ -619,6 +621,8 @@ impl AudioSetup<'_> {
             Self::Devices(sources) => RecordingAudio::description(sources.len(), "appsrc format=time is-live=true do-timestamp=false caps=audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved"),
             #[cfg(test)]
             Self::Tones(count) => RecordingAudio::description(*count, "audiotestsrc is-live=true"),
+            #[cfg(test)]
+            Self::DelayedPcm => RecordingAudio::description(1, "appsrc format=time is-live=true do-timestamp=false caps=audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved"),
         }
     }
     fn attach(&self, pipeline: &gstreamer::Pipeline) -> Result<RecordingAudio> {
@@ -626,6 +630,8 @@ impl AudioSetup<'_> {
             Self::Devices(sources) => RecordingAudio::attach(pipeline, sources),
             #[cfg(test)]
             Self::Tones(count) => RecordingAudio::observe(pipeline, *count),
+            #[cfg(test)]
+            Self::DelayedPcm => RecordingAudio::observe(pipeline, 1),
         }
     }
 }
@@ -1853,6 +1859,59 @@ mod tests {
             expected += durations[index % 2];
         }
         assert!((audio.len() as f64 / 48_000.0 - expected).abs() < 0.04);
+    }
+
+    #[test]
+    fn native_audio_accepts_pcm_delivered_after_its_capture_timestamp() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("delayed-pcm.mp4");
+        let prepared =
+            PreparedEncoder::with_audio(&config(), &path, AudioSetup::DelayedPcm).unwrap();
+        let source = prepared
+            .pipeline
+            .by_name("audio_0")
+            .unwrap()
+            .downcast::<gstreamer_app::AppSrc>()
+            .unwrap();
+        let (tx, rx) = mpsc::sync_channel(2);
+        let output = path.clone();
+        let worker = std::thread::spawn(move || {
+            encode_bgra_mp4(
+                prepared,
+                &output,
+                rx,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicBool::new(false)),
+            )
+        });
+        tx.send(solid_frame([0, 255, 0, 255])).unwrap();
+        // Real native capture arrives after the samples' audible time. appsrc
+        // has no device-reported latency unlike audiotestsrc/pulsesrc.
+        std::thread::sleep(Duration::from_millis(80));
+        for block in 0..70 {
+            let mut bytes = Vec::new();
+            for frame in 0..480 {
+                let sample = (0.15
+                    * (2.0 * std::f64::consts::PI * 440.0 * (block * 480 + frame) as f64
+                        / 48_000.0)
+                        .sin()) as f32;
+                bytes.extend_from_slice(&sample.to_le_bytes());
+                bytes.extend_from_slice(&sample.to_le_bytes());
+            }
+            let mut buffer = gstreamer::Buffer::from_mut_slice(bytes);
+            let data = buffer.get_mut().unwrap();
+            data.set_pts(gstreamer::ClockTime::from_mseconds(block as u64 * 10));
+            data.set_duration(gstreamer::ClockTime::from_mseconds(10));
+            source.push_buffer(buffer).unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(tx);
+        worker.join().unwrap().unwrap();
+        let audio = decoded_audio(&path);
+        assert!(
+            tone_amplitude(&audio[9600..28800], 440.0) > 0.08,
+            "live mixer discarded delayed but correctly timestamped PCM"
+        );
     }
 
     #[test]
