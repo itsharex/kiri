@@ -1810,6 +1810,8 @@ mod tests {
         bytes: Vec<u8>,
         buffers: Vec<String>,
         truncated: bool,
+        first_pts: Option<u64>,
+        max_residual_ns: u64,
     }
 
     struct NativeAudioTrace {
@@ -1871,6 +1873,30 @@ mod tests {
             trace
         }
 
+        fn assert_native_continuity(&self) {
+            for (stage, data) in &self.stages {
+                if stage.starts_with("input-") {
+                    let (truncated, residual) = {
+                        let data = data.lock().unwrap();
+                        (data.truncated, data.max_residual_ns)
+                    };
+                    assert!(!truncated);
+                    assert!(
+                        residual <= 5_000_000,
+                        "{stage} native PCM timestamps drifted {residual}ns from sample positions"
+                    );
+                }
+            }
+            for snapshot in &self.rates {
+                let counters = snapshot.lock().unwrap().clone();
+                let counters = counters.expect("native audiorate EOS counters");
+                assert!(
+                    counters.ends_with("add=0 drop=0"),
+                    "virtual source acquired inserted/dropped samples: {counters}"
+                );
+            }
+        }
+
         fn observe(&mut self, stage: String, pad: gstreamer::Pad) {
             let data = Arc::new(std::sync::Mutex::new(AudioTraceData::default()));
             let samples = data.clone();
@@ -1880,6 +1906,13 @@ mod tests {
                     if let Ok(bytes) = buffer.map_readable() {
                         let mut data = samples.lock().unwrap();
                         if data.bytes.len() + bytes.len() <= 4_000_000 {
+                            if let Some(pts) = buffer.pts() {
+                                let first = *data.first_pts.get_or_insert(pts.nseconds());
+                                let expected =
+                                    first + data.bytes.len() as u64 * 1_000_000_000 / 384_000;
+                                data.max_residual_ns =
+                                    data.max_residual_ns.max(pts.nseconds().abs_diff(expected));
+                            }
                             data.bytes.extend_from_slice(bytes.as_slice());
                             data.buffers.push(format!(
                                 "{}\t{:?}\t{:?}\t{}\t{:?}",
@@ -1903,7 +1936,7 @@ mod tests {
     impl Drop for NativeAudioTrace {
         fn drop(&mut self) {
             for (stage, data) in &self.stages {
-                let data = data.lock().unwrap();
+                let data = data.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 let _ = std::fs::write(
                     self.path.with_extension(format!("{stage}.f32le")),
                     &data.bytes,
@@ -1923,7 +1956,7 @@ mod tests {
                 .map(|snapshot| {
                     snapshot
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
                         .clone()
                         .unwrap_or_else(|| "EOS not observed".into())
                 })
@@ -1931,6 +1964,30 @@ mod tests {
                 .join("\n");
             let _ = std::fs::write(self.path.with_extension("audiorate.txt"), rates);
         }
+    }
+
+    #[test]
+    fn native_audio_trace_survives_a_continuity_assertion() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("failed.mp4");
+        let trace = NativeAudioTrace {
+            path: path.clone(),
+            stages: vec![(
+                "input-0".into(),
+                Arc::new(std::sync::Mutex::new(AudioTraceData {
+                    max_residual_ns: 27_000_000,
+                    ..AudioTraceData::default()
+                })),
+            )],
+            rates: Vec::new(),
+        };
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            trace.assert_native_continuity()
+        }));
+        assert!(failure.is_err());
+        drop(trace);
+        assert!(path.with_extension("input-0.tsv").is_file());
+        assert!(path.with_extension("input-0.f32le").is_file());
     }
 
     #[test]
@@ -2252,9 +2309,13 @@ mod tests {
             let encoder =
                 LinuxNativeSegmentEncoder::start_prepared(prepared, path.clone(), rx).unwrap();
             tx.send(solid_frame([255, 0, 0, 255])).unwrap();
-            std::thread::sleep(Duration::from_millis(800));
+            // Five seconds of native mixed capture spans multiple mature
+            // auto-timing refreshes (up to 1.5s apart), not only startup.
+            let millis = if system && microphone { 5_000 } else { 800 };
+            std::thread::sleep(Duration::from_millis(millis));
             drop(tx);
             encoder.finish().unwrap();
+            trace.assert_native_continuity();
             drop(trace);
             validate_recording_tracks(&path, Some((64, 48)), Some(true)).unwrap();
             let samples = decoded_audio(&path);

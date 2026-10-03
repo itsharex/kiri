@@ -243,17 +243,84 @@ fn select_sources(
     Ok(selected)
 }
 
-fn sample_presentation_time(
-    elapsed: Duration,
-    latency: pulse::stream::Latency,
-) -> Option<Duration> {
-    match latency {
-        pulse::stream::Latency::Positive(value) => {
-            Some(elapsed.saturating_sub(Duration::from_micros(value.0)))
-        }
-        pulse::stream::Latency::Negative(value) => Some(elapsed + Duration::from_micros(value.0)),
-        pulse::stream::Latency::None => None,
+fn raw_sample_presentation_ns(snapshot_ns: i128, info: &pulse::def::TimingInfo) -> Result<i128> {
+    if info.read_index_corrupt != 0 || info.write_index_corrupt != 0 {
+        bail!(AUDIO_RECORDING_FAILED);
     }
+    // A record read index already includes client-side unread bytes. The raw
+    // snapshot avoids get_latency's UI smoother and startup zero clamping.
+    // Keep both indices signed, and do not subtract transport latency again:
+    // snapshot_ns is already mapped from the timestamp when this data was valid.
+    Ok(snapshot_ns
+        + (i128::from(info.read_index) - i128::from(info.write_index)) * 1_000_000_000
+            / i128::from(PCM_BYTES_PER_SECOND)
+        - i128::from(info.source_usec.0) * 1_000
+        + i128::from(info.sink_usec.0) * 1_000)
+}
+
+#[derive(Default)]
+struct NativeTiming {
+    anchor: Option<(pulse::time::UnixTs, i128)>,
+}
+
+impl NativeTiming {
+    fn sample_ns(
+        &mut self,
+        info: &pulse::def::TimingInfo,
+        elapsed: Duration,
+        now: pulse::time::UnixTs,
+    ) -> Result<i128> {
+        if info.timestamp > now {
+            bail!(AUDIO_RECORDING_FAILED);
+        }
+        let age = pulse::time::UnixTs::diff(&now, &info.timestamp);
+        if age.0 > 2_000_000 {
+            bail!(AUDIO_RECORDING_FAILED);
+        }
+        if self
+            .anchor
+            .is_none_or(|(timestamp, _)| timestamp != info.timestamp)
+        {
+            self.anchor = Some((
+                info.timestamp,
+                elapsed.as_nanos() as i128 - i128::from(age.0) * 1_000,
+            ));
+        }
+        raw_sample_presentation_ns(self.anchor.unwrap().1, info)
+    }
+}
+
+fn bracketed_snapshot_elapsed(before: Duration, after: Duration) -> Result<Duration> {
+    let span = after.checked_sub(before).context(AUDIO_RECORDING_FAILED)?;
+    if span > Duration::from_millis(1) {
+        bail!(AUDIO_RECORDING_FAILED);
+    }
+    Ok(before + span / 2)
+}
+
+fn recording_clock_pair(origin: Instant) -> Result<(Duration, pulse::time::UnixTs)> {
+    for _ in 0..3 {
+        let before = origin.elapsed();
+        let now = pulse::time::UnixTs::now();
+        if let Ok(elapsed) = bracketed_snapshot_elapsed(before, origin.elapsed()) {
+            return Ok((elapsed, now));
+        }
+    }
+    bail!(AUDIO_RECORDING_FAILED)
+}
+
+fn trim_pcm_before_origin(pts_ns: i128, bytes: &mut Vec<u8>) -> Duration {
+    let skip_frames = if pts_ns < 0 {
+        ((-pts_ns * 48_000 + 999_999_999) / 1_000_000_000) as usize
+    } else {
+        0
+    };
+    let skip_bytes = skip_frames.saturating_mul(8).min(bytes.len());
+    bytes.drain(..skip_bytes);
+    Duration::from_nanos(
+        (pts_ns + skip_bytes as i128 * 1_000_000_000 / i128::from(PCM_BYTES_PER_SECOND)).max(0)
+            as u64,
+    )
 }
 
 fn validate_audio_continuity(previous_end: Option<Duration>, next: Duration) -> Result<()> {
@@ -279,6 +346,7 @@ struct NativeInput {
     stream: pulse::stream::Stream,
     source: AudioSource,
     next_pts: Option<Duration>,
+    timing: NativeTiming,
     last_data: Instant,
 }
 
@@ -324,8 +392,7 @@ impl NativeCapture {
                     pulse::stream::FlagSet::START_CORKED
                         | pulse::stream::FlagSet::ADJUST_LATENCY
                         | pulse::stream::FlagSet::DONT_MOVE
-                        | pulse::stream::FlagSet::AUTO_TIMING_UPDATE
-                        | pulse::stream::FlagSet::INTERPOLATE_TIMING,
+                        | pulse::stream::FlagSet::AUTO_TIMING_UPDATE,
                 )
                 .map_err(|_| anyhow!(AUDIO_UNAVAILABLE))?;
             while stream.get_state() != pulse::stream::State::Ready {
@@ -350,6 +417,7 @@ impl NativeCapture {
                 stream,
                 source: source.clone(),
                 next_pts: None,
+                timing: NativeTiming::default(),
                 last_data: Instant::now(),
             });
         }
@@ -456,16 +524,14 @@ impl NativeCapture {
                 if queued == 0 {
                     break;
                 }
-                let elapsed = origin.elapsed();
-                let Some(measured) = sample_presentation_time(
-                    elapsed,
-                    input
-                        .stream
-                        .get_latency()
-                        .map_err(|_| anyhow!(AUDIO_RECORDING_FAILED))?,
-                ) else {
+                let Some(info) = input.stream.get_timing_info().copied() else {
                     break;
                 };
+                let (elapsed, now) = recording_clock_pair(origin)?;
+                let raw_pts = input.timing.sample_ns(&info, elapsed, now)?;
+                let measured = Duration::from_nanos(
+                    u64::try_from(raw_pts.max(0)).map_err(|_| anyhow!(AUDIO_RECORDING_FAILED))?,
+                );
                 validate_audio_continuity(input.next_pts, measured)?;
                 // Monitors can deliver future playback. Leave it unread until
                 // presentation time, so stopping cannot include future sound.
@@ -488,24 +554,32 @@ impl NativeCapture {
                 if bytes.is_empty() || !bytes.len().is_multiple_of(8) {
                     bail!(AUDIO_RECORDING_FAILED);
                 }
-                let mut duration =
-                    Duration::from_nanos(bytes.len() as u64 * 1_000_000_000 / PCM_BYTES_PER_SECOND);
+                let raw_duration =
+                    bytes.len() as i128 * 1_000_000_000 / i128::from(PCM_BYTES_PER_SECOND);
+                if cutoff.is_none() && raw_pts + raw_duration > elapsed.as_nanos() as i128 {
+                    break;
+                }
+                let pts = trim_pcm_before_origin(raw_pts, &mut bytes);
+                if bytes.is_empty() {
+                    input
+                        .stream
+                        .discard()
+                        .map_err(|_| anyhow!(AUDIO_RECORDING_FAILED))?;
+                    input.last_data = Instant::now();
+                    continue;
+                }
                 if let Some(cutoff) = cutoff {
-                    bytes.truncate(pcm_bytes_before_cutoff(measured, cutoff, bytes.len()));
-                    duration = Duration::from_nanos(
-                        bytes.len() as u64 * 1_000_000_000 / PCM_BYTES_PER_SECOND,
-                    );
+                    bytes.truncate(pcm_bytes_before_cutoff(pts, cutoff, bytes.len()));
                     if bytes.is_empty() {
                         input.next_pts = Some(cutoff);
                         break;
                     }
-                } else if measured + duration > elapsed {
-                    break;
                 }
-                // Latency already includes the client unread position: never
-                // subtract readable_size twice. audiorate smooths small clock
-                // corrections; a large native discontinuity fails closed.
-                let pts = measured;
+                let duration =
+                    Duration::from_nanos(bytes.len() as u64 * 1_000_000_000 / PCM_BYTES_PER_SECOND);
+                // Timestamp correction is tied to native snapshots, not worker
+                // polling delays. audiorate handles bounded device clock drift;
+                // the native continuity check rejects large discontinuities.
                 input.next_pts = Some(pts + duration);
                 input
                     .stream
@@ -762,19 +836,133 @@ mod tests {
         }
     }
 
+    fn timing_info() -> pulse::def::TimingInfo {
+        pulse::def::TimingInfo {
+            timestamp: pulse::time::UnixTs::now(),
+            synchronized_clocks: 1,
+            sink_usec: pulse::time::MicroSeconds(0),
+            source_usec: pulse::time::MicroSeconds(0),
+            transport_usec: pulse::time::MicroSeconds(5_000),
+            playing: 1,
+            write_index_corrupt: 0,
+            write_index: 38_400,
+            read_index_corrupt: 0,
+            read_index: 30_720,
+            configured_sink_usec: pulse::time::MicroSeconds(0),
+            configured_source_usec: pulse::time::MicroSeconds(0),
+            since_underrun: 0,
+        }
+    }
+
     #[test]
-    fn signed_latency_and_stop_cutoff_preserve_monitor_timing() {
-        use pulse::{stream::Latency, time::MicroSeconds};
+    fn native_timestamps_use_signed_snapshot_positions_not_poll_delays() {
+        let mut info = timing_info();
+        let snapshot = 100_000_000;
+        let mut timing = NativeTiming::default();
+        let mut now = info.timestamp + pulse::time::MicroSeconds(10_000);
+        assert_eq!(
+            timing
+                .sample_ns(&info, Duration::from_millis(110), now)
+                .unwrap(),
+            80_000_000
+        );
+        now += pulse::time::MicroSeconds(27_000);
+        assert_eq!(
+            timing
+                .sample_ns(&info, Duration::from_millis(137), now)
+                .unwrap(),
+            80_000_000
+        );
+        let mut refreshed = info;
+        refreshed.timestamp += pulse::time::MicroSeconds(20_000);
+        refreshed.write_index += 7_680;
+        assert_eq!(
+            timing
+                .sample_ns(&refreshed, Duration::from_millis(137), now)
+                .unwrap(),
+            80_000_000
+        );
+        assert_eq!(
+            raw_sample_presentation_ns(snapshot, &info).unwrap(),
+            80_000_000
+        );
+        // Reusing a snapshot does not advance its clock by the 27ms between
+        // worker polls. Only consuming exactly 10ms of PCM advances by 10ms.
+        assert_eq!(
+            raw_sample_presentation_ns(snapshot, &info).unwrap(),
+            80_000_000
+        );
+        info.read_index += 3_840;
+        assert_eq!(
+            raw_sample_presentation_ns(snapshot, &info).unwrap(),
+            90_000_000
+        );
+        info.source_usec = pulse::time::MicroSeconds(5_000);
+        info.sink_usec = pulse::time::MicroSeconds(35_000);
+        assert_eq!(
+            raw_sample_presentation_ns(snapshot, &info).unwrap(),
+            120_000_000
+        );
+        info.read_index = -3_840;
+        info.write_index = 0;
+        assert_eq!(raw_sample_presentation_ns(0, &info).unwrap(), 20_000_000);
+        info.sink_usec = pulse::time::MicroSeconds(0);
+        assert_eq!(raw_sample_presentation_ns(0, &info).unwrap(), -15_000_000);
+        info.read_index_corrupt = 1;
+        assert!(raw_sample_presentation_ns(snapshot, &info).is_err());
+    }
+
+    #[test]
+    fn snapshot_clock_pair_rejects_scheduler_delay() {
+        assert_eq!(
+            bracketed_snapshot_elapsed(Duration::from_micros(100), Duration::from_micros(120))
+                .unwrap(),
+            Duration::from_micros(110)
+        );
+        assert!(bracketed_snapshot_elapsed(Duration::ZERO, Duration::from_millis(27)).is_err());
+    }
+
+    #[test]
+    fn corrupt_stale_and_future_native_snapshots_fail_closed() {
+        let mut info = timing_info();
+        let now = info.timestamp;
+        info.write_index_corrupt = 1;
+        assert!(NativeTiming::default()
+            .sample_ns(&info, Duration::ZERO, now)
+            .is_err());
+        info.write_index_corrupt = 0;
+        assert!(NativeTiming::default()
+            .sample_ns(
+                &info,
+                Duration::ZERO,
+                now + pulse::time::MicroSeconds(2_000_001)
+            )
+            .is_err());
+        assert!(NativeTiming::default()
+            .sample_ns(&info, Duration::ZERO, now - pulse::time::MicroSeconds(1))
+            .is_err());
+    }
+
+    #[test]
+    fn signed_start_trim_and_stop_cutoff_preserve_monitor_timing() {
         let now = Duration::from_millis(100);
+        let mut samples = vec![1; 7_680];
         assert_eq!(
-            sample_presentation_time(now, Latency::Positive(MicroSeconds(20_000))),
-            Some(Duration::from_millis(80))
+            trim_pcm_before_origin(-10_000_000, &mut samples),
+            Duration::ZERO
         );
+        assert_eq!(samples.len(), 3_840);
+        let mut partial = vec![1; 16];
         assert_eq!(
-            sample_presentation_time(now, Latency::Negative(MicroSeconds(20_000))),
-            Some(Duration::from_millis(120))
+            trim_pcm_before_origin(-1, &mut partial),
+            Duration::from_nanos(20_832)
         );
-        assert_eq!(sample_presentation_time(now, Latency::None), None);
+        assert_eq!(partial.len(), 8);
+        assert_eq!(
+            trim_pcm_before_origin(-20_000_000, &mut samples),
+            Duration::ZERO
+        );
+        assert!(samples.is_empty());
         assert_eq!(
             pcm_bytes_before_cutoff(Duration::from_millis(90), now, 7680),
             3840

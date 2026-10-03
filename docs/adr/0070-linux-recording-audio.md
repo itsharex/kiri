@@ -32,8 +32,14 @@ Each selected source negotiates 48 kHz stereo PCM and verifies a 250 ms / 96 kB
 native maximum. The appsrc and downstream non-leaky queue each have the same
 byte bound. The live mixer reserves that same 250 ms latency window, so late
 arrival of correctly timestamped native PCM is not mistaken for silence.
-Signed native latency maps sample positions to the common monotonic
-video clock; `audiorate` smooths corrections within 20 ms. Large timestamp jumps,
+Signed read/write positions and device latencies from raw Pulse timing snapshots
+map samples to the common monotonic video clock. Each snapshot's wall-clock
+stamp is translated once; later reads advance by PCM sample count. The
+UI-oriented interpolated latency API is not used: its startup clock can stop
+while worker polling time advances, creating artificial gaps. Pre-origin PCM
+is trimmed at sample boundaries, and future monitor samples remain unread.
+`audiorate` tolerates 20 ms of timestamp jitter and corrects device clock drift.
+Large timestamp jumps,
 native overflow/holes and stalled sources fail closed. Inputs are mixed and
 encoded into one 192 kb/s libav AAC track; its 1024-sample priming is represented
 as MP4 decode preroll instead of shifting the content. Overrun, source discontinuity, a
