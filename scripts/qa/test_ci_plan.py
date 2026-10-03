@@ -41,6 +41,15 @@ class PlanTests(unittest.TestCase):
                 for other in policy.TARGET_PREFIXES:
                     self.assertEqual(result[f"native_{other}"], str(other == target).lower())
 
+    def test_ipc_lifetime_harness_runs_linux_without_packages(self):
+        for path in ("scripts/qa/ipc-lifetime/src/lib.rs", "scripts/qa/ipc-lifetime/check-source.py",
+                     "scripts/qa/ipc-lifetime/Cargo.lock"):
+            with self.subTest(path=path):
+                result = self.auto(path)
+                self.assertEqual(result["native_linux"], "true")
+                self.assertTrue(all(value == "false" for key, value in result.items()
+                                    if key not in {"profile", "native_linux"}))
+
     def test_manual_package_profiles_and_full(self):
         for profile in ("linux", "windows", "macos", "full"):
             result = policy.plan("workflow_dispatch", "refs/heads/qa", {"profile": profile}, [])

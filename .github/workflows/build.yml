@@ -178,6 +178,10 @@ jobs:
             python3-gi python3-pyatspi at-spi2-core \
             gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0
       - run: pnpm install --frozen-lockfile
+      - name: Check Linux IPC ownership and disposed callbacks
+        run: |
+          python3 scripts/qa/ipc-lifetime/check-source.py
+          env -u DISPLAY -u WAYLAND_DISPLAY cargo test --locked --manifest-path scripts/qa/ipc-lifetime/Cargo.toml -- --test-threads=1
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
         env:

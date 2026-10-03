@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { mediaUrl, onAssetContentChanged, onPinOnTop } from "../lib/ipc";
 import { t } from "../i18n";
@@ -7,6 +7,7 @@ import "./pin-window.css";
 export function PinWindow({ id }: { id: string }) {
   const [onTop, setOnTop] = useState(true);
   const [busy, setBusy] = useState(false);
+  const topState = useRef({onTop: true, generation: 0, busy: false});
   const [error, setError] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -27,26 +28,39 @@ export function PinWindow({ id }: { id: string }) {
   }, []);
   useEffect(() => {
     let disposed = false;
-    let nativeEvents = 0;
     let unlisten: (() => void) | undefined;
-    void onPinOnTop(() => { nativeEvents += 1; setOnTop(true); }).then(stop => {
+    // Every new pin is created with always_on_top(true). The native getter can
+    // briefly report false while the window manager is applying that request.
+    // Track successful Kiri pin actions instead of freezing that startup snapshot.
+    void onPinOnTop(() => {
+      if (disposed) return;
+      topState.current.generation += 1;
+      topState.current.onTop = true;
+      setOnTop(true);
+      setError(false);
+    }).then(stop => {
       if (disposed) stop();
-      else {
-        unlisten = stop;
-        const generation = nativeEvents;
-        void getCurrentWindow().isAlwaysOnTop().then(value => {
-          if (!disposed && nativeEvents === generation) setOnTop(value);
-        });
-      }
+      else unlisten = stop;
     }).catch(() => {});
     return () => { disposed = true; unlisten?.(); };
   }, []);
   const toggleTop = async () => {
-    if (busy) return;
+    const state = topState.current;
+    if (state.busy) return;
+    state.busy = true;
+    const generation = state.generation;
+    const next = !state.onTop;
     setBusy(true); setError(false);
-    try { await getCurrentWindow().setAlwaysOnTop(!onTop); setOnTop(!onTop); }
-    catch { setError(true); }
-    finally { setBusy(false); }
+    try {
+      await getCurrentWindow().setAlwaysOnTop(next);
+      // A library repin received while this request was pending is newer.
+      if (state.generation === generation) {
+        state.onTop = next;
+        setOnTop(next);
+      }
+    }
+    catch { if (state.generation === generation) setError(true); }
+    finally { state.busy = false; setBusy(false); }
   };
   return <div className="pin-window">
     <header className="pin-window__header">

@@ -206,7 +206,7 @@ resolver = "2"
 exclude = ["vendor/wry", "vendor/global-hotkey"]
 
 [patch.crates-io]
-# Tauri 2.11 requires Wry 0.55; carry its upstream Windows teardown fix.
+# Tauri 2.11 requires Wry 0.55; carry Windows teardown and Linux IPC ownership fixes.
 wry = { path = "vendor/wry" }
 # Native capture bindings must report macOS conflicts instead of sharing them.
 global-hotkey = { path = "vendor/global-hotkey" }

@@ -48,3 +48,27 @@ exclusive native registration. Do not modify the shared registry cache.
 Native acceptance uses a separate Carbon process holding an exclusive binding:
 restoring that default must fail while the custom shortcut remains enabled;
 after the helper exits, restoring the default must succeed.
+
+## Linux WebKitGTK IPC ownership
+
+Kiri also changes Wry 0.55.1's `src/webkitgtk/mod.rs` to keep a weak
+WebView reference in the UserContentManager IPC signal handler. The WebView
+owns the manager, so capturing a strong view in its signal can create a
+retention cycle. The callback upgrades the weak reference only for its
+synchronous duration; if disposal has cleared the reference, the late message
+is ignored before reading the message or accessing the view.
+
+The live path constructs owned URI and body values before calling application
+code and does not access the WebView after that call. The temporary reference
+keeps the allocation alive through reentrant close, but does not prevent
+explicit GTK disposal. No manual unref, teardown change, process/cache setting,
+or WebKit sandbox change is involved. This is a local patch, not an upstream
+backport. Remove it when a compatible upstream Wry release includes equivalent
+ownership handling.
+
+Local validation uses an exact-version glib/gio GObject lifetime harness,
+including live delivery, disposal with a remaining owner, late messages, a
+strong-cycle negative control, and disposal during the application callback.
+Real WebKitGTK acceptance additionally checks repeated IPC, close/reopen,
+renderer PID retirement, and normal Quit in a separate test profile. Headless
+GObject checks alone are not evidence of renderer retirement.
