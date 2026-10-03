@@ -145,3 +145,5 @@ development.
 - [ADR 0060: Image text editing and unsaved close](adr/0060-image-text-editing-and-close.md)
 - [ADR 0061: Local QR recognition and favorites](adr/0061-local-qr-recognition-and-favorites.md)
 - [ADR 0062: Merge QR results across contrast thresholds](adr/0062-qr-multi-contrast-results.md)
+
+- [`adr/0072-wayland-global-shortcuts-portal.md`](adr/0072-wayland-global-shortcuts-portal.md)

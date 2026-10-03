@@ -46,6 +46,55 @@ the command `kiri --capture`. Choose an available key combination, such as
 `Ctrl+Shift+A`. Kiri does not register an XWayland shortcut as a Wayland binding,
 edit your compositor configuration, or install a Hyprland FIFO listener.
 
+### Optional desktop-approved shortcuts
+
+In Settings → General, **Wayland Desktop Shortcuts** checks the installed
+`org.freedesktop.portal.GlobalShortcuts` interface. **Set Up Desktop Shortcuts**
+asks the desktop for Capture, Pause/Resume Recording, and Stop Recording only.
+Choose/approve keys in the desktop dialog. Kiri shows its returned trigger
+text for each action; **Not bound** means no usable trigger was returned.
+A cancelled/declined/failed request must not display active Portal bindings.
+Command guidance remains visible even when Portal setup succeeds.
+
+Approved bindings are restored by one attempt on Kiri's next start; the
+desktop may ask again. On session/service loss Kiri clears its displayed
+bindings; select **Reconnect Desktop Shortcuts** to try again. Use **Open
+Desktop Shortcut Settings** when interface version 2 supports it. Version 1
+uses the desktop's own settings or another explicit setup. Refresh checks the
+current session, including remapped or revoked keys. **Disconnect Desktop
+Shortcuts** ends Kiri's session and stops automatic restoration; the desktop
+may retain saved choices. Leaving Settings during setup cancels the request.
+
+| Desktop/backend | Upstream capability | Kiri behavior |
+| --- | --- | --- |
+| Ubuntu 24.04 / GNOME 46 | No GlobalShortcuts backend | Always retain manual CLI bindings; installing the frontend does not add support |
+| GNOME 48+ | Backend introduced in 48.rc | Offer setup only after the installed interface/identity probe succeeds |
+| KDE portal backend | GlobalShortcuts implemented; current upstream advertises v2 | Runtime probe; use ConfigureShortcuts only with v2 |
+| Hyprland portal backend | Upstream supports activation but currently returns empty trigger descriptions | Unconfirmed actions stay inactive in Kiri; use CLI bindings until the backend reports usable trigger metadata |
+| X11 | Native global-hotkey path | Existing configurable capture shortcut; no Portal startup |
+
+Sources: [GNOME release history](https://github.com/GNOME/xdg-desktop-portal-gnome/blob/main/NEWS),
+[Ubuntu Noble package](https://packages.ubuntu.com/noble/xdg-desktop-portal-gnome),
+[KDE implementation](https://github.com/KDE/xdg-desktop-portal-kde/blob/master/src/globalshortcuts.cpp),
+[Hyprland documentation](https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/),
+[Portal protocol](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html).
+The current [Hyprland implementation](https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/master/src/portals/GlobalShortcuts.cpp)
+returns empty trigger descriptions ([upstream issue #312](https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/312)).
+Kiri deliberately does not claim or activate an unconfirmed binding. Use command
+shortcuts on affected versions; KDE is the alternate-desktop acceptance target.
+
+These are upstream capabilities, not evidence that a Kiri package has passed
+physical-desktop acceptance.
+
+For host `.deb` builds, the dedicated D-Bus connection registers
+`io.yuxino.kiri` before other Portal calls. The package installs the matching
+`/usr/share/applications/io.yuxino.kiri.desktop` metadata entry with
+`NoDisplay=true`; the normal `kiri.desktop` launcher remains unchanged.
+An uninstalled development binary may lack this identity and correctly fall
+back to commands. Do not manually modify permissions or compositor settings
+as part of troubleshooting. See the
+[Registry identity contract](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.host.portal.Registry.html).
+
 The current Wayland implementation requires **one connected display**. It
 rejects multiple displays before capture rather than guessing which screen
 belongs to a portal image. Select a region by dragging; Wayland window hover
@@ -248,3 +297,40 @@ pause/resume/stop, GIF conversion, timing, and absence of Kiri controls. Test th
 multi-display rejection explicitly. Use a separate test user and public test
 content; never point QA at an existing capture library. Record outcomes before
 marking those gates complete in the [roadmap](../ROADMAP.md).
+
+## Global Shortcuts Portal acceptance
+
+Run the production protocol client's isolated wire tests separately:
+
+```bash
+cargo test --locked --manifest-path scripts/qa/portal-shortcuts/Cargo.toml -- --include-ignored
+node --test scripts/portal-shortcuts.test.mjs
+```
+
+The wire harness requires `dbus-daemon` and permission to create private Unix
+sockets. Its tests are explicitly ignored in ordinary application tests and
+executed with `--include-ignored` by Linux CI. It does not use the desktop bus,
+change a user's permission store, or prove any compositor behavior.
+
+Before closing #47, record the exact commit, package SHA-256, installed desktop
+entry, frontend/backend versions, session type, and evidence for each row.
+All rows remain acceptance gates until that evidence is attached:
+
+- Ubuntu 24.04 / GNOME 46 installed `.deb`: no Portal setup claimed; all three
+  command bindings, Capture button and recording stop still work
+- GNOME 48+ installed `.deb`: first approval, denial/cancel, partial binding,
+  existing key conflict, remap/revoke while Settings is open and hidden
+- A supported KDE installed `.deb` (or Hyprland once usable trigger metadata is
+  implemented): the same cases; verify the
+  actual backend/version rather than assuming a desktop name is sufficient
+- Both supported desktops: real Capture, Pause/Resume and Stop activations;
+  restart and restored permissions; service/session closure; explicit reconnect;
+  no stale triggers, duplicate captures or unsolicited repeated permission UI
+- Two concurrent launches: only the resident process owns a shortcuts session
+- X11 installed `.deb`: native custom/default shortcuts and CLI control regression
+- Check focus/transient-dialog placement with the protocol-valid empty parent
+  identifier; verify translated desktop approval labels and application name
+
+Label headless/virtual-desktop, isolated D-Bus, and physical-desktop results
+separately. GNOME 46 CI and mocked D-Bus responses do not satisfy GNOME 48+
+Portal keyboard/permission acceptance.

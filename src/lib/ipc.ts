@@ -138,6 +138,15 @@ export interface ShortcutStatusDto {
   status: "enabled" | "occupied" | "systemManaged";
 }
 
+export interface PortalShortcutsDto {
+  revision: number;
+  status: "unsupported" | "checking" | "unavailable" | "ready" | "connecting" | "active" | "declined" | "failed" | "closed";
+  available: boolean;
+  canConfigure: boolean;
+  appId: string;
+  bindings: Array<{ id: string; description: string; command: string; trigger: string | null }>;
+}
+
 export interface PlatformCapabilitiesDto {
   recording: boolean;
   localOcr: boolean;
@@ -359,6 +368,9 @@ export const api = {
 
   micSupported: () => invoke<boolean>("mic_supported"),
   platformCapabilities: () => invoke<PlatformCapabilitiesDto>("platform_capabilities"),
+  getPortalShortcuts: () => invoke<PortalShortcutsDto>("get_portal_shortcuts"),
+  updatePortalShortcuts: (operation: "setup" | "configure" | "refresh" | "disconnect") => invoke<PortalShortcutsDto>("update_portal_shortcuts", { operation }),
+  cancelPortalShortcutSetup: () => invoke<void>("cancel_portal_shortcut_setup"),
   getShortcutStatus: () => invoke<ShortcutStatusDto>("get_shortcut_status"),
   setCaptureShortcut: (shortcut: string | null) => invoke<ShortcutStatusDto>("set_capture_shortcut", { shortcut }),
   setCaptureShortcutEditing: (editing: boolean) => invoke<void>("set_capture_shortcut_editing", { editing }),
@@ -469,4 +481,8 @@ export function onRecordingSaveJobs(
 
 export function mediaUrl(id: string, video = false): string {
   return video ? videoResourceUrl(id) : kiriResourceUrl("media", [id]);
+}
+
+export function onPortalShortcutsChanged(handler: (status: PortalShortcutsDto) => void): Promise<UnlistenFn> {
+  return listen<PortalShortcutsDto>("portal-shortcuts-changed", (event) => handler(event.payload));
 }

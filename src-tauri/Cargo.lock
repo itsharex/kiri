@@ -3188,6 +3188,7 @@ dependencies = [
  "dirs",
  "dispatch2",
  "env_logger",
+ "futures-util",
  "glib 0.20.12",
  "gstreamer",
  "gstreamer-app",
@@ -3239,6 +3240,7 @@ dependencies = [
  "windows-future 0.3.2",
  "x11rb",
  "xcap",
+ "zbus 5.19.0",
 ]
 
 [[package]]

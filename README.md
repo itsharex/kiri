@@ -57,7 +57,7 @@ macOS needs **Screen & System Audio Recording** permission; click highlights als
 
 ## Start capturing
 
-Press **⇧⌘A** on macOS or **Shift+Ctrl+A** on Windows / Linux X11, then select a window or drag a region. On Wayland, use the Capture button or bind `kiri --capture` in desktop settings.
+Press **⇧⌘A** on macOS or **Shift+Ctrl+A** on Windows / Linux X11, then select a window or drag a region. On Wayland, use the Capture button or bind `kiri --capture` in desktop settings. Supporting desktops also offer **Settings → General → Wayland Desktop Shortcuts** for desktop-approved Capture, Pause/Resume, and Stop bindings. Ubuntu 24.04 / GNOME 46 retains the command fallback.
 
 Choose Screenshot, Record, or OCR. The screenshot toolbar also offers Recognize QR Codes. **Enter** confirms a screenshot; **Esc** cancels capture. Screenshots go to your clipboard and local library. Screenshot tools, Cancel and Done stay on a compact bar. More Actions reveals colors and exact-size inputs; drawing tools reveal their appearance controls. Both groups stay within the active display. You can change the capture shortcut in Settings on macOS, Windows, and X11.
 

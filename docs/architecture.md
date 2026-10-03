@@ -79,7 +79,10 @@ the tray and global shortcut remain available when the Dock icon is hidden.
    Linux freezes the display on a worker thread, then creates the overlay on
    the GTK main thread. X11 uses the native shortcut plugin. Wayland does not
    claim a successful XWayland grab or modify compositor bindings: users
-   configure `kiri --capture` as a desktop shortcut. Single-instance dispatch
+   configure `kiri --capture` as a desktop shortcut. Supporting desktops also
+   offer explicit GlobalShortcuts Portal setup in Settings, with actual returned
+   bindings and a dedicated identity-registered session actor (ADR 0072).
+   Command guidance remains available on every Wayland desktop. Single-instance dispatch
    routes that command to the running app without opening its library.
 2. macOS freezes the active display with ScreenCaptureKit. Windows frozen
    stills use the GDI path exposed through `xcap`; Windows Graphics Capture

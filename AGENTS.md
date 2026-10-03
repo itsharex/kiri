@@ -24,7 +24,9 @@ Linux. Preserve these decisions:
   Windows and Linux X11. These use native global-hotkey registration; the shortcut does
   not require Input Monitoring permission. Settings may replace the binding
   with a modified letter or digit and restore this default (ADR 0046).
-  On Wayland, the user configures `kiri --capture` in desktop settings. Never
+  On Wayland, the user configures `kiri --capture` in desktop settings, or opts
+  in to GlobalShortcuts Portal setup where the actual interface is available.
+  Preserve command guidance and truthful session/binding state (ADR 0072). Never
   install compositor bindings or FIFOs automatically (ADR 0051).
 - The initial overlay offers Screenshot, Record, and OCR. The screenshot toolbar
   and saved-image editor offer Recognize QR Codes. QR recognition

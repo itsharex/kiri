@@ -28,7 +28,10 @@
         ],
         "recommends": [
           "xdg-desktop-portal-gnome | xdg-desktop-portal-kde | xdg-desktop-portal-gtk | xdg-desktop-portal-wlr"
-        ]
+        ],
+        "files": {
+          "/usr/share/applications/io.yuxino.kiri.desktop": "linux/io.yuxino.kiri.desktop"
+        }
       }
     }
   },
