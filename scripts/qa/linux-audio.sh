@@ -3,6 +3,9 @@
 # No desktop devices, settings, consent state, or capture library are used.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+for command in pulseaudio gst-launch-1.0 cargo; do
+  command -v "$command" >/dev/null || { echo "Missing audio QA dependency: $command" >&2; exit 127; }
+done
 root=$(mktemp -d "${TMPDIR:-/tmp}/kiri-audio-qa.XXXXXX")
 pids=()
 cleanup() {
@@ -40,5 +43,8 @@ pids+=("$!")
 gst-launch-1.0 -q audiotestsrc is-live=true freq=880 volume=0.15 ! audioconvert ! pulsesink device=kiri_test_mic_feed &
 pids+=("$!")
 sleep 0.2
+for pid in "${pids[@]}"; do
+  kill -0 "$pid" 2>/dev/null || { echo "A synthetic audio source failed to start" >&2; exit 1; }
+done
 KIRI_LINUX_PULSE_QA=1 cargo test --locked --manifest-path src-tauri/Cargo.toml \
   native_pulse_private_server_captures_verified_sources -- --ignored --nocapture
