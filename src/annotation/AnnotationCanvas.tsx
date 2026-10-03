@@ -371,15 +371,21 @@ const AnnotationCanvas = forwardRef<AnnotationCanvasHandle, Props>(
         viewScaleY,
         exporting: false,
       };
-      renderAll(context, marks, {
-        draft,
+      // Moving/resizing an existing mark replaces it in place for this frame.
+      // Preserve stacking and move the handles too, without touching history.
+      const replacementIndex = draft ? marks.findIndex(mark => mark.id === draft.id) : -1;
+      const previewMarks = replacementIndex < 0 ? marks : marks.map((mark, index) =>
+        index === replacementIndex ? draft! : mark);
+      const drawingDraft = replacementIndex < 0 ? draft : null;
+      renderAll(context, previewMarks, {
+        draft: drawingDraft,
         brushCursor,
         brushDiameter: appearanceRef.current.mosaicBrushDiameter,
         selectedIndex: editing ? null : selectedIndex,
         editingIndex: editing ? editing.index : null,
         chromeOnly: !!onLiveMarks,
       });
-      onLiveMarks?.(marks, draft, editing?.index != null ? marks[editing.index]?.id ?? null : null);
+      onLiveMarks?.(previewMarks, drawingDraft, editing?.index != null ? marks[editing.index]?.id ?? null : null);
       onFrame?.(canvas);
     }, [
       marks,

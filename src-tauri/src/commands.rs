@@ -90,6 +90,7 @@ pub struct AssetDto {
     pub pixel_width: i64,
     pub pixel_height: i64,
     pub duration: Option<f64>,
+    pub file_size: Option<u64>,
     pub source_application: Option<String>,
     pub is_favorite: bool,
     pub trashed_at: Option<f64>,
@@ -141,6 +142,7 @@ pub(crate) fn asset_dto(asset: &CaptureAsset) -> AssetDto {
         pixel_width: asset.pixel_width,
         pixel_height: asset.pixel_height,
         duration: asset.duration,
+        file_size: None,
         source_application: asset.source_application.clone(),
         is_favorite: asset.is_favorite,
         trashed_at: asset.trashed_at,
@@ -172,20 +174,29 @@ fn completion_asset_detail(asset: &CaptureAsset) -> String {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn list_assets(
+pub async fn list_assets(
     app: AppHandle,
     query: String,
     showing_trash: bool,
 ) -> Result<Vec<AssetDto>, String> {
-    let state = app.state::<AppState>();
-    let mut context = state.library.lock().unwrap();
-    let library = context.library().map_err(|error| error.to_string())?;
-    let assets = library.search(&query, showing_trash);
-    Ok(assets
-        .iter()
-        .filter(|asset| showing_trash || (asset.ocr_text.is_none() && asset.qr_text.is_none()))
-        .map(asset_dto)
-        .collect())
+    // Metadata on a custom/external library can block; keep it off the UI thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut context = state.library.lock().unwrap();
+        let library = context.library().map_err(|error| error.to_string())?;
+        let assets = library.search(&query, showing_trash);
+        Ok(assets
+            .iter()
+            .filter(|asset| showing_trash || (asset.ocr_text.is_none() && asset.qr_text.is_none()))
+            .map(|asset| {
+                let mut dto = asset_dto(asset);
+                dto.file_size = library.asset_file_size(asset);
+                dto
+            })
+            .collect())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn with_asset_mutation(

@@ -45,6 +45,7 @@ export interface AssetDto {
   pixelWidth: number;
   pixelHeight: number;
   duration: number | null;
+  fileSize: number | null;
   sourceApplication: string | null;
   isFavorite: boolean;
   trashedAt: number | null;

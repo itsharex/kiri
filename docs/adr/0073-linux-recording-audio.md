@@ -1,4 +1,4 @@
-# ADR 0070: Shared-clock Linux recording audio
+# ADR 0073: Shared-clock Linux recording audio
 
 Status: accepted for implementation; physical desktop acceptance is separate.
 

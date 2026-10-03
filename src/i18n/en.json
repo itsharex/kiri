@@ -656,6 +656,13 @@
   "Could not save this QR code.": "Could not save this QR code.",
   "Could not open this link.": "Could not open this link.",
   "Invalid QR favorite.": "Invalid QR favorite.",
+  "File Size": "File Size",
+  "B": "B",
+  "KB": "KB",
+  "MB": "MB",
+  "GB": "GB",
+  "TB": "TB",
+  "Imported %d files.": "Imported %d files.",
   "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.": "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.",
   "No microphone input is available. Select an unmuted input device in your sound settings.": "No microphone input is available. Select an unmuted input device in your sound settings.",
   "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "Audio recording stopped. Check the sound devices and audio service, then start a new recording."

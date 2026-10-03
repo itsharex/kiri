@@ -650,4 +650,4 @@ track keep memory bounded and avoid independent audio clocks. Device changes,
 source stalls, discontinuities and queue overflow fail the recording instead of
 producing a successful silent file. Pause closes each segment, and merge keeps
 the AAC track on the same completed-segment boundaries as video. See
-[ADR 0070](adr/0070-linux-recording-audio.md) for details and acceptance limits.
+[ADR 0073](adr/0073-linux-recording-audio.md) for details and acceptance limits.
