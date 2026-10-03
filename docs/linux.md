@@ -90,6 +90,10 @@ it is not a desktop-wide Linux recording-stop shortcut.
 The native capture shortcut defaults to `Ctrl+Shift+A` and can be changed in
 Settings → General. A conflicting binding leaves Kiri available through the
 Capture button and preserves the previous shortcut when a replacement fails.
+X11 capture requests managed fullscreen on the captured monitor before showing
+the selection canvas. Panels and docks keep their normal reserved workarea;
+they must not shift or crop the frozen desktop.
+
 X11 screenshots use `xcap` to capture the monitor under the pointer and expose
 window bounds for hover/click selection. Region dragging and annotation use
 the same editor as other platforms.
@@ -188,6 +192,11 @@ desktop commands to pause, resume, and stop. The exported MP4 is decoded with
 system GStreamer to check its size, silent audio layout, duration, and frames:
 both recorded scenes must appear, while the pause-only scene and recording
 controls must be absent. There is no runtime synthetic-capture mode.
+The overlay geometry check also adds an ordinary external dock with a 27-pixel
+top strut. It verifies three fresh captures at the full display origin and
+size, fullscreen state, cancellation, and an unchanged reserved workarea.
+The dock exists only inside the disposable QA desktop.
+
 `linux-native-review/report.json`, media, images, and logs are the evidence;
 a configured workflow alone is not a passing result.
 

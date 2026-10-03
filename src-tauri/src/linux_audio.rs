@@ -75,6 +75,25 @@ fn validate_local_server(server: &str) -> Result<()> {
     Ok(())
 }
 
+fn drain_mainloop(mainloop: &mut pulse::mainloop::standard::Mainloop) -> Result<()> {
+    let started = Instant::now();
+    // Pulse gives deferred transport work priority over timers. Consuming PCM
+    // schedules another shared-memory release defer, so one iteration per
+    // video poll can starve timing/control events forever. Drain ready work
+    // before consuming the next batch, without turning this into a busy wait.
+    for _ in 0..32 {
+        match mainloop.iterate(false) {
+            pulse::mainloop::standard::IterateResult::Success(0) => break,
+            pulse::mainloop::standard::IterateResult::Success(_) => {}
+            _ => bail!(AUDIO_UNAVAILABLE),
+        }
+        if started.elapsed() >= Duration::from_millis(2) {
+            break;
+        }
+    }
+    Ok(())
+}
+
 struct PulseConnection {
     context: pulse::context::Context,
     mainloop: pulse::mainloop::standard::Mainloop,
@@ -122,12 +141,7 @@ impl PulseConnection {
         {
             bail!(AUDIO_UNAVAILABLE);
         }
-        if !matches!(
-            self.mainloop.iterate(false),
-            pulse::mainloop::standard::IterateResult::Success(_)
-        ) {
-            bail!(AUDIO_UNAVAILABLE);
-        }
+        drain_mainloop(&mut self.mainloop)?;
         std::thread::sleep(Duration::from_millis(2));
         Ok(())
     }
@@ -559,7 +573,7 @@ impl NativeCapture {
                         .anchor
                         .is_none_or(|(stamp, _)| stamp != info.timestamp)
                 {
-                    eprintln!("kiri-audio-snapshot source={} elapsed_us={} read={} write={} source_us={} sink_us={} transport_us={} age_us={} timestamp={} queued_bytes={}", input.source.name, elapsed.as_micros(), info.read_index, info.write_index, info.source_usec.0, info.sink_usec.0, info.transport_usec.0, pulse::time::UnixTs::diff(&now, &info.timestamp).0, info.timestamp, queued);
+                    eprintln!("kiri-audio-snapshot source={} elapsed_us={} read={} write={} source_us={} sink_us={} transport_us={} age_us={} timestamp={} queued_bytes={} configured_source_us={} configured_sink_us={} actual_fragsize={}", input.source.name, elapsed.as_micros(), info.read_index, info.write_index, info.source_usec.0, info.sink_usec.0, info.transport_usec.0, pulse::time::UnixTs::diff(&now, &info.timestamp).0, info.timestamp, queued, info.configured_source_usec.0, info.configured_sink_usec.0, input.stream.get_buffer_attr().map(|attributes| attributes.fragsize).unwrap_or(0));
                 }
                 let raw_pts = input.timing.sample_ns(&info, elapsed, now)?;
                 let measured = Duration::from_nanos(
@@ -857,6 +871,38 @@ mod tests {
             muted: false,
         }
     }
+    #[test]
+    fn ready_transport_work_cannot_starve_pulse_timers() {
+        use pulse::mainloop::api::Mainloop as _;
+        let mut mainloop = pulse::mainloop::standard::Mainloop::new().unwrap();
+        let fired = Rc::new(std::cell::Cell::new(false));
+        let result = fired.clone();
+        let _timer = mainloop
+            .new_timer_event(
+                &pulse::time::UnixTs::now(),
+                Box::new(move |_| result.set(true)),
+            )
+            .unwrap();
+        let mut transport = mainloop
+            .new_deferred_event(Box::new(|mut event| event.disable()))
+            .unwrap();
+        assert!(mainloop.iterate(false).is_success());
+        assert!(
+            !fired.get(),
+            "one iteration only processed the transport defer"
+        );
+        // Releasing the just-consumed PCM re-enables deferred transport work.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !fired.get() && Instant::now() < deadline {
+            transport.enable();
+            drain_mainloop(&mut mainloop).unwrap();
+        }
+        assert!(
+            fired.get(),
+            "the ready timer must run before the next PCM batch"
+        );
+    }
+
     #[test]
     fn audio_never_connects_to_network_or_ambiguous_servers() {
         assert!(validate_local_server("unix:/run/user/1000/pulse/native").is_ok());

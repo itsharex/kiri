@@ -59,7 +59,7 @@ macOS needs **Screen & System Audio Recording** permission; click highlights als
 
 Press **⇧⌘A** on macOS or **Shift+Ctrl+A** on Windows / Linux X11, then select a window or drag a region. On Wayland, use the Capture button or bind `kiri --capture` in desktop settings.
 
-Choose Screenshot, Record, or OCR. The screenshot toolbar also offers Recognize QR Codes. **Enter** confirms a screenshot; **Esc** cancels capture. Screenshots go to your clipboard and local library. Screenshot tools, Cancel and Done stay on a compact bar. More Actions reveals colors and exact-size inputs; drawing tools reveal their appearance controls. Both groups stay within the active display. You can change the capture shortcut in Settings on macOS, Windows, and X11.
+Choose Screenshot, Record, or OCR. The screenshot toolbar also offers Recognize QR Codes. **Enter** confirms a screenshot; **Esc** cancels capture. Screenshots go to your clipboard and local library. Screenshot tools, Cancel and Done stay on a compact bar. More Actions reveals colors and exact-size inputs; drawing tools reveal their appearance controls. Both groups stay within the active display. You can change the capture shortcut in Settings on macOS, Windows, and X11. X11 capture covers the selected display without an offset from desktop panels.
 
 On macOS, if you change display layout, resolution, or scale after selecting a region, start a new capture before recording. If recording is paused, stop and save it first.
 

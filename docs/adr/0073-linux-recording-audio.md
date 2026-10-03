@@ -18,7 +18,8 @@ non-monitor input. Connection uses `NOAUTOSPAWN`, a three-second deadline and a
 local-service check. Before connecting, only an explicit local Unix socket
 address or the standard XDG runtime socket is accepted; network addresses and
 ambiguous server lists are rejected. Recording pins this server and device, uses corked startup,
-nonblocking mainloop iteration, bounded open/timing operations and nonblocking
+bounded draining of ready mainloop work (so transport defers cannot starve timing
+or control events), bounded open/timing operations and nonblocking
 disconnect. This avoids the unbounded synchronous open/flush waits in `pulsesrc`.
 It never starts a daemon, changes devices, grants access,
 unmutes an input, or uses a downloaded media executable.

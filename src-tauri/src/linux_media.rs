@@ -1873,28 +1873,37 @@ mod tests {
             trace
         }
 
-        fn assert_native_continuity(&self) {
+        fn native_continuity_errors(&self) -> Vec<String> {
+            let mut errors = Vec::new();
             for (stage, data) in &self.stages {
                 if stage.starts_with("input-") {
                     let (truncated, residual) = {
                         let data = data.lock().unwrap();
                         (data.truncated, data.max_residual_ns)
                     };
-                    assert!(!truncated);
-                    assert!(
-                        residual <= 5_000_000,
-                        "{stage} native PCM timestamps drifted {residual}ns from sample positions"
-                    );
+                    if truncated || residual > 5_000_000 {
+                        errors.push(format!("{} {stage}: truncated={truncated}, native timestamp residual={residual}ns", self.path.display()));
+                    }
                 }
             }
             for snapshot in &self.rates {
                 let counters = snapshot.lock().unwrap().clone();
-                let counters = counters.expect("native audiorate EOS counters");
-                assert!(
-                    counters.ends_with("add=0 drop=0"),
-                    "virtual source acquired inserted/dropped samples: {counters}"
-                );
+                if counters
+                    .as_ref()
+                    .is_none_or(|counters| !counters.ends_with("add=0 drop=0"))
+                {
+                    errors.push(format!(
+                        "{} virtual source inserted/dropped samples or missed EOS: {counters:?}",
+                        self.path.display()
+                    ));
+                }
             }
+            errors
+        }
+
+        fn assert_native_continuity(&self) {
+            let errors = self.native_continuity_errors();
+            assert!(errors.is_empty(), "{errors:?}");
         }
 
         fn observe(&mut self, stage: String, pad: gstreamer::Pad) {
@@ -2292,6 +2301,7 @@ mod tests {
         }
         let temp = tempfile::tempdir().unwrap();
         let _review = ReviewArtifacts::new(temp.path(), "pulse-private-server");
+        let mut continuity_errors = Vec::new();
         for (name, system, microphone, frequencies) in [
             ("system", true, false, vec![440.0]),
             ("microphone", false, true, vec![880.0]),
@@ -2315,7 +2325,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(millis));
             drop(tx);
             encoder.finish().unwrap();
-            trace.assert_native_continuity();
+            continuity_errors.extend(trace.native_continuity_errors());
             drop(trace);
             validate_recording_tracks(&path, Some((64, 48)), Some(true)).unwrap();
             let samples = decoded_audio(&path);
@@ -2355,6 +2365,7 @@ mod tests {
         )
         .unwrap();
         assert!(peaks.iter().any(|peak| *peak > 0.05));
+        assert!(continuity_errors.is_empty(), "{continuity_errors:?}");
     }
 
     #[test]
