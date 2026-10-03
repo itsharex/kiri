@@ -5,6 +5,7 @@ application or a durable product decision.
 
 ## User guides
 
+- [Setup and help](usage.md) · [使用与常见问题](usage.zh-CN.md) — installation, updates, permissions, and capture controls.
 - [Video editing](video-editing.md) · [视频剪辑](video-editing.zh-CN.md) — import, trim, annotate, save, and export a local video.
 - [Linux basic video export acceptance](qa/linux-video-export.md) — exact-package checklist for #74.
 - [Linux](linux.md) — Ubuntu/GNOME setup, X11 compatibility,

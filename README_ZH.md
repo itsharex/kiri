@@ -19,58 +19,35 @@
   </p>
 </div>
 
-Kiri 是一款支持 **macOS、Windows 和 Linux** 的本地截图工具。
+截一张图，圈出重点，或录下屏幕上的操作。Kiri 把这些小片段收在本机，方便你随时找出来、继续编辑。
 
-## 可以做什么
+## 功能
 
-- **截图与标注**：选取窗口或区域，裁剪、绘图、加文字或马赛克；保存后可重新编辑，也可将截图置顶作为参考。
-- **文字识别**：使用本地 OCR 复制文字，在文字历史中修正结果，或恢复原始识别文字。
-- **识别二维码**：识别截图或已有图片中的二维码，打开链接，并保存到二维码收藏。支持微信普通方形二维码，暂不支持圆形小程序码。
-- **录屏**：将区域保存为 MP4 或无声 GIF。MP4 支持系统声音和麦克风；Linux 使用 PulseAudio 或 PipeWire，macOS 和 Windows 还支持点击高亮。
-- **视频剪辑**：三个平台均可裁切、重排同一源视频的片段，并保留源声音导出独立 MP4；macOS 和 Windows 还支持变速、标注与隐私遮挡。
-- **本地素材库**：导入文件或粘贴图片，搜索、打标签、收藏、批量导出，并从回收站恢复误删内容。
-
-## 下载
-
-**[下载最新版本 →](https://github.com/yuxino/kiri/releases/latest)**
-
-| 平台 | 安装方式 |
-| --- | --- |
-| macOS 14+ · Apple 芯片与 Intel | 打开 Universal `.dmg`，将 Kiri 拖入“应用程序”。 |
-| Windows 11 · x64 | 运行 `.exe` 安装包，或解压 Portable ZIP 后运行 `kiri.exe`。 |
-| Ubuntu 24.04 · x64 · GNOME / X11 | 下载 `.deb`，执行 `sudo apt install ./kiri_VERSION_amd64.deb`，文件名替换为实际下载的版本。 |
-
-macOS 需要“**屏幕与系统音频录制**”权限；点击高亮还需要“**输入监控**”，麦克风录制需要 macOS 15+。应用未经过 Apple 公证，若被拦截，请在“**系统设置 → 隐私与安全性 → 仍要打开**”中放行。Windows 安装包未经过 Authenticode 签名，SmartScreen 可能提示警告。
-
-**Linux：**Wayland 捕获支持连接一台显示器；MP4 录屏可通过本地 PulseAudio 或 PipeWire 音频服务录制系统声音和麦克风，暂不支持点击高亮；已保存的视频支持基础剪辑与 MP4 导出，暂不支持高级视频特效。配置与录屏控制方式见 [Linux 指南](docs/linux.md)。
-
-**更新：**macOS 与 Windows 安装版使用“**设置 → 关于 → 检查更新**”；Linux 与 Windows 绿色版从 Releases 下载新版安装包。绿色版的设置和素材仍保存在 Windows 用户目录中。
-
-**macOS Dock：**设置中的「在 Dock 中显示」会立即切换图标显示，并记住选择；隐藏后仍可使用菜单栏和截图快捷键。
+- 截取窗口或区域，裁剪、画图、加文字或马赛克，也能把截图置顶作参考。
+- 用本地 OCR 复制图片里的文字，识别二维码。
+- 录制 MP4，可选系统声音和麦克风；也可保存为无声 GIF。
+- 裁切、重排同一视频的片段，导出新的 MP4。
+- 搜索、打标签、收藏与导出本地素材，误删可从回收站恢复。
 
 ## 开始使用
 
-按 **⇧⌘A**（macOS）或 **Shift+Ctrl+A**（Windows / Linux X11），点击窗口或拖出一个区域。Wayland 使用“截图”按钮，或在桌面设置中绑定 `kiri --capture`。支持该接口的桌面还可以通过**设置 → 通用 → Wayland 桌面快捷键**，由桌面授权并分配截图、暂停/继续和停止的按键。Ubuntu 24.04 / GNOME 46 仍使用命令快捷键。
+1. 按 `⇧⌘A`（macOS）或 `Shift+Ctrl+A`（Windows / Linux X11），点击窗口或拖出一个区域。
+2. 选择截图、录屏或 OCR。
+3. 按 `Enter` 确认截图，`Esc` 取消。截图会复制到剪贴板，也会保存在素材库。
 
-选择截图、录屏或 OCR。截图工具栏也提供「识别二维码」。**Enter** 确认截图，**Esc** 取消捕获。截图会复制到剪贴板并保存在本地素材库。macOS、Windows 和 X11 可在设置中修改截图快捷键。
+素材保存在本机。远程 OCR 可选，每次上传前都会询问。Linux 配置、Wayland 快捷键和平台限制见 [Linux 指南](docs/linux.md)。
 
-macOS 上，选区后若更改显示器布局、分辨率或缩放，请重新截图选择区域，再开始录制；若录屏已暂停，请先停止并保存。
+[使用与常见问题](docs/usage.zh-CN.md) · [视频剪辑](docs/video-editing.zh-CN.md) · [反馈问题](https://github.com/yuxino/kiri/issues) · [贡献指南](CONTRIBUTING.md)
 
-输入标注文字时，Ctrl/Cmd+Z 撤销文字，Shift+Enter 换行。Esc 先退出本次文字编辑，再按一次取消捕获。关闭已保存图片的编辑器时，如有未保存修改，会询问保存、放弃或继续编辑。
+## 贡献者
 
-在 GNOME Wayland 上，如果首次截图没有出现授权窗口，请打开 Kiri 素材库，在错误提示中点击**请求授权**。在 GNOME 弹窗中允许截图，然后重新发起截图；授权时产生的图片不会进入 Kiri。详见 [Linux 指南](docs/linux.md)。
+感谢每一位写代码、提问题、试用和分享的朋友 (๑•̀ㅂ•́)و✧
 
-## 隐私
+特别感谢 [@kerwin2046](https://github.com/kerwin2046) 提供 [Linux 初始支持](https://github.com/yuxino/kiri/pull/20)，以及 [@LLLin000](https://github.com/LLLin000) 修复 [Windows 文字缩放下的截图对齐](https://github.com/yuxino/kiri/pull/61)。
 
-素材与媒体处理都留在本机。远程 OCR 可选，每次上传前都会询问。可编辑截图会在本地保留源图，其中仍可能包含被标注遮住的内容。详见[隐私说明](PRIVACY_ZH.md)。
+[查看所有贡献者](https://github.com/yuxino/kiri/graphs/contributors)
 
-## 开发与文档
-
-从源码运行见[贡献指南](CONTRIBUTING.md)，操作说明见[视频剪辑指南](docs/video-editing.zh-CN.md)与[文档索引](docs/README.md)。[反馈问题](https://github.com/yuxino/kiri/issues) · [路线图](ROADMAP.md) · [安全策略](SECURITY.md)。
-
-## 致谢
-
-感谢 [@kerwin2046](https://github.com/kerwin2046) 提供 Linux 初始支持（[#20](https://github.com/yuxino/kiri/pull/20)）、[@LLLin000](https://github.com/LLLin000) 修复 Windows 文字缩放下的截图对齐（[#61](https://github.com/yuxino/kiri/pull/61)），以及[反馈问题](https://github.com/yuxino/kiri/issues)和[贡献 PR](https://github.com/yuxino/kiri/graphs/contributors)的朋友。
+## 社区致谢
 
 也感谢 [V2EX](https://www.v2ex.com/)、[LINUX DO](https://linux.do/)、[小众软件](https://www.appinn.com/)和 [NodeLoc](https://www.nodeloc.com/)社区朋友的试用、反馈与分享。
 
