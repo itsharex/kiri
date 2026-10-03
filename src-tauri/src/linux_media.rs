@@ -1814,15 +1814,54 @@ mod tests {
         max_residual_ns: u64,
     }
 
+    fn native_fixture_tolerance(
+        observations: &[crate::linux_audio::NativeTimingObservation],
+        index: usize,
+    ) -> Result<u64> {
+        let source = observations
+            .iter()
+            .filter(|item| item.index == index)
+            .collect::<Vec<_>>();
+        let first = source
+            .first()
+            .context("Missing native timing negotiation")?;
+        if first.source != "kiri_test_mic" || first.is_monitor {
+            return Ok(5_000_000);
+        }
+        // This owned microphone is a remapped null-sink monitor. Pulse clamps
+        // its negative source latency to zero, and omits the monitor's sink
+        // correction. It therefore has one negotiated fragment of clock
+        // quantization. This allowance is confined to the verified fixture;
+        // it is not a physical microphone or Pulse accuracy guarantee.
+        for item in &source {
+            if item.source != "kiri_test_mic"
+                || item.is_monitor
+                || item.configured_source_us != 10_000
+                || item.fragment_bytes != 3_840
+            {
+                bail!("Owned remap microphone timing negotiation changed: {item:?}");
+            }
+        }
+        let negotiated = (u64::from(first.fragment_bytes) * 1_000_000_000 / 384_000)
+            .max(first.configured_source_us * 1_000);
+        Ok(negotiated + 1_000_000)
+    }
+
     struct NativeAudioTrace {
+        timing_observations: crate::linux_audio::NativeTimingObservations,
         path: PathBuf,
         stages: Vec<(String, Arc<std::sync::Mutex<AudioTraceData>>)>,
         rates: Vec<Arc<std::sync::Mutex<Option<String>>>>,
     }
 
     impl NativeAudioTrace {
-        fn new(prepared: &PreparedEncoder, path: &Path, count: usize) -> Self {
+        fn new(prepared: &mut PreparedEncoder, path: &Path, count: usize) -> Self {
+            let timing_observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+            prepared
+                .audio
+                .observe_native_timing(timing_observations.clone());
             let mut trace = Self {
+                timing_observations,
                 path: path.to_owned(),
                 stages: Vec::new(),
                 rates: Vec::new(),
@@ -1875,14 +1914,23 @@ mod tests {
 
         fn native_continuity_errors(&self) -> Vec<String> {
             let mut errors = Vec::new();
+            let observations = self.timing_observations.lock().unwrap().clone();
             for (stage, data) in &self.stages {
                 if stage.starts_with("input-") {
                     let (truncated, residual) = {
                         let data = data.lock().unwrap();
                         (data.truncated, data.max_residual_ns)
                     };
-                    if truncated || residual > 5_000_000 {
-                        errors.push(format!("{} {stage}: truncated={truncated}, native timestamp residual={residual}ns", self.path.display()));
+                    let index = stage.strip_prefix("input-").unwrap().parse().unwrap();
+                    let tolerance = match native_fixture_tolerance(&observations, index) {
+                        Ok(tolerance) => tolerance,
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            continue;
+                        }
+                    };
+                    if truncated || residual > tolerance {
+                        errors.push(format!("{} {stage}: truncated={truncated}, native timestamp residual={residual}ns, allowed={tolerance}ns", self.path.display()));
                     }
                 }
             }
@@ -1944,6 +1992,15 @@ mod tests {
 
     impl Drop for NativeAudioTrace {
         fn drop(&mut self) {
+            let observations = self
+                .timing_observations
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _ = std::fs::write(
+                self.path.with_extension("native-timing.txt"),
+                format!("{observations:#?}\n"),
+            );
+            drop(observations);
             for (stage, data) in &self.stages {
                 let data = data.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 let _ = std::fs::write(
@@ -1976,10 +2033,46 @@ mod tests {
     }
 
     #[test]
+    fn virtual_microphone_tolerance_requires_exact_owned_negotiation() {
+        let mut observation = crate::linux_audio::NativeTimingObservation {
+            index: 0,
+            source: "kiri_test_mic".into(),
+            is_monitor: false,
+            configured_source_us: 10_000,
+            fragment_bytes: 3_840,
+        };
+        assert_eq!(
+            native_fixture_tolerance(&[observation.clone()], 0).unwrap(),
+            11_000_000
+        );
+        observation.configured_source_us = 10_001;
+        assert!(native_fixture_tolerance(&[observation.clone()], 0).is_err());
+        observation.configured_source_us = 10_000;
+        observation.fragment_bytes = 3_848;
+        assert!(native_fixture_tolerance(&[observation.clone()], 0).is_err());
+        observation.fragment_bytes = 3_840;
+        observation.source = "another-input".into();
+        assert_eq!(
+            native_fixture_tolerance(&[observation], 0).unwrap(),
+            5_000_000
+        );
+        assert!(native_fixture_tolerance(&[], 0).is_err());
+    }
+
+    #[test]
     fn native_audio_trace_survives_a_continuity_assertion() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("failed.mp4");
         let trace = NativeAudioTrace {
+            timing_observations: Arc::new(std::sync::Mutex::new(vec![
+                crate::linux_audio::NativeTimingObservation {
+                    index: 0,
+                    source: "kiri_test_mic".into(),
+                    is_monitor: false,
+                    configured_source_us: 10_000,
+                    fragment_bytes: 3_840,
+                },
+            ])),
             path: path.clone(),
             stages: vec![(
                 "input-0".into(),
@@ -2121,9 +2214,9 @@ mod tests {
     fn native_audio_accepts_pcm_delivered_after_its_capture_timestamp() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("delayed-pcm.mp4");
-        let prepared =
+        let mut prepared =
             PreparedEncoder::with_audio(&config(), &path, AudioSetup::DelayedPcm).unwrap();
-        let trace = NativeAudioTrace::new(&prepared, &path, 1);
+        let trace = NativeAudioTrace::new(&mut prepared, &path, 1);
         let source = prepared
             .pipeline
             .by_name("audio_0")
@@ -2313,8 +2406,8 @@ mod tests {
                 mic: microphone.then_some(crate::linux_audio::AUDIO_SPEC),
                 ..config()
             };
-            let prepared = PreparedEncoder::new(&config, &path).unwrap();
-            let trace = NativeAudioTrace::new(&prepared, &path, frequencies.len());
+            let mut prepared = PreparedEncoder::new(&config, &path).unwrap();
+            let trace = NativeAudioTrace::new(&mut prepared, &path, frequencies.len());
             let (tx, rx) = mpsc::sync_channel(2);
             let encoder =
                 LinuxNativeSegmentEncoder::start_prepared(prepared, path.clone(), rx).unwrap();

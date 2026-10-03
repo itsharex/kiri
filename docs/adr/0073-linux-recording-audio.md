@@ -82,6 +82,15 @@ restart, cancellation and long recordings. A cloud container without sound
 hardware or permission to create a private Pulse socket cannot establish that
 acceptance. Its GStreamer tests remain compatibility evidence only.
 
+The owned CI microphone is a remap of a null-sink monitor. Pulse clamps its
+negative source latency to zero without supplying the original monitor's sink
+correction, so its raw timing can vary within one negotiated fragment. The
+fixture verifies unchanged 10 ms latency and 3,840-byte fragments, then permits
+that measured granularity plus a strict 1 ms observation allowance (11 ms); it
+rejects missing or changed negotiation. System-monitor timing keeps its 5 ms
+limit. Both inputs must still preserve every sample with zero audiorate additions
+or drops. This fixture allowance is not a physical microphone accuracy claim.
+
 References: [issue #73](https://github.com/yuxino/kiri/issues/73),
 [PulseAudio stream API](https://freedesktop.org/software/pulseaudio/doxygen/stream_8h.html),
 [PulseAudio source metadata](https://freedesktop.org/software/pulseaudio/doxygen/structpa__source__info.html).

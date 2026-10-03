@@ -367,10 +367,25 @@ struct NativeInput {
     last_data: Instant,
 }
 
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) struct NativeTimingObservation {
+    pub index: usize,
+    pub source: String,
+    pub is_monitor: bool,
+    pub configured_source_us: u64,
+    pub fragment_bytes: u32,
+}
+
+#[cfg(test)]
+pub(crate) type NativeTimingObservations = Arc<Mutex<Vec<NativeTimingObservation>>>;
+
 /// Explicit async libpulse capture avoids GStreamer's pulsesrc synchronous
 /// open/flush waits. The mainloop is only iterated nonblocking on this worker.
 /// Native overflow, holes, source movement and server failure all fail closed.
 pub struct NativeCapture {
+    #[cfg(test)]
+    timing_observations: Option<NativeTimingObservations>,
     inputs: Vec<NativeInput>,
     connection: PulseConnection,
     failed: Rc<std::cell::Cell<bool>>,
@@ -442,6 +457,8 @@ impl NativeCapture {
             });
         }
         Ok(Self {
+            #[cfg(test)]
+            timing_observations: None,
             inputs,
             connection,
             failed,
@@ -567,13 +584,28 @@ impl NativeCapture {
                 };
                 let (elapsed, now) = recording_clock_pair(origin)?;
                 #[cfg(test)]
-                if std::env::var("KIRI_LINUX_PULSE_QA").as_deref() == Ok("1")
-                    && input
-                        .timing
-                        .anchor
-                        .is_none_or(|(stamp, _)| stamp != info.timestamp)
+                if input
+                    .timing
+                    .anchor
+                    .is_none_or(|(stamp, _)| stamp != info.timestamp)
                 {
-                    eprintln!("kiri-audio-snapshot source={} elapsed_us={} read={} write={} source_us={} sink_us={} transport_us={} age_us={} timestamp={} queued_bytes={} configured_source_us={} configured_sink_us={} actual_fragsize={}", input.source.name, elapsed.as_micros(), info.read_index, info.write_index, info.source_usec.0, info.sink_usec.0, info.transport_usec.0, pulse::time::UnixTs::diff(&now, &info.timestamp).0, info.timestamp, queued, info.configured_source_usec.0, info.configured_sink_usec.0, input.stream.get_buffer_attr().map(|attributes| attributes.fragsize).unwrap_or(0));
+                    let fragment_bytes = input
+                        .stream
+                        .get_buffer_attr()
+                        .map(|attributes| attributes.fragsize)
+                        .unwrap_or(0);
+                    if let Some(observations) = &self.timing_observations {
+                        observations.lock().unwrap().push(NativeTimingObservation {
+                            index,
+                            source: input.source.name.clone(),
+                            is_monitor: input.source.monitor_of.is_some(),
+                            configured_source_us: info.configured_source_usec.0,
+                            fragment_bytes,
+                        });
+                    }
+                    if std::env::var("KIRI_LINUX_PULSE_QA").as_deref() == Ok("1") {
+                        eprintln!("kiri-audio-snapshot source={} elapsed_us={} read={} write={} source_us={} sink_us={} transport_us={} age_us={} timestamp={} queued_bytes={} configured_source_us={} configured_sink_us={} actual_fragsize={}", input.source.name, elapsed.as_micros(), info.read_index, info.write_index, info.source_usec.0, info.sink_usec.0, info.transport_usec.0, pulse::time::UnixTs::diff(&now, &info.timestamp).0, info.timestamp, queued, info.configured_source_usec.0, info.configured_sink_usec.0, fragment_bytes);
+                    }
                 }
                 let raw_pts = input.timing.sample_ns(&info, elapsed, now)?;
                 let measured = Duration::from_nanos(
@@ -654,6 +686,8 @@ impl Drop for NativeCapture {
 }
 
 pub struct RecordingAudio {
+    #[cfg(test)]
+    timing_observations: Option<NativeTimingObservations>,
     devices: Vec<AudioSource>,
     sources: Vec<gstreamer::Element>,
     progress: Vec<Arc<Mutex<Option<Instant>>>>,
@@ -736,6 +770,8 @@ impl RecordingAudio {
             samples.push(count);
         }
         Ok(Self {
+            #[cfg(test)]
+            timing_observations: None,
             devices: Vec::new(),
             sources,
             progress,
@@ -744,11 +780,23 @@ impl RecordingAudio {
         })
     }
 
+    #[cfg(test)]
+    pub fn observe_native_timing(&mut self, observations: NativeTimingObservations) {
+        self.timing_observations = Some(observations);
+    }
+
     pub fn prepare_native(&self) -> Result<Option<NativeCapture>> {
         if self.devices.is_empty() {
             Ok(None)
         } else {
-            NativeCapture::new(&self.devices).map(Some)
+            let capture = NativeCapture::new(&self.devices)?;
+            #[cfg(test)]
+            let capture = {
+                let mut capture = capture;
+                capture.timing_observations = self.timing_observations.clone();
+                capture
+            };
+            Ok(Some(capture))
         }
     }
 
