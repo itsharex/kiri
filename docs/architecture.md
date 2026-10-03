@@ -55,8 +55,11 @@ does not change the library asset.
 
 Linux does not show the floating `control-panel` or `ripple` during recording.
 The tray and explicit recording commands provide controls without relying on
-portal window exclusion. Linux video viewers expose playback and GIF conversion;
-the macOS/Windows video editor and export controls stay unavailable.
+portal window exclusion. Linux video viewers expose playback, GIF conversion and basic normal-speed
+cut/reorder MP4 export with source audio. `video_export_linux.rs` uses accurate
+GStreamer decode seeks and one continuous H.264/AAC encoder. Independent frontend
+capabilities hide unsupported speed/effects/annotation tools and protect advanced
+saved projects from modification; see ADR 0074.
 
 On macOS, Show in Dock is a persisted application preference, enabled by
 default. It selects regular or accessory activation policy at startup and
@@ -79,7 +82,10 @@ the tray and global shortcut remain available when the Dock icon is hidden.
    Linux freezes the display on a worker thread, then creates the overlay on
    the GTK main thread. X11 uses the native shortcut plugin. Wayland does not
    claim a successful XWayland grab or modify compositor bindings: users
-   configure `kiri --capture` as a desktop shortcut. Single-instance dispatch
+   configure `kiri --capture` as a desktop shortcut. Supporting desktops also
+   offer explicit GlobalShortcuts Portal setup in Settings, with actual returned
+   bindings and a dedicated identity-registered session actor (ADR 0075).
+   Command guidance remains available on every Wayland desktop. Single-instance dispatch
    routes that command to the running app without opening its library.
 2. macOS freezes the active display with ScreenCaptureKit. Windows frozen
    stills use the GDI path exposed through `xcap`; Windows Graphics Capture
@@ -297,7 +303,7 @@ and Core Image export consistent at both small and HD dimensions. Legacy videos
 without color tags still depend on platform color-space inference.
 Windows uses Windows Graphics Capture plus WASAPI
 through `cpal`, then sends the buffers to Media Foundation. Linux uses a portal
-ScreenCast session and PipeWire frames with system GStreamer for silent H.264
+ScreenCast session and PipeWire frames with system GStreamer for H.264 with optional AAC
 MP4. Portal consent is separate from the frozen screenshot: the user must pick
 the same display, and the stream dimensions are validated before region capture.
 No platform resolves, downloads, or launches an external media encoder.
@@ -351,8 +357,9 @@ while an enabled click-ripple window is intentionally included.
 
 Linux uses tray pause/resume/stop actions or the explicit
 `--toggle-recording-pause` and `--stop-recording` commands. Its floating control
-panel is suppressed because portal capture cannot exclude it reliably. Audio
-inputs, microphone checks, and click highlights are unavailable on Linux.
+panel is suppressed because portal capture cannot exclude it reliably. Optional
+system audio, microphone recording and the explicit microphone check use the
+local PulseAudio-compatible service; click highlights remain unavailable.
 
 If a valid finalized MP4 cannot be imported because the active library is
 unavailable or rejects the write, Kiri moves it into a local recovery area
@@ -633,3 +640,21 @@ share the same clipping path. A stable picture surface handles selecting and
 dragging between annotations, stickers and privacy effects without losing the pointer. No image is uploaded.
 
 Editor transport and export follow [ADR 0041](adr/0041-single-canvas-video-editing.md). Export settings live in the header, playback has one control, and only the timeline track list scrolls.
+
+## Linux audio clock and privacy boundary
+
+Linux audio is part of the GStreamer recording encoder, not the screen portal
+stream. Static capability checks inspect installed plugins without opening
+audio devices. Explicit recording or microphone-check actions resolve the local
+PulseAudio-compatible service, including PipeWire's Pulse service. System audio
+is the default output's verified monitor; microphone capture requires the
+default non-monitor input. Kiri never substitutes one for the other or changes
+sound settings.
+
+Recording starts the audio branches with the first accepted video frame. The
+shared clock with signed native latency, rate conversion, bounded PCM queues and one mixed AAC
+track keep memory bounded and avoid independent audio clocks. Device changes,
+source stalls, discontinuities and queue overflow fail the recording instead of
+producing a successful silent file. Pause closes each segment, and merge keeps
+the AAC track on the same completed-segment boundaries as video. See
+[ADR 0073](adr/0073-linux-recording-audio.md) for details and acceptance limits.

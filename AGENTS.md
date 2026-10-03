@@ -24,7 +24,9 @@ Linux. Preserve these decisions:
   Windows and Linux X11. These use native global-hotkey registration; the shortcut does
   not require Input Monitoring permission. Settings may replace the binding
   with a modified letter or digit and restore this default (ADR 0046).
-  On Wayland, the user configures `kiri --capture` in desktop settings. Never
+  On Wayland, the user configures `kiri --capture` in desktop settings, or opts
+  in to GlobalShortcuts Portal setup where the actual interface is available.
+  Preserve command guidance and truthful session/binding state (ADR 0075). Never
   install compositor bindings or FIFOs automatically (ADR 0051).
 - The initial overlay offers Screenshot, Record, and OCR. The screenshot toolbar
   and saved-image editor offer Recognize QR Codes. QR recognition
@@ -44,7 +46,8 @@ Linux. Preserve these decisions:
   adjustable diameter and intensity.
 - Recording is Retina/DPI-scale, high-quality MP4. Kiri's recording controls
   and paused time must not appear in the exported video.
-  Linux recording is silent and hides the floating control panel; use tray
+  Linux MP4 recording can include system audio and microphone through the local
+  PulseAudio/PipeWire audio service and hides the floating control panel; use tray
   actions or `kiri --toggle-recording-pause` / `kiri --stop-recording`. ScreenCast
   consent must select the same display as the frozen screenshot.
 - The optional high-contrast red click ripple is visible live and is also captured.
@@ -65,8 +68,9 @@ Linux. Preserve these decisions:
   it does not expose the signed in-app updater. Ubuntu 24.04 / GNOME is the
   initial Linux target, with X11 compatibility. Do not claim AppImage delivery.
 - Linux local OCR uses system Tesseract with `eng`, `chi_sim`, and `jpn` data.
-  Linux videos support playback and GIF conversion, while editing/export UI
-  remains unavailable until a native renderer is implemented.
+  Linux videos support playback, GIF conversion, normal-speed cuts/reordering and
+  MP4 export with source audio. Independently gated speed, effects, masks,
+  annotations and stickers remain unavailable; never silently drop saved content.
 
 ## Repository map
 
@@ -103,7 +107,8 @@ Linux. Preserve these decisions:
   the main thread.
 - The recording pipeline is: platform capture (BGRA frames + PCM audio) →
   AVFoundation on macOS or Media Foundation on Windows → H.264/AAC MP4.
-  Linux uses portal ScreenCast/PipeWire and system GStreamer for silent H.264 MP4.
+  Linux uses portal ScreenCast/PipeWire and system GStreamer for H.264 MP4,
+  with optional PulseAudio monitor/input capture mixed into AAC on the same clock.
   macOS pause/resume segments are merged with AVFoundation.
 - `AssetLibrary` is the persistence boundary. It shares the Swift version's
   storage layout (`~/Library/Application Support/kiri` on macOS,

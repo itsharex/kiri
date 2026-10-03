@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, mediaUrl, onAssetContentChanged, type AssetAvailability } from "../lib/ipc";
 import { VideoTrimPlayer } from "./VideoTrimPlayer";
+import { videoEditingCapabilities } from "./video-capabilities.js";
 import { OcrDialog } from "../ocr/TextHistory";
 import { t } from "../i18n";
 import { KiriIcon } from "../components/KiriIcons";
@@ -21,8 +22,8 @@ export function ViewerWindow(props: { id: string }) {
   const [state, setState] = useState<ViewerState>(createViewerLoadingState());
   const [mediaRevision, setMediaRevision] = useState(0);
   const [ocrOpen, setOcrOpen] = useState(false);
-  const [videoEditing, setVideoEditing] = useState(false);
-  useEffect(() => { void api.platformCapabilities().then(caps => setVideoEditing(caps.videoEditing)).catch(() => {}); }, []);
+  const [videoCapabilities, setVideoCapabilities] = useState(() => videoEditingCapabilities());
+  useEffect(() => { void api.platformCapabilities().then(caps => setVideoCapabilities(videoEditingCapabilities(caps))).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -290,7 +291,8 @@ export function ViewerWindow(props: { id: string }) {
           key={`${props.id}:${mediaRevision}`}
           id={props.id}
           src={mediaUrl(props.id, true)}
-          editable={videoEditing && state.kind === "ready" && !state.asset.trashedAt}
+          editable={videoCapabilities.videoEditing && state.kind === "ready" && !state.asset.trashedAt}
+          capabilities={videoCapabilities}
           previewActions={copyButton}
           onEditingChange={setVideoEditorOpen}
           onClose={close}

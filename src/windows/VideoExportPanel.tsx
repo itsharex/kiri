@@ -5,7 +5,7 @@ import {VideoExportSettings} from "./VideoExportSettings";
 import type {VideoExportProgress} from "./video-project";
 import "./VideoExportPanel.css";
 
-type Props={preset:"original"|"share"|"small";onPreset(value:Props["preset"]):void;sourceSize:{width:number;height:number};duration:number;valid:boolean;busy:boolean;error:boolean;saved:boolean;progress:VideoExportProgress|null;cancelling:boolean;cancelled:boolean;cancelFailed:boolean;onCancel():void;onSave():void;onOpen():void};
+type Props={preset:"original"|"share"|"small";supportsPresets:boolean;onPreset(value:Props["preset"]):void;sourceSize:{width:number;height:number};duration:number;valid:boolean;busy:boolean;error:boolean;saved:boolean;progress:VideoExportProgress|null;cancelling:boolean;cancelled:boolean;cancelFailed:boolean;onCancel():void;onSave():void;onOpen():void};
 export function VideoExportPanel(props:Props){
   const [open,setOpen]=useState(false),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null);
   const progress=props.progress?.progress;
@@ -24,7 +24,7 @@ export function VideoExportPanel(props:Props){
     <button ref={trigger} type="button" className="kiri-button kiri-button--primary" aria-label={t("Export video")} aria-expanded={open} aria-haspopup="dialog" onClick={()=>setOpen(value=>!value)}><ArrowUpRight size={15}/>{props.busy?<>{t(props.cancelling?"Cancelling…":"Exporting…")}{!props.cancelling&&percent!==null?` ${percent}%`:null}</>:t("Export")}<ChevronDown size={12}/></button>
     {open&&<div ref={panel} role="dialog" tabIndex={-1} aria-label={t("Export video")} className="kiri-video-export-panel">
       <div className="kiri-video-export-panel-title"><strong>{t("Export video")}</strong><button type="button" className="kiri-icon-button" aria-label={t("Close")} onClick={()=>{setOpen(false);trigger.current?.focus();}}><X size={14}/></button></div>
-      <VideoExportSettings preset={props.preset} onChange={props.onPreset} sourceSize={props.sourceSize} outputDuration={props.duration} disabled={props.busy}/>
+      <VideoExportSettings preset={props.preset} supportsPresets={props.supportsPresets} onChange={props.onPreset} sourceSize={props.sourceSize} outputDuration={props.duration} disabled={props.busy}/>
       <p>{t("Your original recording stays unchanged.")}</p>
       <div className="kiri-video-export-status" role={props.error||props.cancelFailed?"alert":"status"}>{props.busy?busyLabel:props.error?t("Couldn't export the video. Check library access and free disk space, then retry."):props.saved?t("Copy saved to library"):props.cancelled?t("Export cancelled. Your edit is still here."):null}{props.busy&&percent!==null&&!props.cancelling&&<span>{percent}%</span>}</div>
       {props.busy&&<div className="kiri-video-export-progress" role="progressbar" aria-label={busyLabel} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent??undefined} data-indeterminate={percent===null}><i style={{width:percent===null?"30%":`${percent}%`}}/></div>}

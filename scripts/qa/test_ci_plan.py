@@ -57,6 +57,43 @@ class PlanTests(unittest.TestCase):
             for target in policy.TARGET_PREFIXES:
                 self.assertEqual(result[f"package_{target}"], str(profile in {target, "full"}).lower())
             self.assertEqual(result["wayland"], str(profile in {"linux", "full"}).lower())
+            self.assertEqual(result["linux_x11"], result["wayland"])
+
+    def test_package_only_profile_never_starts_a_desktop(self):
+        result = policy.plan("workflow_dispatch", "refs/heads/qa", {"profile": "linux-package"}, [])
+        self.assertEqual(result["renderer"], "true")
+        self.assertEqual(result["native_linux"], "true")
+        self.assertEqual(result["package_linux"], "true")
+        for key in ("native_windows", "native_macos", "package_windows", "package_macos",
+                    "linux_x11", "wayland", "x11_recheck"):
+            self.assertEqual(result[key], "false")
+        with self.assertRaises(ValueError):
+            policy.plan("workflow_dispatch", "refs/heads/qa",
+                        {"profile": "linux-package", "linux_candidate_run_id": "1"}, [])
+
+    def test_pr_package_label_adds_build_without_losing_required_checks(self):
+        for paths in ([], ["README.md"], ["src/windows/EditorWindow.tsx"],
+                      ["src-tauri/src/core/geometry.rs"], None):
+            ordinary = policy.plan("pull_request", "refs/pull/85/merge", {}, paths)
+            result = policy.plan("pull_request", "refs/pull/85/merge", {}, paths,
+                                 ["bug", "ci:linux-package"])
+            self.assertEqual(result, {**ordinary, "native_linux": "true", "package_linux": "true"})
+            self.assertEqual(result["linux_x11"], "false")
+            self.assertEqual(result["wayland"], "false")
+        for event in ("push", "workflow_dispatch"):
+            result = policy.plan(event, "refs/heads/main", {}, [], ["ci:linux-package"])
+            self.assertEqual(result["package_linux"], "false")
+        self.assertEqual(self.auto("README.md"), policy.plan("pull_request", "refs/pull/85/merge", {},
+                                                          ["README.md"], ["ci:linux-package-extra"]))
+
+    def test_workflow_exposes_label_and_keeps_x11_separate_from_packaging(self):
+        workflow = Path(__file__).parents[2].joinpath(".github/workflows/build.yml").read_text()
+        self.assertIn("types: [opened, synchronize, reopened, labeled, unlabeled]", workflow)
+        self.assertIn("options: [quick, linux, linux-package,", workflow)
+        self.assertIn("linux_x11: ${{ steps.plan.outputs.linux_x11 }}", workflow)
+        self.assertIn("needs.plan.outputs.wayland == 'true'", workflow)
+        self.assertIn("- name: Exercise the installed app on an isolated X11 desktop\n"
+                      "        if: needs.plan.outputs.linux_x11 == 'true'", workflow)
 
     def test_release_tags_full_but_main_push_never_automatically_packages(self):
         for event, ref in (("push", "refs/heads/main"), ("pull_request", "refs/pull/1/merge")):
@@ -104,6 +141,10 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(policy.check_results(altered), ["countdown-ui"])
         self.assertIn("plan", policy.check_results({**needs, "plan": {"result": "failure"}}))
         self.assertIn("plan outputs", policy.check_results({**needs, "plan": {"result": "success", "outputs": {}}}))
+        for value in (None, "", "TRUE"):
+            invalid = {**flags, "linux_x11": value}
+            self.assertIn("plan outputs", policy.check_results(
+                {**needs, "plan": {"result": "success", "outputs": invalid}}))
 
 
 class ProvenanceTests(unittest.TestCase):

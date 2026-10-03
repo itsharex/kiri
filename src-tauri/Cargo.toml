@@ -179,6 +179,9 @@ windows-capture = "2.0"
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Dedicated, identity-registered GlobalShortcuts peer; versions already locked transitively.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = "0.3"
 gtk = "0.18"
 x11rb = "0.13"
 tesseract = "0.15.2"
@@ -198,6 +201,7 @@ gstreamer = "0.23"
 gstreamer-app = "0.23"
 gstreamer-video = "0.23"
 gstreamer-pbutils = "0.23"
+libpulse-binding = "2.30"
 
 # Keep the shipped Tauri crate self-contained when a contributor has an
 # unrelated Cargo workspace in a parent directory.

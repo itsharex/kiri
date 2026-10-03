@@ -16,6 +16,7 @@ import {
   type ShortcutStatusDto,
 } from "../lib/ipc";
 import { OcrProfileDialog } from "./OcrProfileDialog";
+import { PortalShortcutsCard } from "./PortalShortcutsCard";
 import { DockVisibilityRow } from "./DockVisibilityRow";
 import { OcrSettingsSection } from "./OcrSettingsSection";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";
@@ -688,18 +689,17 @@ function GeneralSettingsSection() {
         </div>
       </div>
       <DockVisibilityRow />
-      <div className="kiri-settings-card kiri-shortcut-row">
+      {shortcutStatus?.status === "systemManaged" ? <PortalShortcutsCard /> : <div className="kiri-settings-card kiri-shortcut-row">
         <div className="kiri-shortcut-copy">
           <strong>{t("Capture Shortcut")}</strong>
           <span>{shortcutStatus?.label ?? "—"}</span>
-          {shortcutStatus?.status === "systemManaged" && <span>{t("Set a system keyboard shortcut for kiri --capture.")}</span>}
           {shortcutError && <span role="alert">{t(shortcutError)}</span>}
         </div>
         <div className="kiri-shortcut-actions">
           <button
             type="button"
             className="kiri-button kiri-button--secondary"
-            disabled={shortcutBusy || !shortcutStatus || shortcutStatus.status === "systemManaged"}
+            disabled={shortcutBusy || !shortcutStatus}
             aria-pressed={recordingShortcut}
             onClick={(event) => void beginRecordingShortcut(event.currentTarget)}
             onBlur={stopRecordingShortcut}
@@ -719,12 +719,12 @@ function GeneralSettingsSection() {
           >
             {t(recordingShortcut ? "Press a new shortcut (Esc to cancel)" : "Change Shortcut")}
           </button>
-          <button type="button" className="kiri-button kiri-button--secondary" disabled={shortcutBusy || !shortcutStatus || shortcutStatus.status === "systemManaged"} onClick={() => void changeShortcut(null)}>
+          <button type="button" className="kiri-button kiri-button--secondary" disabled={shortcutBusy || !shortcutStatus} onClick={() => void changeShortcut(null)}>
             {t("Restore Default Shortcut")}
           </button>
           {shortcutStatus && (
             <span className="kiri-settings-badge" role="status" aria-live="polite">
-              {t(shortcutStatus.status === "systemManaged" ? "Managed by the desktop" : shortcutStatus.status === "enabled" ? "Enabled" : "In Use")}
+              {t(shortcutStatus.status === "enabled" ? "Enabled" : "In Use")}
             </span>
           )}
           {shortcutStatus?.status === "occupied" && (
@@ -738,7 +738,7 @@ function GeneralSettingsSection() {
             </button>
           )}
         </div>
-      </div>
+      </div>}
       <div className="kiri-settings-card kiri-storage-row">
         <div className="kiri-storage-copy">
           <div className="kiri-storage-title">

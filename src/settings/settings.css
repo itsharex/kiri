@@ -703,3 +703,23 @@
     animation-duration: 1.5s;
   }
 }
+
+.kiri-portal-shortcuts {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.kiri-portal-bindings {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.kiri-portal-bindings > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+  gap: 3px 12px;
+}
+.kiri-portal-bindings dt { font-weight: 500; }
+.kiri-portal-bindings dd { margin: 0; overflow-wrap: anywhere; }
+.kiri-portal-command { grid-column: 2; font-family: monospace; }

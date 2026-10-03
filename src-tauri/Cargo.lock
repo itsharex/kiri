@@ -3188,6 +3188,7 @@ dependencies = [
  "dirs",
  "dispatch2",
  "env_logger",
+ "futures-util",
  "glib 0.20.12",
  "gstreamer",
  "gstreamer-app",
@@ -3196,6 +3197,7 @@ dependencies = [
  "gtk",
  "image",
  "keyring",
+ "libpulse-binding",
  "log",
  "moxcms",
  "objc2",
@@ -3239,6 +3241,7 @@ dependencies = [
  "windows-future 0.3.2",
  "x11rb",
  "xcap",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -3355,6 +3358,33 @@ name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
+name = "libpulse-binding"
+version = "2.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "909eb3049e16e373680fe65afe6e2a722ace06b671250cc4849557bc57d6a397"
+dependencies = [
+ "bitflags 2.13.1",
+ "libc",
+ "libpulse-sys",
+ "num-derive",
+ "num-traits",
+ "winapi",
+]
+
+[[package]]
+name = "libpulse-sys"
+version = "1.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d74371848b22e989f829cc1621d2ebd74960711557d8b45cfe740f60d0a05e61"
+dependencies = [
+ "libc",
+ "num-derive",
+ "num-traits",
+ "pkg-config",
+ "winapi",
+]
 
 [[package]]
 name = "libredox"

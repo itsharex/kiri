@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=kiri
+Comment=A fast, local-first capture workspace
+Exec=kiri
+Icon=kiri
+Terminal=false
+Categories=Utility;Graphics;
+# The public launcher remains kiri.desktop. This matching reverse-DNS entry
+# gives the host GlobalShortcuts Portal a stable application/permission ID.
+NoDisplay=true

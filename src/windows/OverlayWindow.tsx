@@ -147,6 +147,10 @@ export function OverlayWindow() {
     microphone: true,
     clickHighlights: true,
     videoEditing: true,
+    videoSpeedEditing: false,
+    videoEffectsEditing: false,
+    videoAnnotationsEditing: false,
+    videoExportPresets: false,
     manualUpdates: false,
   });
   const [modeSelectorPosition, setModeSelectorPosition] = useState<Point | null>(null);

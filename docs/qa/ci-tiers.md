@@ -12,6 +12,8 @@ Mac x64 11分17秒，Linux8分23秒，Mac arm64 6分02秒，renderer5分18秒。
 | 平台专用Rust修改 | 上述＋对应平台编译／测试，Mac保留两架构check | 无 |
 | 共享Rust／Cargo／capability修改 | 上述＋三平台原生检查及Mac两架构check | 无 |
 | 手动quick | renderer及所有原生检查 | 无 |
+| 手动linux-package | 快速、renderer、Linux check/test | 一个deb，安装／依赖检查；不启动X11或GNOME桌面 |
+| PR标签`ci:linux-package` | 保留普通PR的全部必需检查，追加Linux check/test | 一个deb，安装／依赖检查；不请求Portal权限 |
 | 手动linux | 快速、renderer、Linux check/test | 一个deb、X11及同包Wayland四scale |
 | 手动windows | 快速、renderer、Windows Rust/media | NSIS／portable与桌面控件、快捷键、安装烟测 |
 | 手动macos | 快速、renderer、Mac测试 | 两架构release compile，不产生可运行／签名Mac包 |
@@ -25,11 +27,21 @@ diff未知时执行所有原生检查及renderer，仍不意外打包。汇总�
 稳定的`CI quality gate` context。
 
 ```bash
+gh workflow run build.yml --ref qa/kiri-integrated-acceptance -f profile=linux-package
 gh workflow run build.yml --ref qa/kiri-integrated-acceptance -f profile=linux
 gh workflow run build.yml --ref qa/kiri-integrated-acceptance -f profile=full
 gh workflow run build.yml --ref qa/kiri-integrated-acceptance \
   -f profile=recheck-linux -f linux_candidate_run_id=36815503794
 ```
+
+The exact `ci:linux-package` label opts a PR into package build/install/inspection
+on label changes and subsequent source pushes while present. Other PR labels can
+also restart the normal checks because label events use the existing concurrency
+group. Removing the package label returns the PR to ordinary source checks.
+Package-only runs skip both X11 and GNOME Wayland acceptance; they do not launch
+Kiri, change GNOME settings, or grant Portal access. Check the plan and job steps
+before citing an artifact as desktop evidence. The package manifest records the
+actual PR merge checkout, which can differ from the branch head.
 
 Fresh manual packages require their own run/attempt manifest, like PR/tag packages.
 Explicit reuse still checks original successful Linux build, repository, artifact,

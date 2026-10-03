@@ -1071,6 +1071,13 @@ impl SegmentEncoder {
         })
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn unexpected_failure(&self) -> Option<String> {
+        match &self.inner {
+            SegmentEncoderInner::LinuxNative(encoder) => encoder.unexpected_failure(),
+        }
+    }
+
     pub fn is_windows_native(&self) -> bool {
         #[cfg(windows)]
         {

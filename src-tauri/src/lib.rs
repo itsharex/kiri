@@ -18,6 +18,8 @@ mod microphone;
 mod macos_media;
 #[cfg(target_os = "linux")]
 mod linux_media;
+#[cfg(target_os = "linux")]
+mod linux_audio;
 mod qr;
 mod qr_commands;
 mod qr_controller;
@@ -30,6 +32,7 @@ mod media_playback;
 mod record;
 mod remote_ocr;
 mod shortcut_settings;
+mod portal_shortcuts;
 mod state;
 mod thumbnail;
 mod updates;
@@ -141,6 +144,7 @@ pub fn run() {
             if let Err(error) = register_shortcut(app.handle()) {
                 log::warn!("[shortcut] registration failed: {error}");
             }
+            portal_shortcuts::init(app.handle());
             install_tray(app.handle())?;
             #[cfg(target_os = "linux")]
             {
@@ -191,6 +195,12 @@ pub fn run() {
                 _ => {}
             }
             if window.label() == "library" {
+                // Closing hides the resident window, so React does not unmount.
+                // Cancel approval on dismissal, but never on focus loss to the
+                // desktop's own permission/configuration dialog.
+                if matches!(event, tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed) {
+                    portal_shortcuts::cancel_setup(window.app_handle());
+                }
                 if matches!(
                     event,
                     tauri::WindowEvent::Focused(false)
@@ -295,6 +305,9 @@ pub fn run() {
             commands::get_locale,
             commands::get_language,
             commands::set_language,
+            portal_shortcuts::get_portal_shortcuts,
+            portal_shortcuts::update_portal_shortcuts,
+            portal_shortcuts::cancel_portal_shortcut_setup,
             commands::get_shortcut_status,
             commands::retry_shortcut,
             commands::set_capture_shortcut,

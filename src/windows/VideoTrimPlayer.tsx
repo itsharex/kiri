@@ -22,6 +22,7 @@ import {useVideoProject} from "./useVideoProject";
 import {sameVideoProjectValue} from "./video-project-save.js";
 import {hasVideoEdits,type VideoEdit,type VideoProject,type VideoExportProgress} from "./video-project";
 import {installVideoProjectShortcuts} from "./video-project-shortcuts.js";
+import {isBasicVideoEditing,unsupportedVideoProjectFeatures,videoEditingCapabilities,type VideoEditingCapabilities} from "./video-capabilities.js";
 import "./VideoProjectStatus.css";
 
 import {importVideoSticker,rasterizeVideoStickers,type VideoSticker} from "./video-stickers";
@@ -51,7 +52,8 @@ async function makeRoomForVideoEditor() {
   await window.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
 }
 
-export function VideoTrimPlayer(props: { id: string; src: string; editable: boolean; previewActions?: ReactNode; onEditingChange?(editing: boolean): void; onClose(): void; onError(): void }) {
+export function VideoTrimPlayer(props: { id: string; src: string; editable: boolean; capabilities: VideoEditingCapabilities; previewActions?: ReactNode; onEditingChange?(editing: boolean): void; onClose(): void; onError(): void }) {
+  const capabilities=videoEditingCapabilities(props.capabilities);
   const video = useRef<HTMLVideoElement>(null);
   const container=useRef<HTMLDivElement>(null);
   const playbackIndex=useRef(0);
@@ -128,6 +130,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
   const {x:tx,y:ty,sx,sy,clip:contentRect}=previewTransform;
   const annotationClip=`inset(${(contentRect.y-ty)/sy*100}% ${(1-(contentRect.x+contentRect.width-tx)/sx)*100}% ${(1-(contentRect.y+contentRect.height-ty)/sy)*100}% ${(contentRect.x-tx)/sx*100}%)`;
   const valid=validSegments(segments,duration);
+  const unsupportedFeatures=unsupportedVideoProjectFeatures({edit:doc,preset},capabilities);
   const canSplit=splitSegment(segments,time)!==segments;
   const projectContext=useRef({duration,sourceSize,preset,time});projectContext.current={duration,sourceSize,preset,time};
   const receiveTextDraft=useCallback((mark:AnnotationMark|null,previousId:number|null,active:boolean)=>{
@@ -153,6 +156,9 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
   async function restoreProject(project:VideoProject,isCurrent:()=>boolean){
     const context=projectContext.current;
     if(project.sourceSize.width!==context.sourceSize.width||project.sourceSize.height!==context.sourceSize.height||Math.abs(project.sourceDuration-context.duration)>.1)throw new Error("VIDEO_PROJECT_SOURCE_CHANGED");
+    // Refuse before decoding or restoring: the save hook must not create an
+    // autosave queue for a draft that this platform cannot faithfully export.
+    if(unsupportedVideoProjectFeatures(project,capabilities).length)throw new Error("VIDEO_PROJECT_UNSUPPORTED_FEATURES");
     const images=await Promise.all(project.edit.stickers.map(async sticker=>{const image=new Image();image.src=sticker.dataUrl;await image.decode();return[sticker.id,image] as const;}));
     if(!alive.current||!isCurrent())return;
     stickerImages.current=new Map(images);
@@ -165,7 +171,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
     previewing.current=false;video.current?.pause();if(video.current)video.current.currentTime=project.playhead;
     if(hasVideoEdits(project.edit,project.sourceDuration)||project.preset!=="original")setEditing(true);
   }
-  const project=useVideoProject({id:props.id,enabled:props.editable,duration,getProject:projectSnapshot,restore:restoreProject});
+  const project=useVideoProject({id:props.id,enabled:props.editable&&capabilities.videoEditing,duration,getProject:projectSnapshot,restore:restoreProject});
   scheduleProject.current=project.schedule;
   useEffect(()=>{if(project.ready)project.schedule();},[doc,preset,project.ready,project.schedule]);
   async function flushProject(){
@@ -196,6 +202,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
   function seekOutput(value:number){const target=sourceAtOutput(docRef.current.segments,value);if(!target)return;seek(target.time);playbackIndex.current=target.index;setSelected(target.index);}
 
   function apply(next: EditDocument, transient=false) {
+    if(unsupportedVideoProjectFeatures({edit:next,preset},capabilities).length)return;
     const previous=docRef.current;
     if(transient) { dragBase.current ??= previous; }
     else {
@@ -429,7 +436,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
   }
 
   async function addSticker(file:File){
-    if(importing||busy)return;setImporting(true);setStickerError(false);commitAnnotation.current?.();
+    if(importing||busy||!capabilities.videoAnnotationsEditing)return;setImporting(true);setStickerError(false);commitAnnotation.current?.();
     try{
       const {dataUrl,image}=await importVideoSticker(file);if(!alive.current)return;
       const current=docRef.current;
@@ -444,8 +451,9 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
   }
 
   async function saveCopy() {
-    if(saving.current||!valid||project.state.error?.includes("SOURCE_CHANGED")) return;
+    if(saving.current||!valid||!props.editable||!capabilities.videoEditing||project.state.status==="blocked"||project.state.status==="loading"||project.state.error?.includes("SOURCE_CHANGED")) return;
     commitAnnotation.current?.();
+    if(unsupportedVideoProjectFeatures(projectSnapshot(),capabilities).length)return;
     textDraft.current=null;project.schedule();
     const snapshot=docRef.current;
     saving.current=true;setBusy(true);setError(false);setSavedId(null);setAnnotating(false);
@@ -498,6 +506,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
     return()=>{disposed=true;player.removeEventListener("seeked",capture);};
   },[annotating,time,sourceSize,stickers,effectId]);
   function changeAnnotationMarks(marks:AnnotationMark[]){
+    if(!capabilities.videoAnnotationsEditing)return;
     const current=docRef.current;
     const visibleIds=new Set(visibleAnnotations.map(item=>item.mark.id));
     const incoming=new Map(marks.map(mark=>[mark.id,mark]));
@@ -526,6 +535,7 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
     else{setAnnotating(false);setAnnotationId(null);setEffectId(id);}
   }
   function changeEffects(next:VideoEffect[],transient=false){
+    if(!capabilities.videoEffectsEditing)return;
     const current=docRef.current,rank=nextVideoLayer([...current.effects,...current.annotations,...current.stickers]);
     apply({...current,effects:next.map((item,index)=>item.layer===undefined?{...item,layer:rank+index}:item)},transient);
   }
@@ -597,20 +607,22 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
       <div className="kiri-video-header-actions">
         {!editing && props.previewActions}
         {editing&&<div className="kiri-video-project-status" role="status" aria-live="polite">{project.state.status==="error"?<button type="button" className="kiri-video-save-retry" onClick={project.retry}>{t("Not saved · Retry")}</button>:t(project.state.status==="saved"?"Edit saved":project.state.status==="saving"||project.state.status==="waiting"?"Saving edit…":"Edits save automatically")}</div>}
-        {editing&&<VideoExportPanel preset={preset} onPreset={next=>{setPreset(next);projectContext.current.preset=next;project.schedule();setSavedId(null);}} sourceSize={sourceSize} duration={total} valid={valid&&!project.state.error?.includes("SOURCE_CHANGED")} busy={busy} error={error} saved={!!savedId} progress={exportProgress} cancelling={cancelling} cancelled={exportCancelled} cancelFailed={cancelFailed} onCancel={()=>void cancelExport()} onSave={()=>void saveCopy()} onOpen={()=>{if(savedId)void api.openAsset(savedId).catch(()=>setError(true));}}/>}
+        {editing&&<VideoExportPanel preset={preset} supportsPresets={capabilities.videoExportPresets} onPreset={next=>{if(!capabilities.videoExportPresets&&next!=="original")return;setPreset(next);projectContext.current.preset=next;project.schedule();setSavedId(null);}} sourceSize={sourceSize} duration={total} valid={valid&&!unsupportedFeatures.length&&project.state.status!=="blocked"&&project.state.status!=="loading"&&!project.state.error?.includes("SOURCE_CHANGED")} busy={busy} error={error} saved={!!savedId} progress={exportProgress} cancelling={cancelling} cancelled={exportCancelled} cancelFailed={cancelFailed} onCancel={()=>void cancelExport()} onSave={()=>void saveCopy()} onOpen={()=>{if(savedId)void api.openAsset(savedId).catch(()=>setError(true));}}/>}
 
 
         {editing ? <button type="button" className="kiri-button kiri-button--secondary" disabled={busy} onClick={()=>{commitAnnotation.current?.();previewing.current=false;video.current?.pause();setEditing(false);setAnnotating(false);}}>{t("Close editor")}</button>
-          : props.editable && <button type="button" className="kiri-button kiri-button--primary" disabled={duration<=0||!project.ready} onClick={()=>{video.current?.pause();if((video.current?.currentTime??0)>=duration-.001)seek(0);setEditing(true);}}><Scissors size={14}/>{t(project.state.status==="loading"?"Loading edit…":"Trim & Export")}</button>}
+          : props.editable && capabilities.videoEditing && <button type="button" className="kiri-button kiri-button--primary" disabled={duration<=0||!project.ready} onClick={()=>{video.current?.pause();if((video.current?.currentTime??0)>=duration-.001)seek(0);setEditing(true);}}><Scissors size={14}/>{t(project.state.status==="loading"?"Loading edit…":"Trim & Export")}</button>}
         <button type="button" className="kiri-icon-button" aria-label={t("Close · Esc")} title={t("Close · Esc")} onClick={props.onClose}><X size={16}/></button>
       </div>
     </header>
-    {(project.state.status==="blocked"||project.state.status==="error")&&<div className="kiri-video-project-notice" role="alert"><p>{t(project.state.error?.includes("SOURCE_CHANGED")?"The original video changed. The saved edit has been kept and cannot be applied to this file.":project.state.status==="blocked"
+    {editing&&isBasicVideoEditing(capabilities)&&<div className="kiri-video-project-notice" role="status"><p>{t("Basic editing: trim, delete and reorder clips at original speed.")}</p></div>}
+    {editing&&unsupportedFeatures.length>0&&<div className="kiri-video-project-notice" role="alert"><p>{t("This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.")}</p></div>}
+    {(project.state.status==="blocked"||project.state.status==="error")&&<div className="kiri-video-project-notice" role="alert"><p>{t(project.state.error?.includes("UNSUPPORTED_FEATURES")?"This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.":project.state.error?.includes("SOURCE_CHANGED")?"The original video changed. The saved edit has been kept and cannot be applied to this file.":project.state.status==="blocked"
       ?"Couldn't open the saved edit. It has been kept unchanged; you can still watch the original video."
       :project.state.error?.includes("CONFLICT")?"This edit was saved elsewhere. Your changes are still here; exporting a copy will keep the finished video."
       :"Couldn't save this edit. Your latest changes are still here. Retry before closing.")}</p><button type="button" className="kiri-button kiri-button--secondary" onClick={project.retry}>{t("Retry")}</button></div>}
     {stickerError&&<p role="alert" className="kiri-video-sticker-error">{t("Choose a PNG, JPEG or WebP image up to 10 MB and 16 megapixels.")}</p>}
-    {editing&&<div ref={setAnnotationToolbar} className="kiri-video-annotation-toolbar-host"/>}
+    {editing&&capabilities.videoAnnotationsEditing&&<div ref={setAnnotationToolbar} className="kiri-video-annotation-toolbar-host"/>}
     <div className="kiri-video-workspace">
       <div ref={stage} className="kiri-video-stage">
         <div className="kiri-video-surface" onPointerDownCapture={selectPictureObject} style={{width:fitted.width,height:fitted.height}}>
@@ -628,20 +640,20 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
             onPlay={()=>setPlaying(true)} onPause={()=>{setPlaying(false);scheduleProject.current?.();}} onEnded={()=>{updatePlayback();if(!previewing.current)setPlaying(false);scheduleProject.current?.();}}
             onError={props.onError} />
           {editing && <canvas ref={canvas} className="kiri-video-effect-preview" aria-label={t("Edited video preview")} />}
-          {editing&&<div className="kiri-video-annotation-editor" style={{pointerEvents:annotating?"auto":"none",clipPath:annotationClip,transformOrigin:"0 0",transform:`translate(${previewTransform.x*fitted.width}px, ${previewTransform.y*fitted.height}px) scale(${previewTransform.sx}, ${previewTransform.sy})`}}><VideoAnnotationsEditor onTextDraftChange={receiveTextDraft} onToolChange={setAnnotationTool} onCancelGesture={()=>cancelCanvasDrag.current?.()??false} onLiveMarks={receiveLiveMarks} active={annotating} onActivate={()=>{video.current?.pause();previewing.current=false;setEffectId(null);if(!annotating)liveAnnotation.current=null;setAnnotating(true);}} extraTools={<><button type="button" className="kiri-video-annotation-tool" disabled={busy||importing||annotations.length+stickers.length>=128} title={t("Add image sticker")} aria-label={t("Add image sticker")} onClick={()=>stickerInput.current?.click()}><ImagePlus size={17}/></button><button type="button" className="kiri-video-effect-tool" disabled={busy} onClick={()=>{commitAnnotation.current?.();setAnnotating(false);setAnnotationId(null);setEffectId(null);}}><SlidersHorizontal size={15}/>{t("Add effect")}</button><input ref={stickerInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event=>{const file=event.target.files?.[0];event.target.value="";if(file)void addSticker(file);}}/></>} onCommitReady={registerAnnotationCommit} toolbarHost={annotationToolbar} appearanceHost={appearanceHost} image={sourceImage} sourceSize={sourceSize} viewSize={fitted} marks={visibleAnnotations.map(item=>item.mark)} revision={annotationRevision} selectedMarkId={selectedAnnotation?.mark.id??null} onSelectionChange={markId=>setAnnotationId(markId===null?null:docRef.current.annotations.find(item=>item.mark.id===markId)?.id??null)} disabled={busy} onChange={changeAnnotationMarks} onUndo={()=>undo()} onRedo={()=>undo(true)} canUndo={!!history.current.past.length} canRedo={!!history.current.future.length} onClose={()=>{setAnnotating(false);setEffectId(null);setAnnotationId(null);}}/></div>}
+          {editing&&capabilities.videoAnnotationsEditing&&<div className="kiri-video-annotation-editor" style={{pointerEvents:annotating?"auto":"none",clipPath:annotationClip,transformOrigin:"0 0",transform:`translate(${previewTransform.x*fitted.width}px, ${previewTransform.y*fitted.height}px) scale(${previewTransform.sx}, ${previewTransform.sy})`}}><VideoAnnotationsEditor onTextDraftChange={receiveTextDraft} onToolChange={setAnnotationTool} onCancelGesture={()=>cancelCanvasDrag.current?.()??false} onLiveMarks={receiveLiveMarks} active={annotating} onActivate={()=>{video.current?.pause();previewing.current=false;setEffectId(null);if(!annotating)liveAnnotation.current=null;setAnnotating(true);}} extraTools={<><button type="button" className="kiri-video-annotation-tool" disabled={busy||importing||annotations.length+stickers.length>=128} title={t("Add image sticker")} aria-label={t("Add image sticker")} onClick={()=>stickerInput.current?.click()}><ImagePlus size={17}/></button>{capabilities.videoEffectsEditing&&<button type="button" className="kiri-video-effect-tool" disabled={busy} onClick={()=>{commitAnnotation.current?.();setAnnotating(false);setAnnotationId(null);setEffectId(null);}}><SlidersHorizontal size={15}/>{t("Add effect")}</button>}<input ref={stickerInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event=>{const file=event.target.files?.[0];event.target.value="";if(file)void addSticker(file);}}/></>} onCommitReady={registerAnnotationCommit} toolbarHost={annotationToolbar} appearanceHost={appearanceHost} image={sourceImage} sourceSize={sourceSize} viewSize={fitted} marks={visibleAnnotations.map(item=>item.mark)} revision={annotationRevision} selectedMarkId={selectedAnnotation?.mark.id??null} onSelectionChange={markId=>setAnnotationId(markId===null?null:docRef.current.annotations.find(item=>item.mark.id===markId)?.id??null)} disabled={busy} onChange={changeAnnotationMarks} onUndo={()=>undo()} onRedo={()=>undo(true)} canUndo={!!history.current.past.length} canRedo={!!history.current.future.length} onClose={()=>{setAnnotating(false);setEffectId(null);setAnnotationId(null);}}/></div>}
 
-          {editing && !playing && effectId && !selectedSticker && <VideoEffectsOverlay transform={previewTransform} sourceSize={sourceSize} effects={effects} onChange={changeEffects} selectedId={effectId} onSelect={setEffectId} time={time} duration={duration} disabled={busy} />}
-          {editing&&!playing&&!annotating&&<VideoEffectsOverlay transform={previewTransform} regionLabel={t("Sticker")} effects={stickers.map(item=>({...item,kind:"mask"}))} selectedId={effectId} onSelect={id=>{video.current?.pause();previewing.current=false;setEffectId(id);setAnnotationId(null);}} time={time} duration={duration} disabled={busy} onChange={(next,transient)=>{const rects=new Map(next.map(item=>[item.id,item]));apply({...docRef.current,stickers:docRef.current.stickers.map(item=>{const rect=rects.get(item.id);return rect?{...item,x:rect.x,y:rect.y,width:rect.width,height:rect.height}:item;})},transient);}}/>}
+          {editing && capabilities.videoEffectsEditing && !playing && effectId && !selectedSticker && <VideoEffectsOverlay transform={previewTransform} sourceSize={sourceSize} effects={effects} onChange={changeEffects} selectedId={effectId} onSelect={setEffectId} time={time} duration={duration} disabled={busy} />}
+          {editing&&capabilities.videoAnnotationsEditing&&!playing&&!annotating&&<VideoEffectsOverlay transform={previewTransform} regionLabel={t("Sticker")} effects={stickers.map(item=>({...item,kind:"mask"}))} selectedId={effectId} onSelect={id=>{video.current?.pause();previewing.current=false;setEffectId(id);setAnnotationId(null);}} time={time} duration={duration} disabled={busy} onChange={(next,transient)=>{const rects=new Map(next.map(item=>[item.id,item]));apply({...docRef.current,stickers:docRef.current.stickers.map(item=>{const rect=rects.get(item.id);return rect?{...item,x:rect.x,y:rect.y,width:rect.width,height:rect.height}:item;})},transient);}}/>}
         </div>
 
       </div>
-      {editing && <aside className="kiri-video-inspector">{selectedSticker?<section className="kiri-video-annotation-inspector"><strong>{t("Sticker")}</strong><p>{t("Drag to move. Resize with the handles; set timing on its track.")}</p><button type="button" className="kiri-button kiri-button--secondary" disabled={busy} onClick={()=>{apply({...docRef.current,stickers:docRef.current.stickers.filter(item=>item.id!==selectedSticker.id)});setEffectId(null);}}><Trash2 size={14}/>{t("Delete sticker")}</button></section>:annotating?<section className="kiri-video-annotation-inspector"><div ref={setAppearanceHost}/>
+      {editing && (capabilities.videoEffectsEditing||annotating||selectedSticker) && <aside className="kiri-video-inspector">{selectedSticker?<section className="kiri-video-annotation-inspector"><strong>{t("Sticker")}</strong><p>{t("Drag to move. Resize with the handles; set timing on its track.")}</p><button type="button" className="kiri-button kiri-button--secondary" disabled={busy} onClick={()=>{apply({...docRef.current,stickers:docRef.current.stickers.filter(item=>item.id!==selectedSticker.id)});setEffectId(null);}}><Trash2 size={14}/>{t("Delete sticker")}</button></section>:annotating?<section className="kiri-video-annotation-inspector"><div ref={setAppearanceHost}/>
         {selectedAnnotation&&<><details className="kiri-effect-timing" key={selectedAnnotation.id}><summary><span>{t("Visible during")}</span><VideoVisibleTime segments={segments} start={selectedAnnotation.start} end={selectedAnnotation.end}/><ChevronDown size={12}/></summary><p>{t("Times refer to the original video. You can also drag the track edges below.")}</p>{(["start","end"] as const).map(edge=><label key={edge}>{t(edge==="start"?"Effect start":"Effect end")}<VideoTimeInput value={selectedAnnotation[edge]} min={edge==="start"?0:selectedAnnotation.start+.05} max={edge==="start"?selectedAnnotation.end-.05:duration} step={.1} disabled={busy} onCommit={value=>{
           commitAnnotation.current?.();
           const current=docRef.current,selected=current.annotations.find(item=>item.id===selectedAnnotation.id);if(!selected)return;
           const next={...selected,[edge]:value};if(!Number.isFinite(value)||next.start<0||next.end>duration||next.end-next.start<.05-1e-9)return;apply({...current,annotations:current.annotations.map(item=>item.id===next.id?next:item)});setAnnotationRevision(v=>v+1);
         }}/></label>)}</details><button type="button" className="kiri-button kiri-button--secondary" disabled={busy} onClick={()=>{commitAnnotation.current?.();apply({...docRef.current,annotations:docRef.current.annotations.filter(item=>item.id!==selectedAnnotation.id)});setAnnotationId(null);setAnnotationRevision(v=>v+1);}}><Trash2 size={14}/>{t("Delete annotation")}</button></>}
-        </section>:<VideoEffectsControls segments={segments} sourceSize={sourceSize} effects={effects} onChange={changeEffects} selectedId={effectId} onSelect={id=>{video.current?.pause();previewing.current=false;setEffectId(id);}} time={time} duration={duration} disabled={busy} onSeek={seek} />}</aside>}
+        </section>:capabilities.videoEffectsEditing?<VideoEffectsControls segments={segments} sourceSize={sourceSize} effects={effects} onChange={changeEffects} selectedId={effectId} onSelect={id=>{video.current?.pause();previewing.current=false;setEffectId(id);}} time={time} duration={duration} disabled={busy} onSeek={seek} />:null}</aside>}
     </div>
     {!editing&&<VideoPlaybackControls video={video}/>}
     {editing&&<><div className="kiri-video-timeline-divider" role="separator" aria-label={t("Timeline height")} aria-orientation="horizontal" aria-valuemin={160} aria-valuemax={360} aria-valuenow={timelineHeight} tabIndex={0} onPointerDown={resizeTimeline} onDoubleClick={()=>setTimelineHeight(230)} onKeyDown={event=>{if(["ArrowUp","ArrowDown"].includes(event.key)){event.preventDefault();setTimelineHeight(value=>Math.max(160,Math.min(360,(container.current?.clientHeight??700)*.45,value+(event.key==="ArrowUp"?20:-20))));}}}/><section className="kiri-video-timeline" aria-label={t("Video timeline")} style={{height:timelineHeight}}>
@@ -672,11 +684,11 @@ export function VideoTrimPlayer(props: { id: string; src: string; editable: bool
         {dropIndex!==null&&<div className="kiri-video-drop-marker" style={{left:`${total?(timeline[dropIndex]?.start??total)/total*100:0}%`}}/>}
         <div className="kiri-video-playhead" style={{left:`${total?Math.min(total,clockTime)/total*100:0}%`}}><span onPointerDown={scrubTimeline} title={t("Drag to scrub")}/></div>
       </div>
-      <VideoOutputEffectTracks playhead={clockTime} effects={timelineItems} labels={trackLabels} segments={segments} sourceDuration={duration} selectedId={annotating?annotationId:effectId} disabled={busy} onSelect={selectTrack} onSeek={seek} onChange={changeTracks}/>
+      {(capabilities.videoEffectsEditing||capabilities.videoAnnotationsEditing)&&<VideoOutputEffectTracks playhead={clockTime} effects={timelineItems} labels={trackLabels} segments={segments} sourceDuration={duration} selectedId={annotating?annotationId:effectId} disabled={busy} onSelect={selectTrack} onSeek={seek} onChange={changeTracks}/>}
       </div></div>
       <div className="kiri-video-timeline-detail">
         {thumbnailFailed&&<span>{t("Thumbnails unavailable; editing still works.")}</span>}
-        {selectedTrack?<div className="kiri-video-track-help"><strong>{trackLabels[selectedTrack.id]??t(effectLabels[selectedTrack.kind])}</strong><span>{t("Drag the grip to reorder, the middle to move, or either edge to change the duration.")}</span></div>:selectedClip&&<div className="kiri-video-clip-fields"><span>{fmt("Segment %d",selected+1)}</span><ChoiceSelect label={t("Clip speed")} value={String(segmentSpeed(selectedClip))} disabled={busy} onChange={value=>{commitAnnotation.current?.();apply({...docRef.current,segments:docRef.current.segments.map((clip,index)=>index===selected?{...clip,speed:Number(value)}:clip)});}} options={[.25,.5,.75,1,1.25,1.5,2,3,4].map(speed=>({value:String(speed),label:`${speed}×`,description:speed===1?t("Original speed"):undefined}))}/><span>{videoTimeLabel((selectedClip.end-selectedClip.start)/segmentSpeed(selectedClip))}</span>{(["start","end"] as const).map(edge=><label key={edge}>{t(edge==="start"?"Source in":"Source out")}<VideoTimeInput key={`${selected}-${edge}`}  min={0} max={duration} step={.1} disabled={busy} aria-label={t(edge==="start"?"Start time in seconds":"End time in seconds")} value={Number(selectedClip[edge].toFixed(3))} onCommit={value=>{const next=trimSegment(segments,selected,edge,value,duration);apply({...docRef.current,segments:next});seek(next[selected][edge]);playbackIndex.current=selected;}}/></label>)}</div>}
+        {selectedTrack?<div className="kiri-video-track-help"><strong>{trackLabels[selectedTrack.id]??t(effectLabels[selectedTrack.kind])}</strong><span>{t("Drag the grip to reorder, the middle to move, or either edge to change the duration.")}</span></div>:selectedClip&&<div className="kiri-video-clip-fields"><span>{fmt("Segment %d",selected+1)}</span>{capabilities.videoSpeedEditing&&<ChoiceSelect label={t("Clip speed")} value={String(segmentSpeed(selectedClip))} disabled={busy} onChange={value=>{commitAnnotation.current?.();apply({...docRef.current,segments:docRef.current.segments.map((clip,index)=>index===selected?{...clip,speed:Number(value)}:clip)});}} options={[.25,.5,.75,1,1.25,1.5,2,3,4].map(speed=>({value:String(speed),label:`${speed}×`,description:speed===1?t("Original speed"):undefined}))}/>}<span>{videoTimeLabel((selectedClip.end-selectedClip.start)/segmentSpeed(selectedClip))}</span>{(["start","end"] as const).map(edge=><label key={edge}>{t(edge==="start"?"Source in":"Source out")}<VideoTimeInput key={`${selected}-${edge}`}  min={0} max={duration} step={.1} disabled={busy} aria-label={t(edge==="start"?"Start time in seconds":"End time in seconds")} value={Number(selectedClip[edge].toFixed(3))} onCommit={value=>{const next=trimSegment(segments,selected,edge,value,duration);apply({...docRef.current,segments:next});seek(next[selected][edge]);playbackIndex.current=selected;}}/></label>)}</div>}
       </div>
       {isWindows&&selectedClip&&segmentSpeed(selectedClip)!==1&&<p className="kiri-video-pitch-note">{t("Changing clip speed also changes audio pitch on Windows.")}</p>}
     </section></>}
