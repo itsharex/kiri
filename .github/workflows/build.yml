@@ -62,7 +62,9 @@ jobs:
       - name: Verify CI scheduling and quality gate
         env:
           PYTHONDONTWRITEBYTECODE: '1'
-        run: python3 scripts/qa/test_ci_plan.py
+        run: |
+          python3 scripts/qa/test_ci_plan.py
+          python3 scripts/qa/test_linux_package_provenance.py
       - name: Verify the formal release tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/release-version.mjs "$GITHUB_REF_NAME"

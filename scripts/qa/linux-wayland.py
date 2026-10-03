@@ -179,6 +179,41 @@ def click_control(name):
     click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
 
 
+def painted_control(name):
+    """Wait for a stable accessible button and its actual desktop pixels."""
+    previous = None
+    stable = 0
+
+    def ready():
+        nonlocal previous, stable
+        bounds = controls(name, enabled=True, role="push button")
+        if bounds is None:
+            previous, stable = None, 0
+            return None
+        rect = (bounds.x, bounds.y, bounds.width, bounds.height)
+        if not (0 <= bounds.x < 1280 and 0 <= bounds.y < 800
+                and bounds.x + bounds.width <= 1280 and bounds.y + bounds.height <= 800):
+            return None
+        stable = stable + 1 if rect == previous else 1
+        previous = rect
+        if stable < 3:
+            return None
+        picture = overlay_frame("ocr-before-mode-click.png")
+        if picture is None:
+            return None
+        patch = picture.crop(pixel_box((bounds.x, bounds.y,
+                                        bounds.x + bounds.width, bounds.y + bounds.height))).convert("L")
+        low, high = patch.getextrema()
+        if high - low < 40 or ImageStat.Stat(patch).stddev[0] < 5:
+            return None
+        report["ocr_mode_click"] = {"logical_bounds": list(rect),
+                                     "pixel_range": high - low,
+                                     "pixel_stddev": round(ImageStat.Stat(patch).stddev[0], 3)}
+        return bounds
+
+    return wait_for(f"stable painted {name} control", ready)
+
+
 def pixel_box(bounds):
     return tuple(round(value * args.scale) for value in bounds)
 
@@ -666,8 +701,12 @@ try:
             raise RuntimeError("Another Wayland client did not receive the exact captured PNG")
         report["checks"].append("a separate focused Wayland GTK client receives the exact PNG clipboard")
         capture()
-        wait_for("OCR selection overlay", lambda: controls("OCR"))
-        click_control("OCR")
+        bounds = painted_control("OCR")
+        click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+        screenshot("ocr-after-mode-click.png")
+        wait_for("OCR mode is active", lambda: controls("Drag to choose text to recognize   ·   Esc to cancel"))
+        screenshot("ocr-mode-active.png")
+        report["ocr_mode_click"]["mode_confirmed"] = True
         drag_region((220, 240, 900, 350))
         click_control("Copy")
         wait_for("OCR copy closes capture", lambda: controls("OCR") is None)
