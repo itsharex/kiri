@@ -21,6 +21,8 @@
 
 Take a screenshot, mark what matters, or record an on-screen task. Kiri keeps your captures on your computer, ready to find and edit later.
 
+![Kiri annotation interface with an illustrated sample](docs/assets/readme-preview.png)
+
 ## Features
 
 - Capture a window or region, crop it, add drawings, text or mosaic, and pin screenshots as floating references.
