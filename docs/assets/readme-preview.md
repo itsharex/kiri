@@ -6,7 +6,7 @@ Created on 2026-10-04.
 - `readme-preview.png`: 2880 × 1918 pixels; the current application frontend rendered with an isolated demo fixture and the generated illustration. Interface components, icons, and internal styles come from `f9d08e8f0558376b6a682ef624aefa0ee1311243`.
 - This is an interface illustration, not evidence of a native capture or a live recognition session. No personal content or credentials were used.
 
-The sample text and arrow are ordinary editable annotations rendered by Kiri’s `EditorWindow` and `AnnotationCanvas`.
+The sample text ("Screenshot. Annotate.") and arrow are ordinary editable annotations rendered by Kiri’s `EditorWindow` and `AnnotationCanvas`.
 
 ## Illustration prompt
 
