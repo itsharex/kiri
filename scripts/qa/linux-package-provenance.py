@@ -123,6 +123,24 @@ def write_manifest(args):
     print(json.dumps(manifest, indent=2))
 
 
+def manifest_run(root, run, manifest, repository):
+    """Resolve the artifact's original attempt, anchored to official API data."""
+    require(manifest["schema_version"] == 1 and manifest["repository"] == repository
+            and manifest["workflow_path"] == WORKFLOW and manifest["run_id"] == run["id"],
+            "Package provenance identity does not match its run")
+    attempt = manifest["run_attempt"]
+    require(type(attempt) is int and 1 <= attempt <= run["run_attempt"],
+            "Package provenance identity has an invalid run attempt")
+    if attempt == run["run_attempt"]:
+        return run
+    original = api(f"{root}/runs/{run['id']}/attempts/{attempt}")
+    require(original["id"] == run["id"] and original["run_attempt"] == attempt
+            and original["head_sha"] == run["head_sha"] and original["path"] == run["path"]
+            and original["repository"]["full_name"] == repository,
+            "Original package attempt does not match the official workflow run")
+    return original
+
+
 def verify(args, evidence):
     require(re.fullmatch(r"[1-9][0-9]*", args.run_id), "Run ID must be a positive integer")
     repository = os.environ["GITHUB_REPOSITORY"]
@@ -136,6 +154,12 @@ def verify(args, evidence):
     run = api(f"{root}/runs/{args.run_id}")
     require(run["repository"]["full_name"] == repository and run["path"] == WORKFLOW,
             "Candidate must belong to this repository's build.yml")
+    manifest_path = args.package_dir / "provenance.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
+    latest_attempt = run["run_attempt"]
+    if manifest is not None:
+        run = manifest_run(root, run, manifest, repository)
+    evidence["latest_run_attempt"] = latest_attempt
     if reused:
         require(run["status"] == "completed", "Candidate build run has not completed")
         require(run["head_repository"]["full_name"] == repository, "Cannot reuse a fork's candidate")
@@ -186,10 +210,8 @@ def verify(args, evidence):
             "ref": os.environ.get("GITHUB_REF"),
         },
     })
-    manifest_path = args.package_dir / "provenance.json"
     require(not recheck_failed_x11 or manifest_path.is_file(), "Failed X11 recheck requires package provenance")
     if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         require(manifest["schema_version"] == 1 and manifest["repository"] == repository
                 and manifest["workflow_path"] == WORKFLOW and manifest["run_id"] == run["id"]
                 and manifest["run_attempt"] == run["run_attempt"], "Package provenance identity does not match its run")
