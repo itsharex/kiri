@@ -65,8 +65,9 @@ Linux. Preserve these decisions:
   it does not expose the signed in-app updater. Ubuntu 24.04 / GNOME is the
   initial Linux target, with X11 compatibility. Do not claim AppImage delivery.
 - Linux local OCR uses system Tesseract with `eng`, `chi_sim`, and `jpn` data.
-  Linux videos support playback and GIF conversion, while editing/export UI
-  remains unavailable until a native renderer is implemented.
+  Linux videos support playback, GIF conversion, normal-speed cuts/reordering and
+  MP4 export with source audio. Independently gated speed, effects, masks,
+  annotations and stickers remain unavailable; never silently drop saved content.
 
 ## Repository map
 

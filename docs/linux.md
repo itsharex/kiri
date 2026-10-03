@@ -110,13 +110,29 @@ cover MP4/GIF encoding and merging. Check the candidate's reports for results.
 | Remote OCR | Explicit send/retry, Secret Service credentials | Needs a configured profile and an unlocked secret store |
 | Recording | Silent MP4 or GIF, optional pointer, tray/command controls | Portal consent, pause/resume, timing, and control exclusion on real GNOME |
 | Audio and click highlights | Unavailable | No system audio, microphone, microphone check, or click ripple |
-| Saved videos | Playback, thumbnails, GIF conversion | System GStreamer codecs required; no video editing/MP4 export UI |
+| Saved videos | Playback, thumbnails, GIF conversion, normal-speed cuts/reordering and MP4 export with source audio | System GStreamer codecs required; no speed changes, effects, masks, annotations or stickers; [installed-app acceptance](qa/linux-video-export.md) remains separate |
 | Updates | Manual replacement `.deb` | No Linux in-app installation or signed updater feed |
 
 GTK retains clipboard ownership after capture closes while Kiri is running.
 Whether clipboard content survives quitting Kiri depends on the desktop's
 clipboard manager. Screenshot annotations and OCR source images stay local;
 the shared [privacy policy](../PRIVACY.md) also applies on Linux.
+
+## Basic video editing
+
+The current source supports trim, split/delete and reordering retained clips,
+then exports a new MP4 with the source audio. Original files remain unchanged.
+High quality, Everyday sharing and Compact file set output dimensions. Linux
+applies rotation before export; audio becomes 48 kHz stereo AAC. Variable-rate
+and held frames retain their presentation timing.
+This path requires the installed GStreamer H.264/AAC plugins. It accepts one
+progressive video track and at most one audio track, without subtitle tracks.
+
+Speed changes, privacy masks, zoom, annotations and stickers remain unsupported.
+A saved project containing them stays intact and read-only on Linux. This is
+basic editing, not full macOS/Windows parity. See [video editing](video-editing.md)
+and the [exact-package acceptance checklist](qa/linux-video-export.md); source
+media tests alone do not close the Ubuntu/GNOME acceptance requirement.
 
 ## Build from source
 

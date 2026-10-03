@@ -3,6 +3,7 @@ import ts from "typescript";
 import * as qrSelection from "../../src/qr/selection.js";
 import * as cardInteraction from "../../src/windows/library-card-interaction.js";
 import * as viewerCopyShortcut from "../../src/windows/viewer-copy-shortcut.js";
+import * as videoCapabilities from "../../src/windows/video-capabilities.js";
 
 // Exercise the real component handlers without a WebView, native IPC, or a
 // user's library. This models hook state/effect cleanup, not DOM or layout.
@@ -145,6 +146,7 @@ export function createLibraryHarness(apiOverrides = {}, componentSource = null, 
     },
     "./library-card-interaction.js": cardInteraction,
     "./viewer-copy-shortcut.js": viewerCopyShortcut,
+    "./video-capabilities.js": videoCapabilities,
     ...environment.modules,
   };
   const module = { exports: {} };

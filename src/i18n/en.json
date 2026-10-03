@@ -655,5 +655,7 @@
   "The library changed during QR recognition.": "The library changed during QR recognition.",
   "Could not save this QR code.": "Could not save this QR code.",
   "Could not open this link.": "Could not open this link.",
-  "Invalid QR favorite.": "Invalid QR favorite."
+  "Invalid QR favorite.": "Invalid QR favorite.",
+  "Basic editing: trim, delete and reorder clips at original speed.": "Basic editing: trim, delete and reorder clips at original speed.",
+  "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.": "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video."
 }

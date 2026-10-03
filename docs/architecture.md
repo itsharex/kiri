@@ -55,8 +55,11 @@ does not change the library asset.
 
 Linux does not show the floating `control-panel` or `ripple` during recording.
 The tray and explicit recording commands provide controls without relying on
-portal window exclusion. Linux video viewers expose playback and GIF conversion;
-the macOS/Windows video editor and export controls stay unavailable.
+portal window exclusion. Linux video viewers expose playback, GIF conversion and basic normal-speed
+cut/reorder MP4 export with source audio. `video_export_linux.rs` uses accurate
+GStreamer decode seeks and one continuous H.264/AAC encoder. Independent frontend
+capabilities hide unsupported speed/effects/annotation tools and protect advanced
+saved projects from modification; see ADR 0071.
 
 On macOS, Show in Dock is a persisted application preference, enabled by
 default. It selects regular or accessory activation policy at startup and

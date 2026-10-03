@@ -5350,13 +5350,21 @@ pub struct PlatformCapabilitiesDto {
     pub microphone: bool,
     pub click_highlights: bool,
     pub video_editing: bool,
+    pub video_speed_editing: bool,
+    pub video_effects_editing: bool,
+    pub video_annotations_editing: bool,
+    pub video_export_presets: bool,
     pub manual_updates: bool,
 }
 
 #[tauri::command]
 pub fn platform_capabilities() -> PlatformCapabilitiesDto {
     PlatformCapabilitiesDto {
-        video_editing: !cfg!(target_os = "linux"),
+        video_editing: crate::video_export::editing_available(),
+        video_speed_editing: cfg!(any(windows, target_os = "macos")),
+        video_effects_editing: cfg!(any(windows, target_os = "macos")),
+        video_annotations_editing: cfg!(any(windows, target_os = "macos")),
+        video_export_presets: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         manual_updates: cfg!(target_os = "linux"),
         #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         recording: true,

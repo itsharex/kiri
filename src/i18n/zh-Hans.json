@@ -655,5 +655,7 @@
   "The library changed during QR recognition.": "识别过程中图库位置发生变化，请重新识别。",
   "Could not save this QR code.": "无法收藏此二维码。",
   "Could not open this link.": "无法打开此链接。",
-  "Invalid QR favorite.": "此二维码收藏不可用。"
+  "Invalid QR favorite.": "此二维码收藏不可用。",
+  "Basic editing: trim, delete and reorder clips at original speed.": "基础剪辑：以原速裁剪、删除和重排片段。",
+  "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.": "此剪辑使用了当前平台不支持的功能。已保存的剪辑保持不变，你仍可观看原始视频。"
 }

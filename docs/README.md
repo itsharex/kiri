@@ -6,6 +6,7 @@ application or a durable product decision.
 ## User guides
 
 - [Video editing](video-editing.md) · [视频剪辑](video-editing.zh-CN.md) — import, trim, annotate, save, and export a local video.
+- [Linux basic video export acceptance](qa/linux-video-export.md) — exact-package checklist for #74.
 - [Linux](linux.md) — Ubuntu/GNOME setup, X11 compatibility,
   manual updates, feature limits, and separate CI/desktop acceptance.
 
@@ -145,3 +146,5 @@ development.
 - [ADR 0060: Image text editing and unsaved close](adr/0060-image-text-editing-and-close.md)
 - [ADR 0061: Local QR recognition and favorites](adr/0061-local-qr-recognition-and-favorites.md)
 - [ADR 0062: Merge QR results across contrast thresholds](adr/0062-qr-multi-contrast-results.md)
+
+- [ADR 0071: Linux basic video export](adr/0071-linux-basic-video-export.md) — normal-speed cuts, source audio, bounded native processing and independent capability gates.

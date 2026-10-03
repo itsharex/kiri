@@ -655,5 +655,7 @@
   "The library changed during QR recognition.": "読み取り中にライブラリが変更されました。もう一度読み取ってください。",
   "Could not save this QR code.": "このQRコードを保存できません。",
   "Could not open this link.": "このリンクを開けません。",
-  "Invalid QR favorite.": "このQRコードは利用できません。"
+  "Invalid QR favorite.": "このQRコードは利用できません。",
+  "Basic editing: trim, delete and reorder clips at original speed.": "基本編集：元の速度でクリップのトリミング、削除、並べ替えができます。",
+  "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.": "保存された編集には、このプラットフォームで使えない機能が含まれています。編集内容は変更せずに保持されています。元の動画は引き続き再生できます。"
 }

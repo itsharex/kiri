@@ -79,7 +79,9 @@ See [Linux setup and acceptance](docs/linux.md) for installation and verificatio
 - [ ] Wayland multiple displays and fractional-scale acceptance
 - [ ] Window hover outlines on Wayland where the compositor exposes bounds
 - [ ] System audio, microphone, and click-highlight parity
-- [ ] Linux video editing and MP4 export
+- [x] Linux normal-speed cuts/reordering and source-audio-preserving MP4 export backend
+- [ ] Installed Ubuntu/GNOME basic-video-editing acceptance (#74)
+- [ ] Linux advanced video effects, annotations and speed editing
 - [ ] AppImage packaging and desktop acceptance
 - [ ] Signed Linux updater artifacts
 

@@ -4,6 +4,8 @@
 
 Open a video from the library and choose **Trim & Export** above the picture. This guide describes the current source; check the release notes for the controls available in your installed version.
 
+**Linux:** supports normal-speed cuts, deleting/reordering clips, size presets and separate MP4 export with source audio. Speed changes, annotations, stickers and effects described below remain macOS/Windows-only. Saved projects using unavailable operations stay intact and read-only. Source support is one progressive square-pixel video track and at most one audio track, without subtitles; required codecs must be installed.
+
 A project edits one source video. You can cut that video into clips and reorder them, but importing several videos does not combine them into one timeline.
 
 ## Import a recording or local file
@@ -51,6 +53,6 @@ Choose **Export** in the upper-right toolbar. The quality menu shows the actual 
 
 Small sources are never enlarged. File size depends on the source and edited duration. Export creates a new library copy, shows encoding progress, and can be cancelled before the final library save begins. Cancelling keeps your project and adds no partial video to the library.
 
-Exports retain synchronized audio. macOS preserves audio pitch when clip speed changes; Windows changes the pitch along with the speed. On Windows, video effects currently require a source without rotation metadata. Kiri recordings meet that requirement.
+Exports retain synchronized audio. Linux normalizes audio to 48 kHz stereo AAC, applies video orientation and preserves variable-rate and held-frame presentation timing. macOS preserves audio pitch when clip speed changes; Windows changes the pitch along with the speed. On Windows, video effects currently require a source without rotation metadata. Kiri recordings meet that requirement.
 
 [Back to Kiri](../README.md)

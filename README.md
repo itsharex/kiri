@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 - **Copy text** from your screen or saved images with local OCR. Correct saved recognition in Text History and restore the original text when needed.
 - **Read QR codes** with the screenshot toolbar's Recognize QR Codes tool. Open an older screenshot in the editor to use the same tool later. Multiple codes keep their own positions, including repeated content and codes recovered at different contrast thresholds; overlapping local scans help separate codes in dense images. Click a center arrow directly on the original capture or editor image to view a code as a link, text or WeChat content. The library menu uses the same editor path; recognition keeps pending edits and uses compact loading or failure feedback. Readable selected codes are saved automatically in QR Favorites. Open Link uses the default browser and exits capture in one click; long content scrolls while the actions remain available. Standard square WeChat QR codes are supported; circular Mini Program codes are not.
 - **Record** a region as MP4 or GIF. GIF export preserves playback timing and reports the encoded duration. On macOS and Windows, include system audio, microphone, and a visible red click highlight.
-- **Edit videos** on macOS and Windows: trim, reorder, change speed, and add annotations or privacy masks.
+- **Edit videos**: trim and reorder on all three platforms, exporting a separate MP4 with source audio. macOS and Windows also support speed changes, annotations and privacy masks. Linux supports normal-speed cuts and output-size presets; advanced edits remain unavailable.
 - **Keep everything together** in a local library with imports, search, tags, favorites, and recoverable Trash. Recordings appear with a saving status while they finish processing. Copy videos and GIFs as files from the library or viewer to paste into compatible apps. Paste an image from the clipboard to annotate or recognize it, or export selected captures to a folder without moving the originals. Long titles truncate beside the card actions and show the full name on hover. Narrow windows wrap whole controls without splitting their labels.
 
 ## Download
@@ -49,7 +49,7 @@ https://github.com/user-attachments/assets/367fe955-b396-4f98-b3f2-aa5cb41b6d37
 
 macOS needs **Screen & System Audio Recording** permission; click highlights also need **Input Monitoring**, and microphone recording requires macOS 15+. The app is not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**. Windows packages are not Authenticode-signed, so SmartScreen may warn.
 
-**Linux:** Wayland capture supports one connected display. Recording is silent, without click highlights or video editing. See the [Linux guide](docs/linux.md) for setup and recording controls.
+**Linux:** Wayland capture supports one connected display. Recording is silent and has no click highlights. Saved videos support basic cuts and MP4 export; advanced video effects are unavailable. See the [Linux guide](docs/linux.md) for setup and recording controls.
 
 **Updates:** macOS and Windows installer builds use **Settings → About → Check for Updates**. Linux and Windows Portable users download a new package from Releases. Portable settings and captures stay in the Windows user profile.
 

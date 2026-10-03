@@ -145,6 +145,10 @@ export interface PlatformCapabilitiesDto {
   microphone: boolean;
   clickHighlights: boolean;
   videoEditing: boolean;
+  videoSpeedEditing: boolean;
+  videoEffectsEditing: boolean;
+  videoAnnotationsEditing: boolean;
+  videoExportPresets: boolean;
   manualUpdates: boolean;
 }
 
