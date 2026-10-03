@@ -347,6 +347,9 @@ struct NativeInput {
     source: AudioSource,
     next_pts: Option<Duration>,
     timing: NativeTiming,
+    timing_ready: bool,
+    timing_update: Option<pulse::operation::Operation<dyn FnMut(bool)>>,
+    timing_result: Rc<std::cell::Cell<Option<bool>>>,
     last_data: Instant,
 }
 
@@ -418,6 +421,9 @@ impl NativeCapture {
                 source: source.clone(),
                 next_pts: None,
                 timing: NativeTiming::default(),
+                timing_ready: false,
+                timing_update: None,
+                timing_result: Rc::new(std::cell::Cell::new(None)),
                 last_data: Instant::now(),
             });
         }
@@ -446,15 +452,9 @@ impl NativeCapture {
         for operation in operations {
             self.connection.complete(operation)?;
         }
-        // Refresh after uncork: prepared/corked latency is not a valid anchor.
-        let updates = self
-            .inputs
-            .iter_mut()
-            .map(|input| input.stream.update_timing_info(None))
-            .collect::<Vec<_>>();
-        for update in updates {
-            self.connection.complete(update)?;
-        }
+        // Timing immediately after uncork can still describe an idle source.
+        // Each input requests its first usable snapshot only after real PCM
+        // arrives, then waits for that reply asynchronously in pump().
         self.check()
     }
 
@@ -524,10 +524,43 @@ impl NativeCapture {
                 if queued == 0 {
                     break;
                 }
+                if !input.timing_ready {
+                    match input
+                        .timing_update
+                        .as_ref()
+                        .map(|update| update.get_state())
+                    {
+                        Some(pulse::operation::State::Done) => {
+                            if input.timing_result.get() != Some(true) {
+                                bail!(AUDIO_RECORDING_FAILED);
+                            }
+                            input.timing_update = None;
+                            input.timing_ready = true;
+                        }
+                        Some(pulse::operation::State::Cancelled) => bail!(AUDIO_RECORDING_FAILED),
+                        Some(pulse::operation::State::Running) => break,
+                        None => {
+                            let result = input.timing_result.clone();
+                            input.timing_update = Some(input.stream.update_timing_info(Some(
+                                Box::new(move |success| result.set(Some(success))),
+                            )));
+                            break;
+                        }
+                    }
+                }
                 let Some(info) = input.stream.get_timing_info().copied() else {
                     break;
                 };
                 let (elapsed, now) = recording_clock_pair(origin)?;
+                #[cfg(test)]
+                if std::env::var("KIRI_LINUX_PULSE_QA").as_deref() == Ok("1")
+                    && input
+                        .timing
+                        .anchor
+                        .is_none_or(|(stamp, _)| stamp != info.timestamp)
+                {
+                    eprintln!("kiri-audio-snapshot source={} elapsed_us={} read={} write={} source_us={} sink_us={} transport_us={} age_us={} timestamp={} queued_bytes={}", input.source.name, elapsed.as_micros(), info.read_index, info.write_index, info.source_usec.0, info.sink_usec.0, info.transport_usec.0, pulse::time::UnixTs::diff(&now, &info.timestamp).0, info.timestamp, queued);
+                }
                 let raw_pts = input.timing.sample_ns(&info, elapsed, now)?;
                 let measured = Duration::from_nanos(
                     u64::try_from(raw_pts.max(0)).map_err(|_| anyhow!(AUDIO_RECORDING_FAILED))?,
@@ -598,6 +631,9 @@ impl Drop for NativeCapture {
         // disconnect queues teardown without flushing or waiting for a server
         // acknowledgement; callbacks and streams die before the mainloop.
         for input in &mut self.inputs {
+            if let Some(mut update) = input.timing_update.take() {
+                update.cancel();
+            }
             let _ = input.stream.disconnect();
         }
     }

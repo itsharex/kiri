@@ -34,7 +34,10 @@ byte bound. The live mixer reserves that same 250 ms latency window, so late
 arrival of correctly timestamped native PCM is not mistaken for silence.
 Signed read/write positions and device latencies from raw Pulse timing snapshots
 map samples to the common monotonic video clock. Each snapshot's wall-clock
-stamp is translated once; later reads advance by PCM sample count. The
+stamp is translated once; later reads advance by PCM sample count. The initial
+snapshot is requested after that stream first reports readable PCM, because an
+uncork acknowledgement alone does not establish active source timing. Pending
+timing requests are polled without blocking and cancelled on teardown. The
 UI-oriented interpolated latency API is not used: its startup clock can stop
 while worker polling time advances, creating artificial gaps. Pre-origin PCM
 is trimmed at sample boundaries, and future monitor samples remain unread.
