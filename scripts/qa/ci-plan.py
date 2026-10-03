@@ -7,7 +7,7 @@ import re
 import subprocess
 
 
-PROFILES = {"quick", "linux", "linux-package", "windows", "macos", "full", "recheck-linux", "recheck-linux-x11"}
+PROFILES = {"quick", "linux", "linux-package", "windows", "macos", "release", "full", "recheck-linux", "recheck-linux-x11"}
 TARGET_PREFIXES = {
     "linux": ("src-tauri/src/capture/linux", "src-tauri/src/platform/linux", "src-tauri/src/linux_media"),
     "windows": ("src-tauri/src/capture/windows", "src-tauri/src/platform/windows"),
@@ -35,19 +35,21 @@ def plan(event, ref, inputs, paths, labels=()):
         if profile in {"recheck-linux", "recheck-linux-x11"} and not candidate:
             raise ValueError("recheck-linux needs a completed candidate run ID")
     elif event == "push" and ref.startswith("refs/tags/v"):
-        profile = "full"
+        # Release packaging does not authorize configuring a Linux desktop.
+        # Keep all source/package checks; desktop acceptance remains explicit.
+        profile = "release"
 
     if profile == "recheck-linux-x11":
         selected["x11_recheck"] = True
     elif profile == "recheck-linux":
         selected["wayland"] = True
-    elif profile in {"full", "linux", "linux-package", "windows", "macos"}:
+    elif profile in {"full", "release", "linux", "linux-package", "windows", "macos"}:
         selected["renderer"] = True
         for target in TARGET_PREFIXES:
-            chosen = profile in {"full", target} or (profile == "linux-package" and target == "linux")
+            chosen = profile in {"full", "release", target} or (profile == "linux-package" and target == "linux")
             selected[f"native_{target}"] = chosen
             selected[f"package_{target}"] = chosen
-        selected["linux_x11"] = selected["package_linux"] and profile != "linux-package"
+        selected["linux_x11"] = selected["package_linux"] and profile not in {"linux-package", "release"}
         selected["wayland"] = selected["linux_x11"]
     elif event == "workflow_dispatch" or paths is None:
         # Unknown diff or explicit quick checks fail closed to all native tests,
