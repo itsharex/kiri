@@ -1758,6 +1758,347 @@ mod tests {
         2.0 * sin.hypot(cos) / samples.len() as f64
     }
 
+    // Native source clocks and audiorate can change phase while preserving a
+    // tone. A single coherent projection across the whole recording can cancel
+    // two loud regions. Measure power in 25ms windows (11 / 22 whole cycles at
+    // the fixture's 440 / 880Hz), and require it in rolling 100ms intervals.
+    // Advancing by 25ms catches dropouts that straddle interval boundaries.
+    fn tone_window_amplitudes(samples: &[f32], frequency: f64) -> Vec<f64> {
+        let amplitudes = samples
+            .as_chunks::<1_200>()
+            .0
+            .iter()
+            .map(|window| tone_amplitude(window, frequency))
+            .collect::<Vec<_>>();
+        amplitudes
+            .windows(4)
+            .map(|interval| (interval.iter().map(|value| value * value).sum::<f64>() / 4.0).sqrt())
+            .collect()
+    }
+
+    #[test]
+    fn native_tone_oracle_accepts_phase_changes_but_rejects_missing_audio() {
+        let phase_changed = (0..24_000)
+            .map(|index| {
+                let phase = if index / 4_800 % 2 == 0 {
+                    0.0
+                } else {
+                    std::f64::consts::PI
+                };
+                (0.15
+                    * (2.0 * std::f64::consts::PI * 440.0 * index as f64 / 48_000.0 + phase).sin())
+                    as f32
+            })
+            .collect::<Vec<_>>();
+        // The old oracle wrongly called this audible, continuous-energy tone
+        // missing. The local oracle still rejects silence, a wrong route, and
+        // one missing 100ms interior interval rather than averaging it away.
+        assert!(tone_amplitude(&phase_changed, 440.0) < 0.05);
+        let present = |samples: &[f32], frequency| {
+            let windows = tone_window_amplitudes(samples, frequency);
+            !windows.is_empty() && windows.iter().all(|amplitude| *amplitude > 0.08)
+        };
+        assert!(present(&phase_changed, 440.0));
+        assert!(!present(&phase_changed, 880.0));
+        assert!(!present(&vec![0.0; 24_000], 440.0));
+        let mut missing_interval = phase_changed.clone();
+        missing_interval[9_600..14_400].fill(0.0);
+        assert!(!present(&missing_interval, 440.0));
+        let mut shifted_missing = phase_changed.clone();
+        shifted_missing[12_000..16_800].fill(0.0);
+        assert!(!present(&shifted_missing, 440.0));
+    }
+
+    // Only synthetic audio tests install these probes.
+    // Keep native-input / corrected / mixed PCM and timing evidence so a CI
+    // failure can distinguish the producer, clock correction and encoder.
+    #[derive(Default)]
+    struct AudioTraceData {
+        bytes: Vec<u8>,
+        buffers: Vec<String>,
+        truncated: bool,
+        first_pts: Option<u64>,
+        max_residual_ns: u64,
+    }
+
+    fn native_fixture_tolerance(
+        observations: &[crate::linux_audio::NativeTimingObservation],
+        index: usize,
+    ) -> Result<u64> {
+        let source = observations
+            .iter()
+            .filter(|item| item.index == index)
+            .collect::<Vec<_>>();
+        let first = source
+            .first()
+            .context("Missing native timing negotiation")?;
+        if first.source != "kiri_test_mic" || first.is_monitor {
+            return Ok(5_000_000);
+        }
+        // This owned microphone is a remapped null-sink monitor. Pulse clamps
+        // its negative source latency to zero, and omits the monitor's sink
+        // correction. It therefore has one negotiated fragment of clock
+        // quantization. This allowance is confined to the verified fixture;
+        // it is not a physical microphone or Pulse accuracy guarantee.
+        for item in &source {
+            if item.source != "kiri_test_mic"
+                || item.is_monitor
+                || item.configured_source_us != 10_000
+                || item.fragment_bytes != 3_840
+            {
+                bail!("Owned remap microphone timing negotiation changed: {item:?}");
+            }
+        }
+        let negotiated = (u64::from(first.fragment_bytes) * 1_000_000_000 / 384_000)
+            .max(first.configured_source_us * 1_000);
+        Ok(negotiated + 1_000_000)
+    }
+
+    struct NativeAudioTrace {
+        timing_observations: crate::linux_audio::NativeTimingObservations,
+        path: PathBuf,
+        stages: Vec<(String, Arc<std::sync::Mutex<AudioTraceData>>)>,
+        rates: Vec<Arc<std::sync::Mutex<Option<String>>>>,
+    }
+
+    impl NativeAudioTrace {
+        fn new(prepared: &mut PreparedEncoder, path: &Path, count: usize) -> Self {
+            let timing_observations = Arc::new(std::sync::Mutex::new(Vec::new()));
+            prepared
+                .audio
+                .observe_native_timing(timing_observations.clone());
+            let mut trace = Self {
+                timing_observations,
+                path: path.to_owned(),
+                stages: Vec::new(),
+                rates: Vec::new(),
+            };
+            for index in 0..count {
+                let source = prepared
+                    .pipeline
+                    .by_name(&format!("audio_{index}"))
+                    .unwrap();
+                trace.observe(format!("input-{index}"), source.static_pad("src").unwrap());
+                let queue = prepared
+                    .pipeline
+                    .by_name(&format!("audio_queue_{index}"))
+                    .unwrap();
+                let sink = queue.static_pad("sink").unwrap();
+                let rate = sink.peer().unwrap().parent_element().unwrap();
+                let snapshot = Arc::new(std::sync::Mutex::new(None));
+                let counters = snapshot.clone();
+                // Read counters on EOS, before the encoder drops the pipeline
+                // and audiorate resets its statistics on PAUSED -> READY.
+                sink.add_probe(gstreamer::PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
+                    if info
+                        .event()
+                        .is_some_and(|event| event.type_() == gstreamer::EventType::Eos)
+                    {
+                        *counters.lock().unwrap() = Some(format!(
+                            "input={index} in={} out={} add={} drop={}",
+                            rate.property::<u64>("in"),
+                            rate.property::<u64>("out"),
+                            rate.property::<u64>("add"),
+                            rate.property::<u64>("drop")
+                        ));
+                    }
+                    gstreamer::PadProbeReturn::Ok
+                });
+                trace.rates.push(snapshot);
+                trace.observe(format!("corrected-{index}"), sink);
+            }
+            trace.observe(
+                "mixed".into(),
+                prepared
+                    .pipeline
+                    .by_name("audio_mix")
+                    .unwrap()
+                    .static_pad("src")
+                    .unwrap(),
+            );
+            trace
+        }
+
+        fn native_continuity_errors(&self) -> Vec<String> {
+            let mut errors = Vec::new();
+            let observations = self.timing_observations.lock().unwrap().clone();
+            for (stage, data) in &self.stages {
+                if stage.starts_with("input-") {
+                    let (truncated, residual) = {
+                        let data = data.lock().unwrap();
+                        (data.truncated, data.max_residual_ns)
+                    };
+                    let index = stage.strip_prefix("input-").unwrap().parse().unwrap();
+                    let tolerance = match native_fixture_tolerance(&observations, index) {
+                        Ok(tolerance) => tolerance,
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            continue;
+                        }
+                    };
+                    if truncated || residual > tolerance {
+                        errors.push(format!("{} {stage}: truncated={truncated}, native timestamp residual={residual}ns, allowed={tolerance}ns", self.path.display()));
+                    }
+                }
+            }
+            for snapshot in &self.rates {
+                let counters = snapshot.lock().unwrap().clone();
+                if counters
+                    .as_ref()
+                    .is_none_or(|counters| !counters.ends_with("add=0 drop=0"))
+                {
+                    errors.push(format!(
+                        "{} virtual source inserted/dropped samples or missed EOS: {counters:?}",
+                        self.path.display()
+                    ));
+                }
+            }
+            errors
+        }
+
+        fn assert_native_continuity(&self) {
+            let errors = self.native_continuity_errors();
+            assert!(errors.is_empty(), "{errors:?}");
+        }
+
+        fn observe(&mut self, stage: String, pad: gstreamer::Pad) {
+            let data = Arc::new(std::sync::Mutex::new(AudioTraceData::default()));
+            let samples = data.clone();
+            let started = Instant::now();
+            pad.add_probe(gstreamer::PadProbeType::BUFFER, move |pad, info| {
+                if let Some(buffer) = info.buffer() {
+                    if let Ok(bytes) = buffer.map_readable() {
+                        let mut data = samples.lock().unwrap();
+                        if data.bytes.len() + bytes.len() <= 4_000_000 {
+                            if let Some(pts) = buffer.pts() {
+                                let first = *data.first_pts.get_or_insert(pts.nseconds());
+                                let expected =
+                                    first + data.bytes.len() as u64 * 1_000_000_000 / 384_000;
+                                data.max_residual_ns =
+                                    data.max_residual_ns.max(pts.nseconds().abs_diff(expected));
+                            }
+                            data.bytes.extend_from_slice(bytes.as_slice());
+                            data.buffers.push(format!(
+                                "{}\t{:?}\t{:?}\t{}\t{:?}",
+                                started.elapsed().as_nanos(),
+                                buffer.pts().map(|time| time.nseconds()),
+                                buffer.duration().map(|time| time.nseconds()),
+                                bytes.len(),
+                                pad.current_caps()
+                            ));
+                        } else {
+                            data.truncated = true;
+                        }
+                    }
+                }
+                gstreamer::PadProbeReturn::Ok
+            });
+            self.stages.push((stage, data));
+        }
+    }
+
+    impl Drop for NativeAudioTrace {
+        fn drop(&mut self) {
+            let observations = self
+                .timing_observations
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let _ = std::fs::write(
+                self.path.with_extension("native-timing.txt"),
+                format!("{observations:#?}\n"),
+            );
+            drop(observations);
+            for (stage, data) in &self.stages {
+                let data = data.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let _ = std::fs::write(
+                    self.path.with_extension(format!("{stage}.f32le")),
+                    &data.bytes,
+                );
+                let _ = std::fs::write(
+                    self.path.with_extension(format!("{stage}.tsv")),
+                    format!(
+                        "observed_ns\tpts_ns\tduration_ns\tbytes\tcaps\n{}\ntruncated={}\n",
+                        data.buffers.join("\n"),
+                        data.truncated
+                    ),
+                );
+            }
+            let rates = self
+                .rates
+                .iter()
+                .map(|snapshot| {
+                    snapshot
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .clone()
+                        .unwrap_or_else(|| "EOS not observed".into())
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let _ = std::fs::write(self.path.with_extension("audiorate.txt"), rates);
+        }
+    }
+
+    #[test]
+    fn virtual_microphone_tolerance_requires_exact_owned_negotiation() {
+        let mut observation = crate::linux_audio::NativeTimingObservation {
+            index: 0,
+            source: "kiri_test_mic".into(),
+            is_monitor: false,
+            configured_source_us: 10_000,
+            fragment_bytes: 3_840,
+        };
+        assert_eq!(
+            native_fixture_tolerance(&[observation.clone()], 0).unwrap(),
+            11_000_000
+        );
+        observation.configured_source_us = 10_001;
+        assert!(native_fixture_tolerance(&[observation.clone()], 0).is_err());
+        observation.configured_source_us = 10_000;
+        observation.fragment_bytes = 3_848;
+        assert!(native_fixture_tolerance(&[observation.clone()], 0).is_err());
+        observation.fragment_bytes = 3_840;
+        observation.source = "another-input".into();
+        assert_eq!(
+            native_fixture_tolerance(&[observation], 0).unwrap(),
+            5_000_000
+        );
+        assert!(native_fixture_tolerance(&[], 0).is_err());
+    }
+
+    #[test]
+    fn native_audio_trace_survives_a_continuity_assertion() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("failed.mp4");
+        let trace = NativeAudioTrace {
+            timing_observations: Arc::new(std::sync::Mutex::new(vec![
+                crate::linux_audio::NativeTimingObservation {
+                    index: 0,
+                    source: "kiri_test_mic".into(),
+                    is_monitor: false,
+                    configured_source_us: 10_000,
+                    fragment_bytes: 3_840,
+                },
+            ])),
+            path: path.clone(),
+            stages: vec![(
+                "input-0".into(),
+                Arc::new(std::sync::Mutex::new(AudioTraceData {
+                    max_residual_ns: 27_000_000,
+                    ..AudioTraceData::default()
+                })),
+            )],
+            rates: Vec::new(),
+        };
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            trace.assert_native_continuity()
+        }));
+        assert!(failure.is_err());
+        drop(trace);
+        assert!(path.with_extension("input-0.tsv").is_file());
+        assert!(path.with_extension("input-0.f32le").is_file());
+    }
+
     #[test]
     fn native_audio_single_and_mixed_tracks_decode_with_both_tones() {
         let temp = tempfile::tempdir().unwrap();
@@ -1880,8 +2221,9 @@ mod tests {
     fn native_audio_accepts_pcm_delivered_after_its_capture_timestamp() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("delayed-pcm.mp4");
-        let prepared =
+        let mut prepared =
             PreparedEncoder::with_audio(&config(), &path, AudioSetup::DelayedPcm).unwrap();
+        let trace = NativeAudioTrace::new(&mut prepared, &path, 1);
         let source = prepared
             .pipeline
             .by_name("audio_0")
@@ -1922,6 +2264,12 @@ mod tests {
         }
         drop(tx);
         worker.join().unwrap().unwrap();
+        drop(trace);
+        let counters = std::fs::read_to_string(path.with_extension("audiorate.txt")).unwrap();
+        assert!(
+            counters.contains("in=33600 out=33600 add=0 drop=0"),
+            "{counters}"
+        );
         let audio = decoded_audio(&path);
         assert!(
             tone_amplitude(&audio[9600..28800], 440.0) > 0.08,
@@ -2053,6 +2401,7 @@ mod tests {
         }
         let temp = tempfile::tempdir().unwrap();
         let _review = ReviewArtifacts::new(temp.path(), "pulse-private-server");
+        let mut continuity_errors = Vec::new();
         for (name, system, microphone, frequencies) in [
             ("system", true, false, vec![440.0]),
             ("microphone", false, true, vec![880.0]),
@@ -2064,20 +2413,45 @@ mod tests {
                 mic: microphone.then_some(crate::linux_audio::AUDIO_SPEC),
                 ..config()
             };
+            let mut prepared = PreparedEncoder::new(&config, &path).unwrap();
+            let trace = NativeAudioTrace::new(&mut prepared, &path, frequencies.len());
             let (tx, rx) = mpsc::sync_channel(2);
             let encoder =
-                LinuxNativeSegmentEncoder::start(&config, path.clone(), rx, None, None).unwrap();
+                LinuxNativeSegmentEncoder::start_prepared(prepared, path.clone(), rx).unwrap();
             tx.send(solid_frame([255, 0, 0, 255])).unwrap();
-            std::thread::sleep(Duration::from_millis(800));
+            // Five seconds of native mixed capture spans multiple mature
+            // auto-timing refreshes (up to 1.5s apart), not only startup.
+            let millis = if system && microphone { 5_000 } else { 800 };
+            std::thread::sleep(Duration::from_millis(millis));
             drop(tx);
             encoder.finish().unwrap();
+            continuity_errors.extend(trace.native_continuity_errors());
+            drop(trace);
             validate_recording_tracks(&path, Some((64, 48)), Some(true)).unwrap();
             let samples = decoded_audio(&path);
-            for frequency in frequencies {
-                assert!(
-                    tone_amplitude(&samples[9600..samples.len() - 4800], frequency) > 0.05,
-                    "{name} missing {frequency}Hz"
-                );
+            assert!(samples.len() > 19_200, "{name} audio is too short");
+            // Preserve explicit startup/tail exclusions; every interior 100ms
+            // interval must contain each requested tone, and no wrong route.
+            let interior = &samples[9_600..samples.len() - 4_800];
+            let windows = [440.0, 880.0]
+                .map(|frequency| (frequency, tone_window_amplitudes(interior, frequency)));
+            std::fs::write(
+                path.with_extension("tone-windows.txt"),
+                format!("{windows:?}\n"),
+            )
+            .unwrap();
+            for (frequency, amplitudes) in windows {
+                if frequencies.contains(&frequency) {
+                    assert!(
+                        amplitudes.iter().all(|amplitude| *amplitude > 0.08),
+                        "{name} missing {frequency}Hz in a 100ms interval: {amplitudes:?}"
+                    );
+                } else {
+                    assert!(
+                        amplitudes.iter().all(|amplitude| *amplitude < 0.02),
+                        "{name} contains wrong-route {frequency}Hz: {amplitudes:?}"
+                    );
+                }
             }
         }
         let start = Instant::now();
@@ -2091,6 +2465,7 @@ mod tests {
         )
         .unwrap();
         assert!(peaks.iter().any(|peak| *peak > 0.05));
+        assert!(continuity_errors.is_empty(), "{continuity_errors:?}");
     }
 
     #[test]

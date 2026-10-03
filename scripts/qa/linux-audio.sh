@@ -50,6 +50,20 @@ sleep 0.2
 for pid in "${pids[@]}"; do
   kill -0 "$pid" 2>/dev/null || { echo "A synthetic audio source failed to start" >&2; exit 1; }
 done
-KIRI_LINUX_PULSE_QA=1 KIRI_LINUX_PULSE_QA_SERVER_PID="${pids[0]}" \
-  timeout 45s cargo test --locked --manifest-path src-tauri/Cargo.toml \
-  native_pulse_private_server -- --ignored --nocapture --test-threads=1
+export KIRI_LINUX_PULSE_QA=1 KIRI_LINUX_PULSE_QA_SERVER_PID="${pids[0]}"
+run_capture() {
+  if [[ -n "${KIRI_LINUX_MEDIA_QA_DIR:-}" ]]; then
+    KIRI_LINUX_MEDIA_QA_DIR="$KIRI_LINUX_MEDIA_QA_DIR/$1" \
+      timeout 45s cargo test --locked --manifest-path src-tauri/Cargo.toml \
+      native_pulse_private_server_captures_verified_sources -- --ignored --nocapture --test-threads=1
+  else
+    timeout 45s cargo test --locked --manifest-path src-tauri/Cargo.toml \
+      native_pulse_private_server_captures_verified_sources -- --ignored --nocapture --test-threads=1
+  fi
+}
+# Both clean startup and recovery must preserve PCM timing. Fault injection
+# must not be a prerequisite for a passing recording or hide a startup defect.
+run_capture clean
+timeout 45s cargo test --locked --manifest-path src-tauri/Cargo.toml \
+  native_pulse_private_server_cancel_survives_a_hung_service -- --ignored --nocapture --test-threads=1
+run_capture after-hang

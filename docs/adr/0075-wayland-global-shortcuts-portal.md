@@ -1,4 +1,4 @@
-# ADR 0072: Opt-in Wayland GlobalShortcuts Portal
+# ADR 0075: Opt-in Wayland GlobalShortcuts Portal
 
 ## Status
 

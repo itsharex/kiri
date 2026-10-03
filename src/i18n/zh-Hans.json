@@ -691,5 +691,12 @@
   "This saved edit uses features unavailable on this platform. It has been kept unchanged; you can still watch the original video.": "此剪辑使用了当前平台不支持的功能。已保存的剪辑保持不变，你仍可观看原始视频。",
   "Linux audio is unavailable. Check the PulseAudio or PipeWire audio service and the selected sound devices.": "Linux 音频不可用。请检查 PulseAudio 或 PipeWire 音频服务及所选声音设备。",
   "No microphone input is available. Select an unmuted input device in your sound settings.": "没有可用的麦克风输入。请在声音设置中选择未静音的输入设备。",
-  "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "音频录制已停止。请检查声音设备及音频服务，然后重新开始录制。"
+  "Audio recording stopped. Check the sound devices and audio service, then start a new recording.": "音频录制已停止。请检查声音设备及音频服务，然后重新开始录制。",
+  "File Size": "文件大小",
+  "B": "B",
+  "KB": "KB",
+  "MB": "MB",
+  "GB": "GB",
+  "TB": "TB",
+  "Imported %d files.": "已导入 %d 个文件。"
 }

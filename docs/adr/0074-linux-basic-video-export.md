@@ -1,4 +1,4 @@
-# 0071 — Bounded native Linux video cuts
+# 0074 — Bounded native Linux video cuts
 
 Status: accepted for implementation; packaged Ubuntu/GNOME acceptance remains open.
 

@@ -9,6 +9,7 @@ import io
 import json
 import os
 import re
+import select
 import shutil
 from pathlib import Path
 import subprocess
@@ -57,6 +58,7 @@ report = {
 }
 process = None
 manager = None
+dock = None
 fixture = None
 logs = []
 recording_region = RECORDING_REGION
@@ -558,6 +560,43 @@ try:
     report["checks"].append("native global shortcut opens capture three times; Escape cancels without saving")
     report["checks"].append("capture overlay matches the root display at first observed visible map, painted readiness, and five stability samples before interaction")
 
+    # A real managed dock makes the WM workarea differ from the display. A
+    # borderless NORMAL window can be shifted to y=27 while still 800px tall;
+    # testing only an empty Openbox desktop misses that clipping regression.
+    dock_log = (output / "dock-fixture.log").open("wb")
+    logs.append(dock_log)
+    dock = subprocess.Popen([sys.executable, str(Path(__file__).with_name("linux_dock_fixture.py"))],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=dock_log, text=True)
+    if not select.select([dock.stdout], [], [], 5)[0]:
+        raise RuntimeError("The isolated dock did not become ready")
+    dock_info = json.loads(dock.stdout.readline())
+    def reserved_workarea():
+        workarea = command("xprop", "-root", "_NET_WORKAREA").stdout
+        values = [int(value) for value in re.findall(r"-?\d+", workarea.split("=", 1)[-1])]
+        return workarea if values[:4] == [0, 27, 1280, 773] else None
+    report["dock_workarea"] = wait_for("27px top dock strut changes the workarea", reserved_workarea)
+    report["dock_window"] = dock_info["window"]
+    for attempt in range(3):
+        window = open_capture()
+        properties = command("xprop", "-id", window, "_NET_WM_STATE").stdout
+        if "_NET_WM_STATE_FULLSCREEN" not in properties:
+            raise RuntimeError("Capture must be managed fullscreen above the dock workarea")
+        report["capture_overlay_geometry"][-1]["dock_strut_top"] = 27
+        screenshot(f"capture-overlay-panel-{attempt + 1}.png")
+        command("xdotool", "key", "--clearmodifiers", "Escape")
+        wait_for("Escape closes the dock-area capture", lambda: overlay() is None)
+        if not reserved_workarea():
+            raise RuntimeError("Capture changed the dock's reserved workarea")
+        if assets():
+            raise RuntimeError("Cancelled dock-area capture unexpectedly saved an asset")
+    dock.stdin.write("quit\n")
+    dock.stdin.flush()
+    dock.wait(timeout=5)
+    dock.stdin.close()
+    dock.stdout.close()
+    dock = None
+    report["checks"].append("three captures cover the full display with an unchanged 27px top dock strut; Escape cancels")
+
     # Real WebKitGTK key input: verifies browser history and GTK key routing,
     # rather than treating an unprevented DOM key as proof of native Undo.
     show_fixture()
@@ -848,6 +887,7 @@ finally:
     stop(process)
     if fixture is not None:
         fixture.close()
+    stop(dock)
     stop(manager)
     for log in logs:
         log.close()

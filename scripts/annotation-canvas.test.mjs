@@ -44,7 +44,7 @@ function annotation(initialDocument, options = {}) {
       "./geom": geom, "./model": model, "./project.js": project, "./crop.js": crop,
       "./text-layout.js": layout, "./text-composition.js": composition,
       "./render": {textFont: size => `600 ${size}px sans-serif`, renderAll(r, marks, options) {
-        if (!r.exporting) frames.push(structuredClone(options));
+        if (!r.exporting) frames.push({marks: structuredClone(marks), options: structuredClone(options)});
         if (r.exporting) exports.push({source: r.sourceImage, sourceWidth: r.sourceWidth, sourceHeight: r.sourceHeight,
           sourceOffset: r.sourceOffset, regionSize: r.regionSize, scaleX: r.scaleX, scaleY: r.scaleY,
           marks: structuredClone(marks), canvasWidth: r.ctx.canvas?.width});
@@ -174,7 +174,7 @@ for (const handle of ["right", "left", "top", "bottom", "topLeft", "topRight", "
     h.pointer("onPointerDown", start.x, start.y);
     h.pointer("onPointerMove", end.x, end.y);
     assert.equal(h.changes.length, 0, "preview must not commit history");
-    const preview = h.frames.at(-1).draft;
+    const preview = h.frames.at(-1).marks[0];
     h.pointer("onPointerUp", end.x, end.y);
     assert.equal(h.changes.length, 1);
     const resized = h.changes[0][0];
@@ -208,7 +208,7 @@ test("a text handle click without motion does not repair bounds or create histor
   const point = geom.handlePoint("right", legacy.rect);
   h.pointer("onPointerDown", point.x, point.y);
   h.pointer("onPointerMove", point.x + .2, point.y);
-  assert.deepEqual(h.frames.at(-1).draft, legacy);
+  assert.deepEqual(h.frames.at(-1).marks[0], legacy);
   h.pointer("onPointerUp", point.x + .2, point.y);
   assert.equal(h.changes.length, 0);
 });
@@ -243,7 +243,7 @@ for (const sample of [
     const start = geom.handlePoint(sample.handle, original.rect);
     h.pointer("onPointerDown", start.x, start.y);
     h.pointer("onPointerMove", start.x + sample.dx, start.y + sample.dy);
-    const preview = h.frames.at(-1).draft;
+    const preview = h.frames.at(-1).marks[0];
     h.pointer("onPointerUp", start.x + sample.dx, start.y + sample.dy);
     const resized = h.changes.at(-1)[0];
     assert.deepEqual(preview, resized);
@@ -259,3 +259,82 @@ for (const sample of [
     assert.ok(Math.abs(actual - expected) < 1e-8);
   });
 }
+
+const movableMarks = [
+  rectangle,
+  {...text, rect: {x: 100, y: 100, width: 100, height: 80}},
+  {kind: "pen", id: 3, points: [{x:100,y:100},{x:200,y:180}], color:"white", width:3},
+  {kind: "line", id: 4, start:{x:100,y:100}, end:{x:200,y:180}, color:"white", width:3},
+  {kind: "arrow", id: 5, start:{x:100,y:100}, end:{x:200,y:180}, color:"white", width:3},
+  ...["brush", "rectangle", "ellipse"].map((shape,index) => ({kind:"mosaic",id:6+index,
+    points:[{x:100,y:100},{x:200,y:180}],shape,brushDiameter:20,intensity:"standard",style:"pixel"})),
+];
+
+for (const mark of movableMarks) {
+  test(`${mark.kind} ${mark.shape ?? ""} moves as one live mark, preserving layers, cancel and undo`, () => {
+    const under = {...rectangle, id:90, rect:{x:400,y:100,width:30,height:30}};
+    const over = {...rectangle, id:91, rect:{x:450,y:100,width:30,height:30}};
+    const liveFrames = [];
+    const h = annotation(documentWith([under,mark,over]), {selectedMarkId:mark.id,
+      onLiveMarks: (marks,draft) => liveFrames.push({marks:structuredClone(marks),draft})});
+    h.pointer("onPointerDown",150,140);
+    h.pointer("onPointerMove",180,160);
+    const frame = h.frames.at(-1);
+    const moved = model.translateMark(mark,{x:30,y:20},{x:0,y:0,width:640,height:360});
+    assert.deepEqual(frame.marks,[under,moved,over],"replace the old mark in its layer before releasing the pointer");
+    assert.equal(frame.options.draft,null,"never draw a duplicate above the original");
+    assert.equal(frame.options.selectedIndex,1,"handles follow the replacement");
+    assert.deepEqual(liveFrames.at(-1),{marks:[under,moved,over],draft:null},"video uses the same live geometry");
+    assert.equal(h.changes.length,0,"preview does not mutate the saved document");
+    h.pointer("onPointerCancel",180,160);
+    assert.deepEqual(h.frames.at(-1).marks,[under,mark,over]);
+    assert.equal(h.changes.length,0);
+    h.pointer("onPointerDown",150,140);
+    h.pointer("onPointerMove",180,160);
+    h.pointer("onPointerUp",180,160);
+    assert.deepEqual(h.changes.at(-1),[under,moved,over]);
+    h.ref.current.undo(); h.component.render();
+    assert.deepEqual(h.changes.at(-1),[under,mark,over],"one undo restores the whole gesture");
+    h.component.unmount();
+  });
+}
+
+for (const mark of movableMarks) {
+  test(`${mark.kind} ${mark.shape ?? ""} resize preview removes the old geometry and follows the handle`, () => {
+    const h = annotation(documentWith([mark]), {selectedMarkId:mark.id});
+    const bounds = model.selectionBounds(mark);
+    const linear = mark.kind === "line" || mark.kind === "arrow";
+    const point = linear ? mark.end : {x:bounds.x+bounds.width,y:bounds.y+bounds.height};
+    h.pointer("onPointerDown",point.x,point.y);
+    h.pointer("onPointerMove",point.x+30,point.y+20);
+    const frame = h.frames.at(-1);
+    assert.equal(frame.marks.length,1);
+    assert.notDeepEqual(frame.marks[0],mark);
+    assert.equal(frame.options.draft,null);
+    assert.equal(frame.options.selectedIndex,0);
+    assert.equal(h.changes.length,0);
+    h.pointer("onPointerUp",point.x+30,point.y+20);
+    assert.deepEqual(h.changes.at(-1),frame.marks);
+    h.ref.current.undo();h.component.render();
+    assert.deepEqual(h.changes.at(-1),[mark]);
+    h.component.unmount();
+  });
+}
+
+test("a newly drawn rectangle moves immediately and can be reopened without a ghost", () => {
+  const h = annotation(documentWith([]), {tool:"rectangle"});
+  h.pointer("onPointerDown",100,100);h.pointer("onPointerMove",200,180);h.pointer("onPointerUp",200,180);
+  const mark = h.changes.at(-1)[0];
+  h.component.render({...h.props,tool:"select"});
+  h.pointer("onPointerDown",150,140);h.pointer("onPointerMove",180,160);
+  assert.equal(h.frames.at(-1).marks.length,1);
+  assert.equal(h.frames.at(-1).marks[0].rect.x,130);
+  assert.equal(h.frames.at(-1).options.draft,null);
+  h.pointer("onPointerUp",180,160);
+  const reopened = annotation(documentWith(h.changes.at(-1)),{selectedMarkId:mark.id});
+  reopened.pointer("onPointerDown",180,160);reopened.pointer("onPointerMove",190,170);
+  assert.equal(reopened.frames.at(-1).marks.length,1);
+  assert.equal(reopened.frames.at(-1).marks[0].rect.x,140);
+  assert.equal(reopened.frames.at(-1).options.draft,null);
+  h.component.unmount();reopened.component.unmount();
+});

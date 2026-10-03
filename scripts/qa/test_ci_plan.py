@@ -183,8 +183,12 @@ class ProvenanceTests(unittest.TestCase):
         def api(url, raw=False):
             if raw:
                 return "2026-10-01T00:00:00Z [command]/usr/bin/git log -1 --format=%H\n2026-10-01T00:00:00Z " + "a" * 40 + "\n"
+            if "/attempts/" in url:
+                return {**self.run, "run_attempt": 1}
             return self.run
         def items(url, key):
+            if key == "jobs":
+                self.queried_jobs_url = url
             return [self.job] if key == "jobs" else [self.artifact]
         evidence = {}
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "yuxino/kiri", "GITHUB_RUN_ID": own_run,
@@ -206,6 +210,17 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_manual_recheck_reuses_original_package(self):
         self.assertTrue(self.verify(own_run="102")["reused_package"])
+
+    def test_recheck_after_rerun_verifies_the_original_build_attempt_and_digest(self):
+        self.run["run_attempt"] = 2
+        evidence = self.verify(own_run="102")
+        self.assertTrue(evidence["verified"])
+        self.assertEqual(evidence["latest_run_attempt"], 2)
+        self.assertEqual(evidence["candidate"]["run_attempt"], 1)
+        self.assertIn("/attempts/1/jobs", self.queried_jobs_url)
+        (self.folder / "kiri.deb").write_bytes(b"changed original package")
+        with self.assertRaisesRegex(RuntimeError, "recorded filename/checksum"):
+            self.verify(own_run="102")
 
     def failed_x11_job(self):
         self.job["conclusion"] = "failure"

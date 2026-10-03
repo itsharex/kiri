@@ -147,6 +147,10 @@ development.
 - [ADR 0061: Local QR recognition and favorites](adr/0061-local-qr-recognition-and-favorites.md)
 - [ADR 0062: Merge QR results across contrast thresholds](adr/0062-qr-multi-contrast-results.md)
 
-- [ADR 0071: Linux basic video export](adr/0071-linux-basic-video-export.md) — normal-speed cuts, source audio, bounded native processing and independent capability gates.
-- [ADR 0070: Linux recording audio](adr/0070-linux-recording-audio.md) — local sound sources, a shared media clock and real-device acceptance limits.
-- [ADR 0072: Wayland GlobalShortcuts Portal](adr/0072-wayland-global-shortcuts-portal.md) — explicit setup, truthful bindings and command fallbacks.
+- [ADR 0074: Linux basic video export](adr/0074-linux-basic-video-export.md) — normal-speed cuts, source audio, bounded native processing and independent capability gates.
+- [ADR 0073: Linux recording audio](adr/0073-linux-recording-audio.md) — local sound sources, a shared media clock and real-device acceptance limits.
+- [ADR 0075: Wayland GlobalShortcuts Portal](adr/0075-wayland-global-shortcuts-portal.md) — explicit setup, truthful bindings and command fallbacks.
+- [ADR 0070: File size on library asset cards](adr/0070-library-asset-file-size.md)
+
+- [ADR 0071: Library navigation and floating feedback](adr/0071-library-navigation-and-floating-feedback.md)
+- [ADR 0072: Live annotation transform preview](adr/0072-live-annotation-transform-preview.md)

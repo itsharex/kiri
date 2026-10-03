@@ -16,6 +16,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{AtomEnum, ClientMessageEvent, ConnectionExt, EventMask};
 
 use super::{ClickMonitorHandle, MicrophoneAccess};
+use crate::core::geometry::Rect;
 
 #[derive(Clone, Copy)]
 struct X11FocusTarget {
@@ -34,10 +35,7 @@ pub fn is_wayland_session() -> bool {
 
 /// Present the capture overlay only after its borderless native window has
 /// been configured. Capture creation runs on GTK's main thread.
-pub fn show_capture_overlay(
-    window: &tauri::WebviewWindow,
-    frame: crate::core::geometry::Rect,
-) -> Result<()> {
+pub fn show_capture_overlay(window: &tauri::WebviewWindow, frame: Rect) -> Result<()> {
     if !gtk::is_initialized_main_thread() {
         return Err(anyhow!(
             "Capture windows must be shown on the GTK main thread."
@@ -51,16 +49,52 @@ pub fn show_capture_overlay(
         // Wayland controls top-level placement. The supported capture path
         // has one display, so request its full-screen canvas before mapping.
         native.fullscreen();
+    } else {
+        // A normal X11 top-level is constrained to the workarea even without
+        // decorations: docks can shift its full-display canvas down and clip
+        // the bottom. Request managed fullscreen before the first map, on the
+        // captured monitor rather than whichever monitor GTK chooses by default.
+        // This leaves panel struts and the user's window-manager policy intact.
+        let screen = GtkWindowExt::screen(&native)
+            .context("Could not access the capture screen.")?;
+        let display = screen.display();
+        let monitors = (0..display.n_monitors())
+            .filter_map(|index| {
+                display
+                    .monitor(index)
+                    .map(|monitor| (index, monitor.geometry()))
+            })
+            .collect::<Vec<_>>();
+        let frames = monitors
+            .iter()
+            .map(|(_, bounds)| {
+                Rect::new(
+                    f64::from(bounds.x()),
+                    f64::from(bounds.y()),
+                    f64::from(bounds.width()),
+                    f64::from(bounds.height()),
+                )
+            })
+            .collect::<Vec<_>>();
+        let index = capture_monitor_index(frame, &frames)
+            .context("The captured display is no longer available.")?;
+        native.fullscreen_on_monitor(&screen, monitors[index].0);
     }
     // Tauri/Tao queues visibility requests. Show synchronously so the following
     // set_focus call sees a visible GTK widget and does not silently skip focus.
     native.show_all();
-    if !wayland {
-        // Window managers may ignore initial placement. Reapply the selected
-        // display's logical origin after showing the already borderless window.
-        native.move_(frame.x.round() as i32, frame.y.round() as i32);
-    }
     Ok(())
+}
+
+fn capture_monitor_index(frame: Rect, monitors: &[Rect]) -> Option<usize> {
+    let x = frame.x + frame.width / 2.0;
+    let y = frame.y + frame.height / 2.0;
+    monitors.iter().position(|monitor| {
+        x >= monitor.x
+            && x < monitor.x + monitor.width
+            && y >= monitor.y
+            && y < monitor.y + monitor.height
+    })
 }
 
 /// Recording must not race queued Tauri/Tao close/visibility requests. Called
@@ -420,8 +454,26 @@ pub fn start_click_monitor(
 
 #[cfg(test)]
 mod tests {
-    use super::file_clipboard_data;
+    use super::{capture_monitor_index, file_clipboard_data};
+    use crate::core::geometry::Rect;
     use std::path::Path;
+
+    #[test]
+    fn capture_fullscreen_targets_the_captured_monitor_including_negative_origins() {
+        let monitors = [
+            Rect::new(0.0, 0.0, 1920.0, 1080.0),
+            Rect::new(-1280.0, 100.0, 1280.0, 800.0),
+            Rect::new(1920.0, -900.0, 1440.0, 900.0),
+        ];
+        for (index, frame) in monitors.iter().enumerate() {
+            assert_eq!(capture_monitor_index(*frame, &monitors), Some(index));
+        }
+        assert_eq!(capture_monitor_index(monitors[0], &[]), None);
+        assert_eq!(
+            capture_monitor_index(Rect::new(4000.0, 0.0, 800.0, 600.0), &monitors),
+            None
+        );
+    }
 
     #[test]
     fn file_clipboard_offers_escaped_uris_and_a_gnome_copy_operation() {

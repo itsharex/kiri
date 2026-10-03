@@ -1,4 +1,4 @@
-# ADR 0070: Shared-clock Linux recording audio
+# ADR 0073: Shared-clock Linux recording audio
 
 Status: accepted for implementation; physical desktop acceptance is separate.
 
@@ -18,7 +18,8 @@ non-monitor input. Connection uses `NOAUTOSPAWN`, a three-second deadline and a
 local-service check. Before connecting, only an explicit local Unix socket
 address or the standard XDG runtime socket is accepted; network addresses and
 ambiguous server lists are rejected. Recording pins this server and device, uses corked startup,
-nonblocking mainloop iteration, bounded open/timing operations and nonblocking
+bounded draining of ready mainloop work (so transport defers cannot starve timing
+or control events), bounded open/timing operations and nonblocking
 disconnect. This avoids the unbounded synchronous open/flush waits in `pulsesrc`.
 It never starts a daemon, changes devices, grants access,
 unmutes an input, or uses a downloaded media executable.
@@ -32,8 +33,17 @@ Each selected source negotiates 48 kHz stereo PCM and verifies a 250 ms / 96 kB
 native maximum. The appsrc and downstream non-leaky queue each have the same
 byte bound. The live mixer reserves that same 250 ms latency window, so late
 arrival of correctly timestamped native PCM is not mistaken for silence.
-Signed native latency maps sample positions to the common monotonic
-video clock; `audiorate` smooths corrections within 20 ms. Large timestamp jumps,
+Signed read/write positions and device latencies from raw Pulse timing snapshots
+map samples to the common monotonic video clock. Each snapshot's wall-clock
+stamp is translated once; later reads advance by PCM sample count. The initial
+snapshot is requested after that stream first reports readable PCM, because an
+uncork acknowledgement alone does not establish active source timing. Pending
+timing requests are polled without blocking and cancelled on teardown. The
+UI-oriented interpolated latency API is not used: its startup clock can stop
+while worker polling time advances, creating artificial gaps. Pre-origin PCM
+is trimmed at sample boundaries, and future monitor samples remain unread.
+`audiorate` tolerates 20 ms of timestamp jitter and corrects device clock drift.
+Large timestamp jumps,
 native overflow/holes and stalled sources fail closed. Inputs are mixed and
 encoded into one 192 kb/s libav AAC track; its 1024-sample priming is represented
 as MP4 decode preroll instead of shifting the content. Overrun, source discontinuity, a
@@ -71,6 +81,15 @@ real output monitors and microphones, device loss/switching, permission denial,
 restart, cancellation and long recordings. A cloud container without sound
 hardware or permission to create a private Pulse socket cannot establish that
 acceptance. Its GStreamer tests remain compatibility evidence only.
+
+The owned CI microphone is a remap of a null-sink monitor. Pulse clamps its
+negative source latency to zero without supplying the original monitor's sink
+correction, so its raw timing can vary within one negotiated fragment. The
+fixture verifies unchanged 10 ms latency and 3,840-byte fragments, then permits
+that measured granularity plus a strict 1 ms observation allowance (11 ms); it
+rejects missing or changed negotiation. System-monitor timing keeps its 5 ms
+limit. Both inputs must still preserve every sample with zero audiorate additions
+or drops. This fixture allowance is not a physical microphone accuracy claim.
 
 References: [issue #73](https://github.com/yuxino/kiri/issues/73),
 [PulseAudio stream API](https://freedesktop.org/software/pulseaudio/doxygen/stream_8h.html),

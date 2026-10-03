@@ -1,0 +1,72 @@
+name: Recheck accepted Windows release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: Successful tag build containing the signed Windows installer
+        required: true
+        type: string
+      tag:
+        description: Existing release tag, for example v1.6.8
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recheck:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KIRI_CANDIDATE_RUN: ${{ inputs.candidate_run }}
+      KIRI_RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Bind the candidate to its successful official tag build
+        run: python scripts/qa/windows-package-provenance.py --run "$env:KIRI_CANDIDATE_RUN" --tag "$env:KIRI_RELEASE_TAG" --directory windows-candidate
+      - name: Install candidate and package its identical executable for portable use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem windows-candidate -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one verified installer' }
+          $install = Join-Path $env:RUNNER_TEMP 'kiri-installed-review'
+          $result = Start-Process $installers[0].FullName -ArgumentList @('/S', "/D=$install") -PassThru -Wait
+          if ($result.ExitCode -ne 0) { throw "NSIS installation failed: $($result.ExitCode)" }
+          New-Item -ItemType Directory -Force src-tauri/target/release | Out-Null
+          Copy-Item (Join-Path $install 'kiri.exe') src-tauri/target/release/kiri.exe
+          ./scripts/package-windows-portable.ps1
+          python -m pip install pywinauto==0.6.9 Pillow==11.3.0
+          $env:KIRI_QA_PORTABLE_EXE = Join-Path $env:RUNNER_TEMP 'kiri-portable-verify/kiri.exe'
+          $env:KIRI_QA_INSTALLED_EXE = Join-Path $install 'kiri.exe'
+          python scripts/qa/windows-release-native.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows native package verification failed' }
+          $manifestPath = 'windows-candidate/windows-provenance.json'
+          $manifest = Get-Content $manifestPath | ConvertFrom-Json
+          $archive = "Kiri-$($env:KIRI_RELEASE_TAG.Substring(1))-Windows-x64-Portable.zip"
+          $manifest | Add-Member -NotePropertyName executable_sha256 -NotePropertyValue (Get-FileHash (Join-Path $install 'kiri.exe') -Algorithm SHA256).Hash.ToLower()
+          $manifest | Add-Member -NotePropertyName portable_sha256 -NotePropertyValue (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          $manifest | Add-Member -NotePropertyName native_checks_passed -NotePropertyValue $true
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content $manifestPath -Encoding utf8
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-release-review
+          path: windows-release-review/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-windows-release-packages
+          path: |
+            windows-candidate/*
+            Kiri-*-Windows-x64-Portable.zip
+          if-no-files-found: error

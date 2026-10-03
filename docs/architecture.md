@@ -59,7 +59,7 @@ portal window exclusion. Linux video viewers expose playback, GIF conversion and
 cut/reorder MP4 export with source audio. `video_export_linux.rs` uses accurate
 GStreamer decode seeks and one continuous H.264/AAC encoder. Independent frontend
 capabilities hide unsupported speed/effects/annotation tools and protect advanced
-saved projects from modification; see ADR 0071.
+saved projects from modification; see ADR 0074.
 
 On macOS, Show in Dock is a persisted application preference, enabled by
 default. It selects regular or accessory activation policy at startup and
@@ -84,7 +84,7 @@ the tray and global shortcut remain available when the Dock icon is hidden.
    claim a successful XWayland grab or modify compositor bindings: users
    configure `kiri --capture` as a desktop shortcut. Supporting desktops also
    offer explicit GlobalShortcuts Portal setup in Settings, with actual returned
-   bindings and a dedicated identity-registered session actor (ADR 0072).
+   bindings and a dedicated identity-registered session actor (ADR 0075).
    Command guidance remains available on every Wayland desktop. Single-instance dispatch
    routes that command to the running app without opening its library.
 2. macOS freezes the active display with ScreenCaptureKit. Windows frozen
@@ -657,4 +657,4 @@ track keep memory bounded and avoid independent audio clocks. Device changes,
 source stalls, discontinuities and queue overflow fail the recording instead of
 producing a successful silent file. Pause closes each segment, and merge keeps
 the AAC track on the same completed-segment boundaries as video. See
-[ADR 0070](adr/0070-linux-recording-audio.md) for details and acceptance limits.
+[ADR 0073](adr/0073-linux-recording-audio.md) for details and acceptance limits.
