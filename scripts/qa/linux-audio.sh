@@ -3,12 +3,16 @@
 # No desktop devices, settings, consent state, or capture library are used.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-for command in pulseaudio gst-launch-1.0 cargo; do
+for command in pulseaudio gst-launch-1.0 cargo timeout; do
   command -v "$command" >/dev/null || { echo "Missing audio QA dependency: $command" >&2; exit 127; }
 done
+# Compile before starting the owned server; the timeout below bounds tests only.
+cargo test --locked --manifest-path src-tauri/Cargo.toml --no-run
 root=$(mktemp -d "${TMPDIR:-/tmp}/kiri-audio-qa.XXXXXX")
 pids=()
 cleanup() {
+  # A hung-server test can be interrupted by timeout before its Rust guard runs.
+  for pid in "${pids[@]}"; do kill -CONT "$pid" 2>/dev/null || true; done
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
   for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
   rm -rf -- "$root"
@@ -46,5 +50,6 @@ sleep 0.2
 for pid in "${pids[@]}"; do
   kill -0 "$pid" 2>/dev/null || { echo "A synthetic audio source failed to start" >&2; exit 1; }
 done
-KIRI_LINUX_PULSE_QA=1 cargo test --locked --manifest-path src-tauri/Cargo.toml \
-  native_pulse_private_server_captures_verified_sources -- --ignored --nocapture
+KIRI_LINUX_PULSE_QA=1 KIRI_LINUX_PULSE_QA_SERVER_PID="${pids[0]}" \
+  timeout 45s cargo test --locked --manifest-path src-tauri/Cargo.toml \
+  native_pulse_private_server -- --ignored --nocapture --test-threads=1

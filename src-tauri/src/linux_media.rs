@@ -533,6 +533,14 @@ impl LinuxNativeSegmentEncoder {
         // Prepare synchronously: missing plugins or an unwritable destination
         // must fail before the UI announces a running recording.
         let prepared = PreparedEncoder::new(config, &out_path)?;
+        Self::start_prepared(prepared, out_path, video_rx)
+    }
+
+    fn start_prepared(
+        prepared: PreparedEncoder,
+        out_path: PathBuf,
+        video_rx: mpsc::Receiver<Vec<u8>>,
+    ) -> Result<Self> {
         let shutdown = Arc::new(AtomicBool::new(false));
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_shutdown = Arc::clone(&shutdown);
@@ -1937,6 +1945,70 @@ mod tests {
         .is_err());
         assert!(!path.exists());
         assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    #[ignore = "requires scripts/qa/linux-audio.sh owned Pulse server PID"]
+    fn native_pulse_private_server_cancel_survives_a_hung_service() {
+        assert_eq!(std::env::var("KIRI_LINUX_PULSE_QA").as_deref(), Ok("1"));
+        let pid = std::env::var("KIRI_LINUX_PULSE_QA_SERVER_PID")
+            .unwrap()
+            .parse::<u32>()
+            .unwrap();
+        assert!(pid > 1);
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("cancelled.mp4");
+        let config = EncoderConfig {
+            audio: Some(crate::linux_audio::AUDIO_SPEC),
+            ..config()
+        };
+        let prepared = PreparedEncoder::new(&config, &path).unwrap();
+        let (ready, observed) = mpsc::sync_channel(1);
+        prepared
+            .pipeline
+            .by_name("audio_queue_0")
+            .unwrap()
+            .static_pad("sink")
+            .unwrap()
+            .add_probe(gstreamer::PadProbeType::BUFFER, move |_, _| {
+                let _ = ready.try_send(());
+                gstreamer::PadProbeReturn::Remove
+            });
+        let (tx, rx) = mpsc::sync_channel(2);
+        let encoder =
+            LinuxNativeSegmentEncoder::start_prepared(prepared, path.clone(), rx).unwrap();
+        tx.send(solid_frame([0, 255, 0, 255])).unwrap();
+        observed
+            .recv_timeout(Duration::from_secs(4))
+            .expect("real PCM before fault injection");
+        struct ResumeServer(u32);
+        impl Drop for ResumeServer {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("kill")
+                    .args(["-CONT", &self.0.to_string()])
+                    .status();
+            }
+        }
+        let resume = ResumeServer(pid);
+        assert!(std::process::Command::new("kill")
+            .args(["-STOP", &pid.to_string()])
+            .status()
+            .unwrap()
+            .success());
+        let start = Instant::now();
+        encoder.cancel();
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "cancellation waited for an unresponsive sound service"
+        );
+        drop(tx);
+        drop(resume);
+        assert!(!path.exists());
+        assert_eq!(
+            std::fs::read_dir(temp.path()).unwrap().count(),
+            0,
+            "cancelled recording left staged audio/video"
+        );
     }
 
     #[test]

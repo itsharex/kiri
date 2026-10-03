@@ -61,7 +61,9 @@ save PCM. Missing/muted inputs fail rather than presenting a successful meter.
 
 Unit/native-library tests cover source classification, unavailable/muted input,
 audio-off, injected single and mixed tones, decoded AAC content/duration,
-24-pause boundary/content alignment, overflow cleanup and an explicit 60-second clock run. These use
+24-pause boundary/content alignment, overflow cleanup and an explicit 60-second clock run.
+Private-server CI separately checks real libpulse capture/metering and bounded
+cancellation while the owned sound service is stopped. These use
 isolated generated data, never a synthetic mode in the application.
 
 Ubuntu 24.04 GNOME X11 and Wayland hardware tests must independently cover
