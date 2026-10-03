@@ -213,6 +213,21 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
 git diff --check
 ```
 
+Ordinary pull requests run the selected source checks without producing a
+package. To build a candidate without desktop permission dialogs, choose the
+`linux-package` workflow profile, or add the `ci:linux-package` label to the
+pull request. The label adds Linux packaging to its ordinary required checks;
+adding/removing it and subsequent source pushes recompute the plan. This lane
+builds, installs, and inspects the `.deb` on Ubuntu 24.04 and uploads
+`kiri-linux-deb` with the actual checkout SHA and package checksum in
+`provenance.json`. It does not launch Kiri, run the X11 desktop harness, request
+Portal permissions, or change GNOME settings. A green package-only run is not
+desktop acceptance. PR builds use GitHub's merge checkout; compare its recorded
+source to the intended branch before testing the artifact.
+
+The `linux` and `full` profiles still select X11 and GNOME Wayland acceptance.
+Those desktop runs require their separate test-session permission/setup scope.
+
 The Ubuntu CI job is configured to build/install the `.deb`, inspect its linked
 libraries, test system GStreamer encoding/merging/decoding/GIF conversion, and
 exercise the installed app on an isolated X11 desktop. Run that desktop check

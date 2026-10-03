@@ -7,7 +7,7 @@ import re
 import subprocess
 
 
-PROFILES = {"quick", "linux", "windows", "macos", "full", "recheck-linux", "recheck-linux-x11"}
+PROFILES = {"quick", "linux", "linux-package", "windows", "macos", "full", "recheck-linux", "recheck-linux-x11"}
 TARGET_PREFIXES = {
     "linux": ("src-tauri/src/capture/linux", "src-tauri/src/platform/linux", "src-tauri/src/linux_media"),
     "windows": ("src-tauri/src/capture/windows", "src-tauri/src/platform/windows"),
@@ -15,10 +15,10 @@ TARGET_PREFIXES = {
 }
 
 
-def plan(event, ref, inputs, paths):
+def plan(event, ref, inputs, paths, labels=()):
     selected = {key: False for key in (
         "renderer", "native_linux", "native_windows", "native_macos",
-        "package_linux", "package_windows", "package_macos", "wayland", "x11_recheck")}
+        "package_linux", "package_windows", "package_macos", "linux_x11", "wayland", "x11_recheck")}
     profile = "quick"
     if event == "workflow_dispatch":
         profile = inputs.get("profile") or "quick"
@@ -41,13 +41,14 @@ def plan(event, ref, inputs, paths):
         selected["x11_recheck"] = True
     elif profile == "recheck-linux":
         selected["wayland"] = True
-    elif profile in {"full", "linux", "windows", "macos"}:
+    elif profile in {"full", "linux", "linux-package", "windows", "macos"}:
         selected["renderer"] = True
         for target in TARGET_PREFIXES:
-            chosen = profile in {"full", target}
+            chosen = profile in {"full", target} or (profile == "linux-package" and target == "linux")
             selected[f"native_{target}"] = chosen
             selected[f"package_{target}"] = chosen
-        selected["wayland"] = selected["package_linux"]
+        selected["linux_x11"] = selected["package_linux"] and profile != "linux-package"
+        selected["wayland"] = selected["linux_x11"]
     elif event == "workflow_dispatch" or paths is None:
         # Unknown diff or explicit quick checks fail closed to all native tests,
         # but do not unexpectedly create release-mode packages.
@@ -69,6 +70,11 @@ def plan(event, ref, inputs, paths):
                                   for prefix in prefixes)]
                 for target in targets or TARGET_PREFIXES:
                     selected[f"native_{target}"] = True
+    if event == "pull_request" and "ci:linux-package" in labels:
+        # This opt-in adds packaging without suppressing diff-selected checks.
+        # It never starts a desktop, changes GNOME settings, or grants a portal.
+        selected["native_linux"] = True
+        selected["package_linux"] = True
     return {"profile": profile, **{key: str(value).lower() for key, value in selected.items()}}
 
 
@@ -91,7 +97,7 @@ def check_results(needs):
     flags = planner.get("outputs", {})
     if any(flags.get(key) not in {"true", "false"} for key in (
             "renderer", "native_linux", "native_windows", "native_macos",
-            "package_linux", "package_windows", "package_macos", "wayland", "x11_recheck")):
+            "package_linux", "package_windows", "package_macos", "linux_x11", "wayland", "x11_recheck")):
         failures.append("plan outputs")
     expected = {"fast-checks": True, "countdown-ui": flags.get("renderer") == "true",
                 "test-rust": flags.get("native_macos") == "true",
@@ -114,11 +120,16 @@ def main():
         return
     event = os.environ["GITHUB_EVENT_NAME"]
     payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    result = plan(event, os.environ["GITHUB_REF"], payload.get("inputs") or {}, changed_paths(event, payload))
+    labels = [label.get("name") for label in payload.get("pull_request", {}).get("labels", [])]
+    result = plan(event, os.environ["GITHUB_REF"], payload.get("inputs") or {},
+                  changed_paths(event, payload), labels)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
         stream.write("".join(f"{key}={value}\n" for key, value in result.items()))
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
         stream.write("### CI plan\n\n```json\n" + json.dumps(result, indent=2) + "\n```\n")
+        if result["package_linux"] == "true" and result["linux_x11"] == "false":
+            stream.write("\nLinux package build/install/inspection only. "
+                         "X11 and GNOME Wayland desktop acceptance are not selected.\n")
 
 
 if __name__ == "__main__":

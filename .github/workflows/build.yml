@@ -5,14 +5,15 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
     inputs:
       profile:
-        description: 'Checks only, one acceptance platform, or full verification'
+        description: 'Checks, package-only Linux, one acceptance platform, or full verification'
         type: choice
         required: true
         default: quick
-        options: [quick, linux, windows, macos, full, recheck-linux, recheck-linux-x11]
+        options: [quick, linux, linux-package, windows, macos, full, recheck-linux, recheck-linux-x11]
       linux_candidate_run_id:
         description: 'Completed build run containing the Linux candidate to recheck'
         required: false
@@ -38,6 +39,7 @@ jobs:
       package_linux: ${{ steps.plan.outputs.package_linux }}
       package_windows: ${{ steps.plan.outputs.package_windows }}
       package_macos: ${{ steps.plan.outputs.package_macos }}
+      linux_x11: ${{ steps.plan.outputs.linux_x11 }}
       wayland: ${{ steps.plan.outputs.wayland }}
       x11_recheck: ${{ steps.plan.outputs.x11_recheck }}
     steps:
@@ -219,7 +221,7 @@ jobs:
           ldd /usr/bin/kiri > linux-native-review/linked-libraries.txt
           if grep -q 'not found' linux-native-review/linked-libraries.txt; then exit 1; fi
       - name: Exercise the installed app on an isolated X11 desktop
-        if: needs.plan.outputs.package_linux == 'true'
+        if: needs.plan.outputs.linux_x11 == 'true'
         timeout-minutes: 4
         run: bash scripts/qa/linux-native.sh /usr/bin/kiri
       - uses: actions/upload-artifact@v7
