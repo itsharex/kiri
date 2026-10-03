@@ -74,5 +74,19 @@ class AcceptedCandidate(unittest.TestCase):
             self.validate()
 
 
+class ScreenshotDependency(unittest.TestCase):
+    def test_every_native_package_workflow_installs_the_image_dependency(self):
+        root = Path(__file__).resolve().parents[2]
+        consumers = []
+        for workflow in (root / ".github/workflows").glob("*.yml"):
+            text = workflow.read_text()
+            if "scripts/qa/windows-release-native.py" in text:
+                consumers.append(workflow.name)
+                with self.subTest(workflow=workflow.name):
+                    self.assertTrue(any("pip install" in line and "pywinauto==" in line
+                                        and "Pillow==11.3.0" in line for line in text.splitlines()))
+        self.assertGreaterEqual(len(consumers), 4)
+
+
 if __name__ == "__main__":
     unittest.main()
