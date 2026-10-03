@@ -224,6 +224,15 @@ impl AssetLibrary {
         self.assets_url.join(&asset.filename)
     }
 
+    /// Current shareable file bytes, excluding thumbnails and edit projects.
+    /// Missing files, directories, and symlinks have no displayable size.
+    pub fn asset_file_size(&self, asset: &CaptureAsset) -> Option<u64> {
+        std::fs::symlink_metadata(self.asset_url(asset))
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .map(|metadata| metadata.len())
+    }
+
     pub fn load_video_project(
         &self,
         id: &uuid::Uuid,
@@ -1841,6 +1850,39 @@ fn sync_directory_after_commit(path: &Path, operation: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_size_tracks_current_media_without_changing_the_index() {
+        let (_directory, root) = temp_root();
+        let mut library = AssetLibrary::open(root).unwrap();
+        let asset = library.import_data(b"image", CaptureKind::Image, "png", 20, 20, None, None, None).unwrap();
+        let original_index = std::fs::read(&library.index_url).unwrap();
+        assert_eq!(library.asset_file_size(&asset), Some(5));
+        std::fs::write(library.asset_url(&asset), b"edited image").unwrap();
+        assert_eq!(library.asset_file_size(&asset), Some(12));
+        std::fs::write(library.asset_url(&asset), b"").unwrap();
+        assert_eq!(library.asset_file_size(&asset), Some(0));
+        assert_eq!(std::fs::read(&library.index_url).unwrap(), original_index);
+        library.move_to_trash(&asset.id).unwrap();
+        assert_eq!(library.asset_file_size(&asset), Some(0));
+        std::fs::remove_file(library.asset_url(&asset)).unwrap();
+        assert_eq!(library.asset_file_size(&asset), None);
+        std::fs::create_dir(library.asset_url(&asset)).unwrap();
+        assert_eq!(library.asset_file_size(&asset), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_size_does_not_follow_symlinks() {
+        let (directory, root) = temp_root();
+        let mut library = AssetLibrary::open(root).unwrap();
+        let asset = library.import_data(b"image", CaptureKind::Image, "png", 20, 20, None, None, None).unwrap();
+        let outside = directory.path().join("outside.png");
+        std::fs::write(&outside, b"outside image").unwrap();
+        std::fs::remove_file(library.asset_url(&asset)).unwrap();
+        std::os::unix::fs::symlink(outside, library.asset_url(&asset)).unwrap();
+        assert_eq!(library.asset_file_size(&asset), None);
+    }
 
     #[test]
     fn video_project_survives_a_failed_permanent_delete() {

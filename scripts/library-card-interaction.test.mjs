@@ -322,7 +322,7 @@ test("media drops import local paths once while an import is pending", async () 
   harness.emit("mediaDrop", { payload: { type: "drop", paths: ["/fixture/other.png"] } });
   assert.deepEqual(calls, [["/fixture/photo.png"]]);
   pending.resolve({ ids: ["imported"], failed: 0 }); await settleRequests();
-  const status = nodes(library.render()).find(node => node?.props?.role === "status");
+  const status = nodes(library.render()).find(node => node?.props?.className === "library-toast");
   assert.ok(status);
   library.unmount();
 });
@@ -536,4 +536,100 @@ test("video and GIF context menus expose Copy and report a failed clipboard writ
     assert.ok(nodes(library.render()).includes("Couldn't copy this capture."));
     library.unmount();
   }
+});
+
+
+test("media cards show current file size and omit unknown sizes", () => {
+  const harness = createLibraryHarness();
+  for (const kind of ["image", "video", "gif"]) {
+    const card = harness.mount("AssetCard", cardProps());
+    for (const [fileSize, label] of [
+      [0, "0 B"], [999, "999 B"], [1000, "1 KB"], [12500, "12.5 KB"],
+      [999950, "1 MB"], [1500000, "1.5 MB"], [2000000000, "2 GB"],
+      [null, null], [undefined, null], [-1, null], [NaN, null], [Infinity, null],
+    ]) {
+      const tree = card.render(cardProps({ asset: { ...testAsset, kind, fileSize } }));
+      const metadata = nodes(tree).find((node) => node?.type === "span" && node.props.title?.startsWith("20 × 20"));
+      assert.ok(metadata);
+      if (label) {
+        assert.ok(nodes(metadata).includes(` · ${label}`));
+        assert.ok(metadata.props.title.endsWith(`File Size: ${label}`));
+      } else {
+        assert.ok(!metadata.props.title.includes("File Size"));
+      }
+    }
+    card.unmount();
+  }
+});
+
+
+test("changing media tabs, favorites, tags, search and Trash resets the grid, while refresh keeps position", async () => {
+  let resets = 0;
+  const grid = {scrollTop:0,scrollLeft:0,scrollTo({top,left}) {this.scrollTop=top;this.scrollLeft=left;resets++;}};
+  const assets = ["image","video","gif"].map((kind,index) => ({...testAsset,id:`asset-${index}`,kind,isFavorite:true,tags:["work"]}));
+  const harness = createLibraryHarness({listAssets:async()=>assets},null,{
+    attachRef(node) {if(node.props.onPointerDown && node.props.ref) node.props.ref.current=grid;},
+  });
+  const library = harness.mount("LibraryWindow",{});
+  library.render();await settleRequests();library.render();await settleRequests();
+  const change = (action) => {
+    grid.scrollTop=900;grid.scrollLeft=15;
+    action(library.render());library.render();
+    assert.equal(grid.scrollTop,0);assert.equal(grid.scrollLeft,0);
+  };
+  const filter = tree => nodes(tree).find(node=>node?.type?.name==="FilterBar");
+  for(const kind of ["image","video","gif","all"]) change(tree=>filter(tree).props.onChangeKind(kind));
+  change(tree=>filter(tree).props.onToggleFavorites());
+  change(tree=>filter(tree).props.onToggleFavorites());
+  change(tree=>filter(tree).props.onToggleTag("work"));
+  change(tree=>filter(tree).props.onToggleTag("work"));
+  change(tree=>nodes(tree).find(node=>node?.type==="input"&&node.props.type==="search").props.onChange({target:{value:"asset"}}));
+  await settleRequests();library.render();
+  grid.scrollTop=450;
+  const before = resets;
+  harness.emit("libraryChanged");await settleRequests();library.render();
+  assert.equal(grid.scrollTop,450);assert.equal(resets,before,"background changes must not jump to the top");
+  change(tree=>nodes(tree).find(node=>node?.type?.name==="SegmentedPicker").props.onChange(3));
+  library.unmount();
+});
+
+for (const [method,message] of [
+  ["pasteClipboardImage","Clipboard image added to Library."],
+  ["importMedia","Imported %d files."],
+]) {
+  test(`${method} success uses an automatically dismissed toast without shifting the header`, async (context) => {
+    context.mock.timers.enable({apis:["setTimeout"]});
+    const harness = createLibraryHarness({[method]:async()=>({id:"fixture",ids:["fixture"],failed:0})});
+    const library = harness.mount("LibraryWindow",{});
+    library.render();await settleRequests();library.render();await settleRequests();
+    const label = method==="importMedia"?"Import media":"Paste Image";
+    nodes(library.render()).find(node=>node?.type==="button"&&nodes(node).includes(label)).props.onClick();
+    await settleRequests();
+    const tree=library.render();
+    const toast=nodes(tree).find(node=>node?.props?.className==="library-toast");
+    assert.equal(toast.props.role,"status");assert.ok(nodes(toast).includes(message));
+    assert.ok(!nodes(tree).some(node=>node?.props?.className==="library-import-status"));
+    context.mock.timers.tick(3000);library.render();
+    assert.ok(!nodes(library.render()).some(node=>node?.props?.className==="library-toast"));
+    library.unmount();
+  });
+}
+
+test("failed paste uses a readable error toast; a newer notice gets its own full lifetime", async (context) => {
+  context.mock.timers.enable({apis:["setTimeout"]});
+  const harness=createLibraryHarness({pasteClipboardImage:async()=>{throw new Error("clipboard unavailable");}});
+  const library=harness.mount("LibraryWindow",{});
+  library.render();await settleRequests();library.render();await settleRequests();
+  nodes(library.render()).find(node=>node?.type==="button"&&nodes(node).includes("Paste Image")).props.onClick();
+  await settleRequests();
+  let toast=nodes(library.render()).find(node=>node?.props?.className==="library-toast");
+  assert.equal(toast.props.role,"alert");
+  assert.ok(nodes(toast).includes("Could not paste an image from the clipboard."));
+  context.mock.timers.tick(2500);
+  harness.emit("notice",{id:"new",title:"Copied",symbol:"checkmark"});library.render();
+  context.mock.timers.tick(1500);library.render();
+  assert.ok(nodes(library.render()).includes("Copied"));
+  context.mock.timers.tick(1500);library.render();
+  assert.ok(!nodes(library.render()).some(node=>node?.props?.className==="library-toast"));
+  library.unmount();
 });

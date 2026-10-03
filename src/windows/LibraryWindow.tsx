@@ -172,11 +172,16 @@ export function LibraryWindow() {
   );
 
   const localNoticeSeq = useRef(0);
-  const showLocalNotice = (title: string) => {
-    const id = `local-${++localNoticeSeq.current}`;
-    setNotice({ id, title, symbol: "checkmark" });
-    setTimeout(() => setNotice((current) => (current?.id === id ? null : current)), 2000);
-  };
+  const showLocalNotice = useCallback((title: string, symbol: IconName = "checkmark") => {
+    setNotice({ id: `local-${++localNoticeSeq.current}`, title, symbol });
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = setTimeout(() => setNotice(null),
+      notice.symbol?.startsWith("exclamationmark") ? 6000 : 3000);
+    return () => clearTimeout(timeout);
+  }, [notice]);
 
   // --- Rubber-band (drag) selection -------------------------------------
   const bandStart = useRef<{ x: number; y: number } | null>(null);
@@ -325,6 +330,12 @@ export function LibraryWindow() {
     clearSelection();
   }, [section, destination, query, kindFilter, favoritesOnly, tagFilter]);
 
+  // Each filter/navigation change starts with the first matching capture.
+  // Layout timing prevents painting the new tab at the old scroll offset.
+  useLayoutEffect(() => {
+    gridScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [section, destination, query, kindFilter, favoritesOnly, tagFilter]);
+
   // Library mutations arrive through `onLibraryChanged`. Reconcile the
   // stored selection with the refreshed view so removed cards cannot leave
   // an invisible selection behind.
@@ -448,12 +459,7 @@ export function LibraryWindow() {
           return next;
         });
       }),
-      onNotice((n) => {
-        setNotice(n);
-        setTimeout(() => {
-          setNotice((current) => (current && current.id === n.id ? null : current));
-        }, 2000);
-      }),
+      onNotice(setNotice),
       onError((e) => setError(e)),
     ];
     return () => {
@@ -815,13 +821,13 @@ export function LibraryWindow() {
   const [mediaImportBusy,setMediaImportBusy]=useState(false);
   const mediaImporting=useRef(false);
   const [mediaDrop,setMediaDrop]=useState(false);
-  const [mediaImportMessage,setMediaImportMessage]=useState("");
   const importMedia=useCallback(async(paths?:string[])=>{
     if(mediaImporting.current||libraryStatus?.availability!=="ready")return;
-    mediaImporting.current=true;setMediaImportBusy(true);setMediaImportMessage("");
+    mediaImporting.current=true;setMediaImportBusy(true);
     try{
       const result=await api.importMedia(paths);
-      if(result.ids.length||result.failed)setMediaImportMessage(fmt("Imported %d files; %d could not be imported.",result.ids.length,result.failed));
+      if (result.failed) showLocalNotice(fmt("Imported %d files; %d could not be imported.", result.ids.length, result.failed), "exclamationmark.triangle");
+      else if (result.ids.length) showLocalNotice(fmt("Imported %d files.", result.ids.length));
       if(result.ids.length){
         queryRef.current="";showingTrashRef.current=false;
         setQuery("");setSection("library");setDestination("captures");
@@ -830,23 +836,23 @@ export function LibraryWindow() {
       }
       await refresh();
     }
-    catch{setMediaImportMessage(t("Could not import these files. Choose supported local images or videos."));}
+    catch{showLocalNotice(t("Could not import these files. Choose supported local images or videos."),"exclamationmark.triangle");}
     finally{mediaImporting.current=false;setMediaImportBusy(false);}
-  },[libraryStatus?.availability,refresh]);
+  },[libraryStatus?.availability,refresh,showLocalNotice]);
   const pasteImage=useCallback(async()=>{
     if(mediaImporting.current||libraryStatus?.availability!=="ready")return;
-    mediaImporting.current=true;setMediaImportBusy(true);setMediaImportMessage("");
+    mediaImporting.current=true;setMediaImportBusy(true);
     try{
       await api.pasteClipboardImage();
       queryRef.current="";showingTrashRef.current=false;
       setQuery("");setSection("library");setDestination("captures");
       setKindFilter("all");setFavoritesOnly(false);setTagFilter(null);setSelection(new Set());
       gridScrollRef.current?.scrollTo({top:0});
-      setMediaImportMessage(t("Clipboard image added to Library."));
+      showLocalNotice(t("Clipboard image added to Library."));
       await refresh();
-    }catch{setMediaImportMessage(t("Could not paste an image from the clipboard."));}
+    }catch{showLocalNotice(t("Could not paste an image from the clipboard."),"exclamationmark.triangle");}
     finally{mediaImporting.current=false;setMediaImportBusy(false);}
-  },[libraryStatus?.availability,refresh]);
+  },[libraryStatus?.availability,refresh,showLocalNotice]);
   useEffect(()=>{
     if(destination!=="captures"||showingTrash)return;
     const onKeyDown=(event:KeyboardEvent)=>{
@@ -876,7 +882,6 @@ export function LibraryWindow() {
       style={{ display: "flex", flexDirection: "column", height: "100%", position: "relative" }}
     >
       {mediaDrop&&<div className="library-media-drop">{t("Drop images or videos to import")}</div>}
-      {mediaImportMessage&&<div className="library-import-status" role="status">{mediaImportMessage}</div>}
       {/* The top controls form one workspace: identity and global navigation
           above, contextual asset filters in an inset rail below. */}
       <header className="library-control-panel">
@@ -1282,31 +1287,14 @@ export function LibraryWindow() {
 
       {ocrAsset && <OcrDialog key={ocrAsset.id} asset={ocrAsset} onClose={() => setOcrAsset(null)} />}
 
-      {/* Window-level progress and local notices stay in one predictable
-          place below the header. Global capture/recording completions use the
-          separate always-on-top toast on the originating display. */}
+      {/* Local operation feedback floats above content without shifting it. */}
       {(gifConversionIds.size > 0 || notice) && (
         <div
-          aria-live="polite"
-          style={{
-            position: "fixed",
-            left: "50%",
-            top: destination === "captures" ? 116 : 76,
-            transform: "translateX(-50%)",
-            background: "var(--kiri-elevated)",
-            border: "1px solid var(--kiri-surface-border)",
-            borderRadius: 13,
-            padding: "8px 14px",
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            boxShadow: "none",
-            color: "var(--kiri-label)",
-            fontSize: 12.5,
-            fontWeight: 500,
-            zIndex: 30,
-            whiteSpace: "nowrap",
-          }}
+          className="library-toast"
+          key={gifConversionIds.size > 0 ? "gif-progress" : notice?.id}
+          role={gifConversionIds.size === 0 && notice?.symbol?.startsWith("exclamationmark") ? "alert" : "status"}
+          aria-atomic="true"
+          style={{ bottom: selectionIds.length > 0 ? 84 : 24 }}
         >
           {gifConversionIds.size > 0 ? (
             <>
@@ -1326,10 +1314,9 @@ export function LibraryWindow() {
           ) : (
             <>
               {notice?.symbol && <KiriIcon name={notice.symbol as never} size={13} />}
-              {notice && t(notice.title)}
+              <span>{notice && t(notice.title)}</span>
             </>
           )}
-          <style>{`@keyframes kiri-library-spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
@@ -1495,6 +1482,22 @@ function RecordingSaveCard({ job }: { job: RecordingSaveJob }) {
   );
 }
 
+function formatFileSize(bytes: number | null): string | null {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return null;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  if (Math.round(value * 10) / 10 >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${t(units[unit])}`;
+}
+
 function AssetCard(props: {
   asset: AssetDto;
   availability?: AssetAvailability;
@@ -1525,6 +1528,7 @@ function AssetCard(props: {
     onRestoreMissing,
     onCopy,
   } = props;
+  const fileSize = formatFileSize(asset.fileSize);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1847,7 +1851,7 @@ function AssetCard(props: {
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, padding: "0 1px 1px", position: "relative" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", columnGap: 7, rowGap: 2, marginTop: 8, padding: "0 1px 1px", position: "relative" }}>
         {editingTitle ? (
           <input
             className="kiri-inline-rename-input"
@@ -1922,18 +1926,6 @@ function AssetCard(props: {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
-            </span>
-            <span
-              title={`${asset.pixelWidth} × ${asset.pixelHeight} · ${t(asset.kind === "image" ? "Image" : asset.kind === "video" ? "Video" : "GIF")}`}
-              style={{
-                fontSize: 9.5,
-                fontWeight: 500,
-                color: "var(--kiri-disabled-label)",
-                letterSpacing: "0.01em",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {asset.pixelWidth}×{asset.pixelHeight}
             </span>
           </div>
         )}
@@ -2059,6 +2051,21 @@ function AssetCard(props: {
             <KiriIcon name="ellipsis.circle" size={14} />
           </button>
         </div>
+        <span
+          title={`${asset.pixelWidth} × ${asset.pixelHeight} · ${t(asset.kind === "image" ? "Image" : asset.kind === "video" ? "Video" : "GIF")}${fileSize ? ` · ${t("File Size")}: ${fileSize}` : ""}`}
+          style={{
+            gridColumn: "1 / -1",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            fontSize: 9.5,
+            fontWeight: 500,
+            color: "var(--kiri-disabled-label)",
+            letterSpacing: "0.01em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {asset.pixelWidth}×{asset.pixelHeight}{fileSize && ` · ${fileSize}`}
+        </span>
         {menuOpen &&
           createPortal(
             // Render the context menu outside the card subtree: the card's

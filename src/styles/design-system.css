@@ -1328,7 +1328,6 @@ button:active:not(:disabled) {
 }
 
 .library-media-drop {position:absolute;inset:16px;z-index:30;display:grid;place-items:center;border:2px dashed var(--kiri-label);border-radius:12px;background:var(--kiri-elevated);color:var(--kiri-label);pointer-events:none;font-size:18px;}
-.library-import-status {flex:none;padding:8px 16px;font-size:12px;color:var(--kiri-secondary-label);}
 
 .library-recording-save {
   padding: 9px;
@@ -1395,4 +1394,39 @@ button:active:not(:disabled) {
 @keyframes kiri-recording-save-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .library-recording-save__spinner { animation: none; }
+}
+
+/* Transient library feedback never takes space away from the capture grid. */
+.library-toast {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(480px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid var(--kiri-surface-border);
+  border-radius: 12px;
+  background: var(--kiri-elevated);
+  color: var(--kiri-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  pointer-events: none;
+  animation: kiri-library-toast-enter 140ms ease-out;
+}
+.library-toast > svg,
+.library-toast > [aria-hidden] { flex-shrink: 0; }
+.library-toast > span { min-width: 0; overflow-wrap: anywhere; }
+@keyframes kiri-library-spin { to { transform: rotate(360deg); } }
+@keyframes kiri-library-toast-enter {
+  from { opacity: 0; transform: translate(-50%, 4px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-toast, .library-toast > [aria-hidden] { animation: none !important; }
 }
